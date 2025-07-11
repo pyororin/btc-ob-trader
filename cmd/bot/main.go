@@ -7,13 +7,19 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"context" // Added for dbwriter context
 
 	"github.com/your-org/obi-scalp-bot/internal/config"
+	"github.com/your-org/obi-scalp-bot/internal/dbwriter" // Added for TimescaleDB
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
+	"go.uber.org/zap" // Added for Zap logger
 )
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Command-line flags
 	configPath := flag.String("config", "config/config.yaml", "Path to the configuration file")
 	flag.Parse()
@@ -37,10 +43,42 @@ func main() {
 	logger.Infof("Loaded configuration from: %s", *configPath)
 	logger.Infof("Target pair: %s", cfg.Pair)
 
-	// TODO: Initialize other components like RiskManager, SignalEngine, TimescaleDB writer etc.
+	// Initialize TimescaleDB Writer
+	// Create a new Zap logger instance for the dbWriter.
+	// This is separate from the application's global logger in pkg/logger for now.
+	var zapLogger *zap.Logger
+	var zapErr error
+	// TODO: Convert cfg.LogLevel (string) to zapcore.Level if needed for more granular control
+	if cfg.LogLevel == "debug" { // Example level mapping
+		zapLogger, zapErr = zap.NewDevelopment()
+	} else {
+		zapLogger, zapErr = zap.NewProduction()
+	}
+	if zapErr != nil {
+		logger.Fatalf("Failed to initialize Zap logger for DBWriter: %v", zapErr)
+	}
+	defer func() {
+		if err := zapLogger.Sync(); err != nil {
+			// Use the application's main logger to report this, if possible,
+			// or fmt.Fprintf if logger itself might be compromised.
+			logger.Errorf("Failed to sync Zap logger for DBWriter: %v", err)
+		}
+	}()
+
+	dbWriter, err := dbwriter.NewWriter(ctx, cfg.Database, cfg.DBWriter, zapLogger)
+	if err != nil {
+		logger.Fatalf("Failed to initialize TimescaleDB writer: %v", err)
+	}
+	defer dbWriter.Close()
+	logger.Info("TimescaleDB writer initialized successfully.")
+
+	// TODO: Initialize other components like RiskManager, SignalEngine, etc.
+	// These components might need the dbWriter instance.
 
 	// Initialize WebSocket client
-	wsClient := coincheck.NewWebSocketClient()
+	// Consider passing dbWriter to wsClient if it needs to directly write data,
+	// or to a handler that receives data from wsClient.
+	wsClient := coincheck.NewWebSocketClient(dbWriter)
 
 	// Setup signal handling for graceful shutdown
 	sigs := make(chan os.Signal, 1)
