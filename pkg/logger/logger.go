@@ -129,7 +129,6 @@ func SetGlobalLogLevel(logLevel string) {
 	}
 }
 
-
 // Info logs an informational message using the global std logger.
 func Info(args ...interface{}) {
 	std.Info(args...)

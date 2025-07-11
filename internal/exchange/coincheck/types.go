@@ -22,8 +22,8 @@ func (bl *BookLevel) AmountFloat64() (float64, error) {
 
 // OrderBookData contains the bids and asks arrays.
 type OrderBookData struct {
-	Bids          [][]string `json:"bids"`
-	Asks          [][]string `json:"asks"`
+	Bids         [][]string `json:"bids"`
+	Asks         [][]string `json:"asks"`
 	LastUpdateAt string     `json:"last_update_at"`
 }
 

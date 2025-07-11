@@ -51,7 +51,7 @@ func TestCalculateOBI(t *testing.T) {
 			name: "Bids Only",
 			orderBook: newOrderBookUpdate(
 				[][]string{{"100", "10"}, {"99", "5"}}, // Bids
-				[][]string{}, // Empty asks
+				[][]string{},                           // Empty asks
 				"1678886401",
 			),
 			levels: []int{8, 16},
@@ -65,7 +65,7 @@ func TestCalculateOBI(t *testing.T) {
 		{
 			name: "Asks Only",
 			orderBook: newOrderBookUpdate(
-				[][]string{}, // Empty bids
+				[][]string{},                           // Empty bids
 				[][]string{{"101", "8"}, {"102", "7"}}, // Asks
 				"1678886402",
 			),
@@ -116,7 +116,7 @@ func TestCalculateOBI(t *testing.T) {
 			levels: []int{8, 16},
 			expected: obi.OBIResult{
 				// OBI8: Bids (10+5+3+2+1+1+1+1)=24, Asks (2+2+2+2+2)=10. (24-10)/(24+10) = 14/34
-				OBI8:      14.0 / 34.0,
+				OBI8: 14.0 / 34.0,
 				// OBI16: Bids (10+5+3+2+1+1+1+1+1+1)=26, Asks (2+2+2+2+2)=10. (26-10)/(26+10) = 16/36
 				OBI16:     16.0 / 36.0,
 				Timestamp: time.Unix(1678886404, 0),
@@ -164,20 +164,20 @@ func TestCalculateOBI(t *testing.T) {
 			expectError: false,
 		},
 		{
-            name: "Zero amounts in book levels",
-            orderBook: newOrderBookUpdate(
-                [][]string{{"100", "10"}, {"99", "0"}}, // Bid with zero amount
-                [][]string{{"101", "5"}, {"102", "0"}}, // Ask with zero amount
-                "1678886406",
-            ),
-            levels: []int{8, 16},
-            expected: obi.OBIResult{
-                OBI8:      (10.0 - 5.0) / (10.0 + 5.0), // Zero amounts should be ignored
-                OBI16:     (10.0 - 5.0) / (10.0 + 5.0),
-                Timestamp: time.Unix(1678886406, 0),
-            },
-            expectError: false,
-        },
+			name: "Zero amounts in book levels",
+			orderBook: newOrderBookUpdate(
+				[][]string{{"100", "10"}, {"99", "0"}}, // Bid with zero amount
+				[][]string{{"101", "5"}, {"102", "0"}}, // Ask with zero amount
+				"1678886406",
+			),
+			levels: []int{8, 16},
+			expected: obi.OBIResult{
+				OBI8:      (10.0 - 5.0) / (10.0 + 5.0), // Zero amounts should be ignored
+				OBI16:     (10.0 - 5.0) / (10.0 + 5.0),
+				Timestamp: time.Unix(1678886406, 0),
+			},
+			expectError: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -210,8 +210,8 @@ func TestCalculateOBI(t *testing.T) {
 				expectedCopy := tt.expected
 				expectedCopy.Timestamp = actual.Timestamp // Match the (zero) timestamp for comparison
 				if !cmp.Equal(expectedCopy, actual, cmpopts.EquateApprox(0.000001, 0)) {
-                    t.Errorf("CalculateOBI() got = %v, want %v, diff: %s", actual, expectedCopy, cmp.Diff(expectedCopy, actual, cmpopts.EquateApprox(0.000001, 0)))
-                }
+					t.Errorf("CalculateOBI() got = %v, want %v, diff: %s", actual, expectedCopy, cmp.Diff(expectedCopy, actual, cmpopts.EquateApprox(0.000001, 0)))
+				}
 			} else {
 				if !cmp.Equal(tt.expected, actual, cmpopts.EquateApprox(0.000001, 0)) {
 					t.Errorf("CalculateOBI() got = %v, want %v, diff: %s", actual, tt.expected, cmp.Diff(tt.expected, actual, cmpopts.EquateApprox(0.000001, 0)))
