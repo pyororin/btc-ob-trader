@@ -33,6 +33,41 @@ type OrderBookData struct {
 // We define it this way to make JSON unmarshaling easier.
 type OrderBookUpdate []interface{}
 
+// OrderRequest defines the parameters for placing a new order.
+type OrderRequest struct {
+	Pair          string  `json:"pair"`
+	OrderType     string  `json:"order_type"`
+	Rate          float64 `json:"rate,omitempty"`         // omit if market order
+	Amount        float64 `json:"amount,omitempty"`       // omit if market buy order
+	MarketBuyAmount float64 `json:"market_buy_amount,omitempty"` // for market buy orders
+	TimeInForce   string  `json:"time_in_force,omitempty"` // e.g., "post_only"
+	// StopLossRate  float64 `json:"stop_loss_rate,omitempty"` // Not used in this task
+}
+
+// OrderResponse defines the structure for the response when a new order is created.
+type OrderResponse struct {
+	Success      bool    `json:"success"`
+	ID           int64   `json:"id"`
+	Rate         string  `json:"rate"` // Rate can be string (e.g., "30010.0") or null for market orders
+	Amount       string  `json:"amount"`
+	OrderType    string  `json:"order_type"`
+	TimeInForce  string  `json:"time_in_force"`
+	StopLossRate *string `json:"stop_loss_rate"` // Use pointer for nullable fields
+	Pair         string  `json:"pair"`
+	CreatedAt    string  `json:"created_at"`
+	Error        string  `json:"error,omitempty"`       // For error responses
+	ErrorDescription string `json:"error_description,omitempty"` // For error responses like {"error": "...", "error_description": "..."}
+}
+
+
+// CancelResponse defines the structure for the response when an order is cancelled.
+type CancelResponse struct {
+	Success bool  `json:"success"`
+	ID      int64 `json:"id"`
+	Error   string `json:"error,omitempty"` // For error responses
+}
+
+
 // Pair returns the trading pair string.
 func (obu OrderBookUpdate) Pair() string {
 	if len(obu) > 0 {

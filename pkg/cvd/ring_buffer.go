@@ -45,37 +45,25 @@ func (rb *RingBuffer) Add(trade Trade) {
 // GetTrades returns all trades currently in the RingBuffer.
 // The order of trades is not guaranteed to be chronological if the buffer has wrapped.
 // If chronological order is needed, it should be handled by the caller or by modifying this method.
+// The current implementation for a full buffer returns trades in physical order starting from head.
 func (rb *RingBuffer) GetTrades() []Trade {
 	if rb.count == 0 {
 		return []Trade{}
 	}
 
-	// If the buffer hasn't wrapped around yet, or is full and head is at 0
-	if rb.count < rb.size || (rb.count == rb.size && rb.head == 0) {
-		// chronological order: from index 0 to count-1
-		// but internal storage might be wrapped if head is not 0 and count == size
-		if rb.count == rb.size && rb.head == 0 { // full and wrapped, head is at the start
-			return append([]Trade(nil), rb.trades...)
-		}
-		// not full yet, or full but head is not 0 (meaning oldest is at head)
-		// This part needs careful handling for chronological order when buffer is full.
-
-		// Simpler: return a copy of the populated part.
-		// For chronological order when full:
-		if rb.count == rb.size { // Buffer is full
-			// Trades are from rb.head (oldest) to rb.head-1 (newest, wrapped)
-			// Example: size=5, head=2. Order: trades[2], trades[3], trades[4], trades[0], trades[1]
-			res := make([]Trade, rb.size)
-			copy(res, rb.trades[rb.head:])
-			copy(res[rb.size-rb.head:], rb.trades[:rb.head])
-			return res
-		}
-		// Buffer is not full, trades are from 0 to rb.head-1
-		return append([]Trade(nil), rb.trades[:rb.head]...)
+	result := make([]Trade, rb.count)
+	if rb.count < rb.size {
+		// Buffer is not full yet. Trades are from index 0 to head-1.
+		// Since head points to the next slot, head == count here.
+		copy(result, rb.trades[:rb.count])
+	} else { // Buffer is full (rb.count == rb.size)
+		// Trades are returned in physical order starting from head (oldest physical slot
+		// that was most recently updated or will be updated next if we consider head as write pointer).
+		// Test expectation is: elements from rb.head to end, then from 0 to rb.head-1.
+		copied := copy(result, rb.trades[rb.head:])
+		copy(result[copied:], rb.trades[:rb.head])
 	}
-
-	// Should not happen with current Add logic, but as a fallback
-	return append([]Trade(nil), rb.trades[:rb.count]...)
+	return result
 }
 
 // GetChronologicalTrades returns trades in the order they were added.
