@@ -1,176 +1,165 @@
-# ローカル開発環境構築手順 (Windows 11 + WSL2) (OPERATIONS-local.md)
+# ローカル開発環境 詳細手順 (OPERATIONS-local.md)
 
-このドキュメントは、Windows 11 上の WSL2 (Ubuntu) 環境で `obi-scalp-bot` の開発を行うための詳細な手順、コマンド例、FAQ を提供します。
+このドキュメントは、`obi-scalp-bot` のローカル開発環境を Windows 11 + WSL2 (Windows Subsystem for Linux 2) 環境に構築するための詳細な手順、ヒント、FAQを提供します。`README.md` のクイックスタートを補完するものです。
 
-## 1. はじめに
+## 1. 前提となる知識・環境
 
-- **対象読者**: Windows 11 環境で本Botの開発に参加する開発者
-- **目的**: スムーズなローカル開発環境のセットアップと、一般的な問題の解決策の提供
-- **標準環境**:
-    - OS: Windows 11 Pro/Home
-    - WSL2: Ubuntu (最新LTS推奨)
-    - Docker: Docker Desktop for Windows (WSL2 Integration有効)
-    - Go: 1.22+ (WSL2 Ubuntu内にインストール)
-    - Git: (Windows側、またはWSL2 Ubuntu内のどちらでも可。WSL2内を推奨)
-    - エディタ: VS Code (Remote - WSL拡張機能の使用を強く推奨)
+- Windows 11 Pro/Home
+- WSL2 が有効化されていること ([Microsoft公式ドキュメント](https://learn.microsoft.com/ja-jp/windows/wsl/install) 参照)
+- Ubuntu (または他のLinuxディストリビューション) がWSL2上にインストール済みであること
+- Docker Desktop が Windows にインストールされ、WSL2統合が有効になっていること
+- Git が Windows または WSL2 環境にインストールされていること
+- Go 1.22+ が WSL2 環境にインストールされていること (ローカルでのビルドやテストのため)
+- VS Code (推奨) と Remote - WSL 拡張機能
 
-## 2. 環境構築手順
+## 2. WSL2 環境のセットアップと最適化
 
-### 2.1. WSL2 と Ubuntu のインストール
+### 2.1. WSL2 のインストールとディストリビューションの選択
 
-1.  **WSL2 の有効化**:
-    - PowerShell を管理者として開き、以下を実行:
-      ```powershell
-      dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
-      dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
-      ```
-    - PCを再起動します。
-    - [Linux カーネル更新プログラム パッケージ](https://learn.microsoft.com/ja-jp/windows/wsl/install-manual#step-4---download-the-linux-kernel-update-package) をダウンロードしてインストールします。
-    - PowerShell で以下を実行し、WSL2 をデフォルトバージョンに設定:
-      ```powershell
-      wsl --set-default-version 2
-      ```
-
-2.  **Ubuntu のインストール**:
-    - Microsoft Store を開き、「Ubuntu」を検索してインストール (最新のLTS版を推奨)。
-    - 初回起動時にユーザー名とパスワードを設定します。
-
-### 2.2. Docker Desktop のインストールと設定
-
-1.  [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/) をダウンロードし、インストールします。
-2.  Docker Desktop の設定 (Settings) を開きます。
-    - **General**: "Use the WSL 2 based engine" がチェックされていることを確認 (デフォルト)。
-    - **Resources > WSL Integration**: "Enable integration with my default WSL distro" がオンになっていること、およびインストールした Ubuntu ディストリビューション (例: `Ubuntu`) が "Enable integration with additional distros..." でオンになっていることを確認します。
-    - 変更を適用 (Apply & Restart)。
-
-### 2.3. 開発ツールのインストール (WSL2 Ubuntu内)
-
-WSL2 Ubuntuターミナルを開いて作業します。
-
-1.  **Git のインストール**:
-    ```bash
-    sudo apt update
-    sudo apt install git -y
+1.  管理者として PowerShell を開き、以下を実行してWSLをインストール (まだの場合):
+    ```powershell
+    wsl --install
     ```
-    Gitの初期設定 (ユーザー名、メールアドレス) も行います。
-    ```bash
-    git config --global user.name "Your Name"
-    git config --global user.email "you@example.com"
+    これにより、デフォルトで Ubuntu がインストールされます。特定のディストリビューションをインストールしたい場合は、`wsl --list --online` で利用可能なものを確認し、`wsl --install -d <DistributionName>` でインストールします。
+
+2.  WSL2 をデフォルトバージョンに設定:
+    ```powershell
+    wsl --set-default-version 2
     ```
 
-2.  **Go 1.22+ のインストール**:
-    公式サイト ([https://go.dev/dl/](https://go.dev/dl/)) から最新のLinux用アーカイブをダウンロードし、インストールします。
+### 2.2. Docker Desktop WSL2 統合
+
+1.  Docker Desktop を起動します。
+2.  Settings > Resources > WSL Integration に移動します。
+3.  "Enable integration with my default WSL distro" がオンになっていることを確認します。
+4.  プロジェクトで使用するWSL2ディストリビューション (例: Ubuntu) のトグルスイッチもオンにします。
+5.  変更を適用します。
+
+これにより、WSL2ターミナル内から `docker` および `docker-compose` コマンドが利用可能になります。
+
+### 2.3. Go 環境のセットアップ (WSL2内)
+
+1.  WSL2ターミナル (例: Ubuntu) を開きます。
+2.  [Go公式サイト](https://golang.org/dl/) から最新のLinux用Goアーカイブをダウンロードし、インストールします。
     ```bash
     # 例 (バージョンは適宜最新のものに置き換えてください)
     wget https://go.dev/dl/go1.22.0.linux-amd64.tar.gz
     sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.22.0.linux-amd64.tar.gz
     rm go1.22.0.linux-amd64.tar.gz
     ```
-    パスを設定します。`.bashrc` や `.zshrc` に以下を追記します。
+3.  `~/.bashrc` (または `~/.zshrc` など、使用しているシェルに応じて) にGoのパスを追加します。
     ```bash
-    echo 'export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin' >> ~/.bashrc # (または .zshrc)
-    source ~/.bashrc # (または .zshrc)
+    export PATH=$PATH:/usr/local/go/bin
+    export GOPATH=$HOME/go
+    export PATH=$PATH:$GOPATH/bin
     ```
-    インストールを確認:
-    ```bash
-    go version
-    ```
+    シェル設定ファイルを再読み込みします: `source ~/.bashrc`
+4.  インストールを確認: `go version`
 
-3.  **VS Code と Remote - WSL 拡張機能 (推奨)**:
-    - Windows側に [VS Code](https://code.visualstudio.com/) をインストールします。
-    - VS Code を起動し、拡張機能マーケットプレイスから「Remote - WSL」をインストールします。
-    - これにより、WSL内のプロジェクトをWindows側のVS Codeで直接開いて編集・デバッグできます。
+### 2.4. Git のセットアップ
 
-### 2.4. プロジェクトのセットアップ
+- **Windows側でGitを使用する場合**: Windows 用 Git をインストールし、PATHを通します。WSL2内からも `git.exe` としてアクセス可能です。
+- **WSL2側でGitを使用する場合 (推奨)**: WSL2ディストリビューション内で `sudo apt update && sudo apt install git` 等でGitをインストールします。
 
-WSL2 Ubuntuターミナル内で作業します。
+**SSHキーの設定**: GitHub等との連携のためにSSHキーを設定することを強く推奨します。Windows側で生成したキーをWSL2から利用するか、WSL2内で新たにキーを生成します。
 
-1.  **リポジトリをクローン:**
-    Windowsのファイルシステム (`/mnt/c/Users/...`) ではなく、WSL2のLinuxファイルシステム内 (例: `~/projects`) にクローンすることを推奨します (パフォーマンス向上のため)。
+**認証情報ヘルパー**: `git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/libexec/git-core/git-credential-manager.exe"` のように設定すると、Windowsの認証情報マネージャーを利用できます（Git for Windows をインストールしている場合）。
+
+## 3. プロジェクトのセットアップ
+
+1.  **WSL2ターミナルを開きます。**
+2.  **プロジェクトをクローンするディレクトリに移動します。**
+    WSL2ファイルシステム内 (`/home/username/projects` など) にクローンすることを推奨します。Windowsファイルシステム (`/mnt/c/Users/...`) よりもパフォーマンスが大幅に向上します。
     ```bash
     mkdir -p ~/projects
     cd ~/projects
+    ```
+3.  **リポジトリをクローンします。**
+    ```bash
     git clone https://github.com/your-org/obi-scalp-bot.git
     cd obi-scalp-bot
     ```
-    VS Code で開く場合: WSL2ターミナルで `obi-scalp-bot` ディレクトリに移動し、`code .` と入力すると、VS Code がWSLモードで開きます。
+4.  **VS Code で開く (推奨)**
+    WSL2ターミナルでプロジェクトディレクトリにいる状態で、以下を実行します。
+    ```bash
+    code .
+    ```
+    これにより、VS Code がWSL2に接続された状態で開きます。
 
-2.  **環境設定ファイルを作成:**
+5.  **環境設定ファイル `.env` を作成します。**
+    `README.md` の指示に従い、`.env.sample` をコピーして `.env` を作成し、APIキー等を設定します。
     ```bash
     cp .env.sample .env
-    ```
-    エディタ (VS Codeなど) で `.env` を開き、CoincheckのAPIキーとシークレットを追記します。
-    ```dotenv
-    COINCHECK_API_KEY="YOUR_API_KEY"
-    COINCHECK_API_SECRET="YOUR_API_SECRET"
+    # nano .env や VS Codeで編集
     ```
 
-## 3. Bot の起動と操作 (WSL2 Ubuntu内)
+## 4. Botの起動とMakefileコマンド
 
-プロジェクトルートディレクトリ (`~/projects/obi-scalp-bot`) で以下の `make` コマンドを実行します。
+`README.md` に記載されている `make` コマンド (`make up`, `make logs`, `make down` など) は、WSL2ターミナル内のプロジェクトルートディレクトリで実行します。
 
--   **Botを起動:**
-    ```bash
-    make up
-    ```
-    Docker Desktopがバックグラウンドでコンテナをビルド・起動します。
+### `make up` の仕組み (WSL2 + Docker Desktop)
 
--   **ログを確認:**
-    ```bash
-    make logs
-    ```
+- `make up` を実行すると、WSL2内の `docker-compose` コマンドが呼び出されます。
+- Docker Desktop の WSL2 統合により、Windows側で動作している Docker Engine が使用されます。
+- コンテナイメージのビルド (Dockerfileに基づく) やコンテナの起動が行われます。
+- ソースコードはWSL2ファイルシステム上にあり、これがDockerコンテナにマウントされます (もし `docker-compose.yml` でボリュームマウントが設定されていれば)。
 
--   **Botを停止:**
-    ```bash
-    make down
-    ```
+## 5. トラブルシューティング / FAQ
 
--   **コンテナ内でシェルを起動 (デバッグ用):**
-    ```bash
-    make shell
-    ```
+### Q1: `make up` や `docker` コマンドがWSL2で見つからない。
 
--   **クリーンアップ (コンテナとボリュームを削除):**
-    ```bash
-    make clean
-    ```
+**A1:**
+- Docker Desktop が起動しているか確認してください。
+- Docker Desktop の Settings > Resources > WSL Integration で、使用しているディストリビューションとの統合が有効になっているか確認してください。
+- WSL2ターミナルを再起動してみてください。
 
--   **利用可能な全コマンド表示:**
-    ```bash
-    make help
-    ```
+### Q2: `make up` 実行時にパーミッションエラーが発生する。
 
-## 4. WSL2 特有の注意点とTips
+**A2:**
+- Dockerソケット (`/var/run/docker.sock`) へのアクセス権がない可能性があります。
+    - 現在のユーザーを `docker` グループに追加: `sudo usermod -aG docker $USER`。その後、WSLセッションを再起動 (ターミナルを閉じて再度開くか、`wsl --shutdown` 後に再度ディストリビューションを起動)。
+- プロジェクトファイルがWindowsファイルシステム (`/mnt/c/...`) にあり、WSL2からアクセスする際のパーミッションメタデータの問題。プロジェクトをWSL2ファイルシステム (`/home/...`) に置くことを推奨します。
 
--   **ファイルシステムパフォーマンス**:
-    - WSL2のLinuxファイルシステム (例: `~/projects`) 内でGitリポジトリやソースコードを扱う方が、Windowsファイルシステム (`/mnt/c/...`) 経由よりもI/Oパフォーマンスが大幅に向上します。Dockerのボリュームマウントも同様です。
--   **リソース消費**:
-    - Docker Desktop および WSL2 はそれなりにメモリを消費します。Windowsタスクマネージャーで `vmmem` プロセスのメモリ使用量を確認できます。
-    - WSL2のメモリ上限を設定したい場合は、Windowsのユーザーディレクトリ (例: `C:\Users\YourUser`) に `.wslconfig` ファイルを作成し、以下のように記述できます (例: 8GBに制限)。
-      ```ini
-      [wsl2]
-      memory=8GB
-      # processors=4 # CPUコア数も指定可能
-      swap=0
-      localhostForwarding=true
-      ```
-      設定変更後はWSLを再起動 (`wsl --shutdown` をPowerShellで実行後、再度Ubuntuターミナルを開く) が必要です。
--   **ポートフォワーディング**:
-    - WSL2内で起動したサービス (例: Dockerコンテナが公開するポート) は、通常 `localhost` 経由でWindows側のブラウザやツールからアクセスできます。
-    - `localhost:3000` (Grafana)、`localhost:8080/healthz` (Botヘルスチェック) など。
+### Q3: Botコンテナは起動するが、Coincheck APIに接続できない。
 
-## 5. FAQ (よくある質問)
+**A3:**
+- `.env` ファイルの `COINCHECK_API_KEY` と `COINCHECK_API_SECRET` が正しく設定されているか確認してください。
+- ファイアウォールやプロキシが通信をブロックしていないか確認してください (Windows側、ルーターなど)。
+- Coincheck APIのステータスを確認してください (メンテナンス中など)。
 
--   **Q1: `make up` すると Docker関連のエラーが出る。**
-    -   A1: Docker Desktopが起動しているか、WSL2 Integrationが正しく設定されているか確認してください (上記2.2節)。WSL2 Ubuntuターミナルで `docker ps` コマンドがエラーなく実行できるか確認します。
--   **Q2: VS Code で WSL内のプロジェクトを開けない。**
-    -   A2: 「Remote - WSL」拡張機能がインストールされているか確認してください。WSL2 Ubuntuターミナルから `code .` で開くのが確実です。
--   **Q3: `git clone` が遅い、または失敗する。**
-    -   A3: WSL2内のネットワーク設定やDNS設定が影響している可能性があります。一般的なトラブルシューティングとして、WSL2の再起動 (`wsl --shutdown`) や、Ubuntu内のDNS設定 (`/etc/resolv.conf`) の確認を試みてください。
--   **Q4: Botは起動したが、Coincheckに接続できていないようだ。**
-    -   A4: `.env` ファイルのAPIキー/シークレットが正しいか、有効な権限を持っているか確認してください。`make logs` で詳細なエラーメッセージを確認します。
--   **Q5: `make replay` コマンドは何をするのか？ (現状未実装)**
-    -   A5: 将来的に、過去のティックデータを読み込ませてBotのロジックを検証 (バックテスト) するためのコマンドです。現時点では実装されていません。
+### Q4: `make replay` が動作しない (または実装されていない)。
+
+**A4:**
+- `TASK_MANAGEMENT.md` や `Makefile` を確認し、`replay` 機能の現在の実装ステータスを確認してください。
+- `replay` 機能が実装されている場合、必要なデータファイルや設定 (`config-replay.yaml` など) が正しく配置されているか確認してください。
+- **DoD (Definition of Done) の「新規 PC で `make replay` 成功」は、この `OPERATIONS-local.md` ドキュメント作成タスクの完了後、ユーザーが実際に `replay` 機能を実装・テストする際の目標となります。**
+
+### Q5: WSL2 のパフォーマンスが悪い (特にディスクI/O)。
+
+**A5:**
+- プロジェクトファイルは必ずWSL2ファイルシステム内 (`/home/username/...` など) に配置してください。`/mnt/c/...` 経由でのアクセスは非常に遅くなります。
+- WSL2のメモリ割り当てを確認・調整します。Windowsホームディレクトリに `.wslconfig` ファイルを作成して設定できます。
+  ```
+  # C:\Users\<YourUserName>\.wslconfig
+  [wsl2]
+  memory=4GB  # 例: 4GBに設定 (物理メモリの半分以下程度が目安)
+  processors=2 # 例: 2コアに設定
+  ```
+  変更後は `wsl --shutdown` を実行し、WSL2を再起動する必要があります。
+
+### Q6: VS Code Remote - WSL 拡張機能がうまく動作しない。
+
+**A6:**
+- VS Code と Remote - WSL 拡張機能が最新版であることを確認してください。
+- VS Code のコマンドパレット (`Ctrl+Shift+P`) から `WSL: Rebuild VS Code Server` を試してみてください。
+- WSL2 インスタンスを再起動 (`wsl --shutdown` 後に再度ディストリビューションを起動)。
+
+## 6. その他ヒント
+
+- **WSL2ターミナルのカスタマイズ**: Windows Terminal を使うと、タブ機能やカスタマイズが容易です。Oh My Zsh や Starship などを導入して、より快適なターミナル環境を構築することも可能です。
+- **データベースクライアント**: TimescaleDB (PostgreSQL) に接続するには、DBeaver, pgAdmin, または VS Code の PostgreSQL 拡張機能などを Windows 側または WSL2 側にインストールして使用できます。`docker-compose.yml` でDBのポート (`5432`) がホストに公開されていれば、`localhost:5432` で接続できます。
+- **リソース監視**: WindowsのタスクマネージャーでWSL2 (`vmmemWSL` プロセスなど) のリソース使用状況を確認できます。WSL2内では `top` や `htop` コマンドが利用できます。
 
 ---
-*このドキュメントは、Windows 11 + WSL2環境での開発を円滑に進めるためのものです。問題が発生した場合は、このドキュメントを更新・拡充してください。*
+*このドキュメントは、一般的なWSL2環境構築とプロジェクト利用のガイドです。個別の環境差異により追加の調整が必要になる場合があります。*
+*DoD: 新規 PC で `make replay` 成功 (このドキュメントの記述完了後、`replay`機能が実装され、ユーザーが新規環境でテストする際の目標)*
