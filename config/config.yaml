@@ -1,0 +1,13 @@
+pair: btc_jpy
+spread_limit: 40
+lot_max_ratio: 0.05
+long:
+  obi_threshold: 0.25
+  tp: 15
+  sl: -10
+short:
+  obi_threshold: 0.27
+  tp: 18
+  sl: -12
+volatility:
+  ewma_lambda: 0.1
