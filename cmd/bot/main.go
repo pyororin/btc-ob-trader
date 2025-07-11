@@ -31,8 +31,7 @@ func main() {
 	// If NewLogger was to return an instance and we set it globally, that would happen here.
 	// For now, we can assume the logger.Info, logger.Error, etc. will work.
 	// If we need to set log level based on config:
-	// logger.SetLevel(cfg.LogLevel) // This function would need to be added to logger pkg
-	_ = logger.NewLogger(cfg.LogLevel) // This initializes the global logger in our current setup
+	logger.SetGlobalLogLevel(cfg.LogLevel) // Use the new function to set the global logger's level
 
 	logger.Info("OBI Scalping Bot starting...")
 	logger.Infof("Loaded configuration from: %s", *configPath)
