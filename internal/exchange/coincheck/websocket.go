@@ -11,7 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
+	// "strings" // Removed as it's no longer used after recent changes
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -146,8 +146,8 @@ func (c *WebSocketClient) Connect() error {
 
 	// Subscribe to orderbook and trades
 	// Example: "btc_jpy-orderbook", "btc_jpy-trades"
-	// TODO: Make the pair configurable
-	targetPair := "btc_jpy"
+	// targetPair is already defined at the beginning of the Connect method.
+	// TODO: Make the pair configurable (currently hardcoded as "btc_jpy" at method start)
 	if err := c.subscribe(targetPair + orderbookChannelSuffix); err != nil {
 		logger.Errorf("Failed to subscribe to orderbook %s: %v", targetPair, err)
 	}
