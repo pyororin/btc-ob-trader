@@ -102,8 +102,8 @@ var std Logger = &defaultLogger{
 // SetGlobalLogLevel reconfigures the global std logger's level.
 // This is a basic implementation. A more robust one would parse levels carefully.
 func SetGlobalLogLevel(logLevel string) {
-	infoHandle := os.Stdout
-	errorHandle := os.Stderr
+	var infoHandle io.Writer = os.Stdout
+	var errorHandle io.Writer = os.Stderr
 	// fatalHandle := os.Stderr // fatal always goes to Stderr
 
 	if logLevel == "error" || logLevel == "fatal" {
