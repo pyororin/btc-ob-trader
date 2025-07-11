@@ -104,34 +104,34 @@ func (c *WebSocketClient) Connect() error {
 			case websocket.TextMessage:
 				var msgArray []json.RawMessage // Use json.RawMessage for deferred parsing
 				if err := json.Unmarshal(message, &msgArray); err == nil && len(msgArray) == 2 {
-					var channelName string
-					if err := json.Unmarshal(msgArray[0], &channelName); err == nil {
-						subscribedOrderbookChannel := targetPair + orderbookChannelSuffix
-						// subscribedTradesChannel := targetPair + "-trades" // If trades are also handled
+					var receivedPairOrChannelName string // This could be "btc_jpy" or potentially "keepalive" etc.
+					if err := json.Unmarshal(msgArray[0], &receivedPairOrChannelName); err == nil {
 
-						if channelName == subscribedOrderbookChannel {
+						// Assuming 'targetPair' (e.g., "btc_jpy") is what we expect in the first element for orderbook messages
+						if receivedPairOrChannelName == targetPair {
+							// This message's first element matches our target base pair.
+							// We assume this is from the "pair-orderbook" subscription.
 							var obData OrderBookData
 							if err := json.Unmarshal(msgArray[1], &obData); err == nil {
-								c.processAndSaveOrderBook(targetPair, obData) // Pass base pair name
+								c.processAndSaveOrderBook(targetPair, obData)
 							} else {
-								logger.Errorf("Error unmarshalling OrderBookData for channel %s: %v. OrderBook JSON: %s", channelName, err, msgArray[1])
+								logger.Errorf("Error unmarshalling OrderBookData for pair %s: %v. OrderBook JSON: %s", targetPair, err, msgArray[1])
 							}
-						// } else if channelName == subscribedTradesChannel {
-							// logger.Infof("Received trades message for %s (processing not implemented yet)", targetPair)
-							// TODO: Implement trades processing if needed
-						} else if channelName == "keepalive" { // This might not be a channel name but a message type/content
-							logger.Info("Received keepalive message.") // Actual keepalive might be ping/pong or specific message
+						} else if receivedPairOrChannelName == "keepalive" { // Example: if keepalive messages have "keepalive" as first element
+							logger.Info("Received keepalive message.")
 						} else {
-							logger.Infof("Received message for unhandled or non-subscribed channel: %s, Data: %s", channelName, msgArray[1])
+							// Log messages that don't match the target pair or known types.
+							// This could include messages from other subscribed channels if any (e.g. trades)
+							// or unexpected messages.
+							logger.Infof("Received message for non-target pair/channel or unhandled type: %s, Data: %s", receivedPairOrChannelName, msgArray[1])
 						}
 					} else {
-						logger.Errorf("Error unmarshalling channel name from WebSocket message: %v. Original message: %s", err, message)
+						logger.Errorf("Error unmarshalling pair/channel name from WebSocket message: %v. Original message: %s", err, message)
 					}
 				} else if err != nil {
 					logger.Errorf("Error unmarshalling WebSocket message into array: %v. Original message: %s", err, message)
 				} else {
-					// Generic text message that doesn't fit the 2-element array structure (or len != 2)
-					logger.Infof("Received generic text message (not a 2-element JSON array as expected for channel messages): %s", message)
+					logger.Infof("Received generic text message (not a 2-element JSON array as expected for pair/channel messages): %s", message)
 				}
 
 			case websocket.BinaryMessage:
