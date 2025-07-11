@@ -1,0 +1,36 @@
+Timestamp,Price,Size,Side
+2023-01-01T00:00:00Z,3000000,0.1,buy
+2023-01-01T00:00:01Z,3000001,0.05,sell
+2023-01-01T00:00:02Z,3000002,0.2,buy
+2023-01-01T00:00:03Z,3000000,0.15,sell
+2023-01-01T00:00:04Z,3000001,0.02,BUY
+2023-01-01T00:00:05Z,3000000,0.03,SELL
+2023-01-01T00:00:06Z,3000003,0.5,unknown_side # This should be ignored
+2023-01-01T00:00:07Z,3000004,0.07,buy
+# Expected CVD: 0.1 (buy) - 0.05 (sell) + 0.2 (buy) - 0.15 (sell) + 0.02 (BUY) - 0.03 (SELL) + 0.07 (buy)
+# = 0.1 - 0.05 + 0.2 - 0.15 + 0.02 - 0.03 + 0.07
+# = 0.05 + 0.2 - 0.15 + 0.02 - 0.03 + 0.07
+# = 0.25 - 0.15 + 0.02 - 0.03 + 0.07
+# = 0.10 + 0.02 - 0.03 + 0.07
+# = 0.12 - 0.03 + 0.07
+# = 0.09 + 0.07
+# = 0.16
+# Expected CVD with only valid sides:
+# 0.1 (buy)
+# -0.05 (sell) -> 0.05
+# +0.2 (buy) -> 0.25
+# -0.15 (sell) -> 0.10
+# +0.02 (BUY) -> 0.12
+# -0.03 (SELL) -> 0.09
+# +0.07 (buy) -> 0.16
+# Total = 0.16
+# Test with empty trades
+# Test with only buys
+# Test with only sells
+# Test with mixed case sides
+# Test with invalid sides
+# Test with no trades
+# Test with one trade
+# Test with large numbers
+# Test with small numbers (precision)
+# Test with different timestamps (should not affect CVD calculation itself)

@@ -71,7 +71,6 @@ func main() {
 		// an error might mean something went very wrong.
 	}
 
-
 	// Wait for shutdown signal
 	<-done
 	logger.Info("OBI Scalping Bot shut down gracefully.")

@@ -68,7 +68,7 @@ func (c *WebSocketClient) Connect() error {
 		c.conn.Close()
 	}()
 
-	done := make(chan struct{})    // Signals that the read goroutine has finished
+	done := make(chan struct{})  // Signals that the read goroutine has finished
 	reconnect := make(chan bool) // Signals that a reconnect is needed
 
 	go func() {
@@ -123,7 +123,7 @@ func (c *WebSocketClient) Connect() error {
 			select {
 			case <-reconnect:
 				log.Println("Reconnect signal received. Attempting to reconnect...")
-				c.conn.Close() // Ensure old connection is closed
+				c.conn.Close()     // Ensure old connection is closed
 				return c.Connect() // Recursive call to reconnect with backoff
 			case <-interrupt:
 				log.Println("Interrupt signal received while read goroutine was done.")

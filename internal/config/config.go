@@ -9,20 +9,20 @@ import (
 
 // Config defines the structure for all application configuration.
 type Config struct {
-	Pair         string       `yaml:"pair"`
-	SpreadLimit  float64      `yaml:"spread_limit"`
-	LotMaxRatio  float64      `yaml:"lot_max_ratio"`
-	Long         StrategyConf `yaml:"long"`
-	Short        StrategyConf `yaml:"short"`
-	Volatility   VolConf      `yaml:"volatility"`
-	APIKey       string       `yaml:"-"` // Loaded from env
-	APISecret    string       `yaml:"-"` // Loaded from env
-	LogLevel     string       `yaml:"-"` // Loaded from env or defaults
-	DBHost       string       `yaml:"-"`
-	DBPort       string       `yaml:"-"`
-	DBUser       string       `yaml:"-"`
-	DBPassword   string       `yaml:"-"`
-	DBName       string       `yaml:"-"`
+	Pair        string       `yaml:"pair"`
+	SpreadLimit float64      `yaml:"spread_limit"`
+	LotMaxRatio float64      `yaml:"lot_max_ratio"`
+	Long        StrategyConf `yaml:"long"`
+	Short       StrategyConf `yaml:"short"`
+	Volatility  VolConf      `yaml:"volatility"`
+	APIKey      string       `yaml:"-"` // Loaded from env
+	APISecret   string       `yaml:"-"` // Loaded from env
+	LogLevel    string       `yaml:"-"` // Loaded from env or defaults
+	DBHost      string       `yaml:"-"`
+	DBPort      string       `yaml:"-"`
+	DBUser      string       `yaml:"-"`
+	DBPassword  string       `yaml:"-"`
+	DBName      string       `yaml:"-"`
 }
 
 // StrategyConf holds configuration for long/short strategies.
