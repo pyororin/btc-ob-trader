@@ -18,11 +18,25 @@ type Config struct {
 	APIKey      string       `yaml:"-"` // Loaded from env
 	APISecret   string       `yaml:"-"` // Loaded from env
 	LogLevel    string       `yaml:"-"` // Loaded from env or defaults
-	DBHost      string       `yaml:"-"`
-	DBPort      string       `yaml:"-"`
-	DBUser      string       `yaml:"-"`
-	DBPassword  string       `yaml:"-"`
-	DBName      string       `yaml:"-"`
+	Database    DatabaseConfig `yaml:"database"`
+	DBWriter    DBWriterConfig `yaml:"db_writer"`
+}
+
+// DatabaseConfig holds all database connection parameters.
+type DatabaseConfig struct {
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"` // Loaded from env or yaml for non-sensitive
+	Name     string `yaml:"name"`
+	SSLMode  string `yaml:"sslmode"` // e.g., "disable", "require", "verify-full"
+}
+
+// DBWriterConfig holds configuration for the TimescaleDB writer service.
+type DBWriterConfig struct {
+	BatchSize            int  `yaml:"batch_size"`
+	WriteIntervalSeconds int  `yaml:"write_interval_seconds"`
+	EnableAsync          bool `yaml:"enable_async"`
 }
 
 // StrategyConf holds configuration for long/short strategies.
@@ -68,22 +82,39 @@ func LoadConfig(configPath string) (*Config, error) {
 	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
 		cfg.LogLevel = logLevel
 	}
+
+	// Load DatabaseConfig from environment variables, overriding YAML if set
 	if dbHost := os.Getenv("DB_HOST"); dbHost != "" {
-		cfg.DBHost = dbHost
+		cfg.Database.Host = dbHost
 	}
-	if dbPort := os.Getenv("DB_PORT"); dbPort != "" {
-		cfg.DBPort = dbPort
-	}
+	// Note: os.Getenv returns string, so Port needs conversion if loaded from env
+	// For simplicity, assuming Port is primarily set via YAML or has a sensible default.
+	// If direct env var for port is needed, add string parsing to int.
 	if dbUser := os.Getenv("DB_USER"); dbUser != "" {
-		cfg.DBUser = dbUser
+		cfg.Database.User = dbUser
 	}
 	if dbPassword := os.Getenv("DB_PASSWORD"); dbPassword != "" {
-		cfg.DBPassword = dbPassword
+		cfg.Database.Password = dbPassword
 	}
 	if dbName := os.Getenv("DB_NAME"); dbName != "" {
-		cfg.DBName = dbName
+		cfg.Database.Name = dbName
 	}
+	if dbSSLMode := os.Getenv("DB_SSLMODE"); dbSSLMode != "" {
+		cfg.Database.SSLMode = dbSSLMode
+	}
+	// DBPort from environment variable requires string to int conversion.
+	// Example:
+	// if dbPortStr := os.Getenv("DB_PORT"); dbPortStr != "" {
+	// 	if port, err := strconv.Atoi(dbPortStr); err == nil {
+	// 		cfg.Database.Port = port
+	// 	} else {
+	// 		// Handle error: log it or return an error
+	// 	}
+	// }
 
-	// TODO: Add validation for critical config values
+
+	// TODO: Add validation for critical config values, especially for DatabaseConfig
+	// e.g., ensure Host, User, Name are not empty if DB is enabled.
+	// Ensure DBWriterConfig values are sensible (e.g. BatchSize > 0)
 	return cfg, nil
 }

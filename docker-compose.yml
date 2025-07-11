@@ -19,11 +19,53 @@ services:
     # ports:
       # - "8080:8080" # Example: expose port 8080 for health checks if implemented
     # command: ["./obi-scalp-bot", "-config", "config/config.yaml"] # Optional: override CMD in Dockerfile
-    # The Dockerfile already sets up the entrypoint and default config path.
-    # This command is only needed if you want to override it.
+    env_file:
+      - .env # Loads environment variables from the .env file at the root of the project
+    # Override DB_HOST to use the service name for Docker internal networking
+    environment:
+      - DB_HOST=timescaledb
+      # Other environment variables like DB_USER, DB_PASSWORD, DB_NAME can also be set here
+      # to override .env or defaults, or ensure they are available if .env is missing.
+      # Example:
+      # - DB_USER=${DB_USER:-your_db_user} # Use DB_USER from .env, default to your_db_user
+      # - DB_PASSWORD=${DB_PASSWORD:-your_db_password}
+      # - DB_NAME=${DB_NAME:-obi_scalp_bot_db}
+      # - DB_PORT=${DB_PORT:-5432}
+      # - DB_SSLMODE=${DB_SSLMODE:-disable}
+    restart: unless-stopped
+    depends_on:
+      - timescaledb
+    networks:
+      - bot_network
 
-# Future services like TimescaleDB and Grafana will be added here.
-# volumes:
-#   timescaledb_data:
-# networks:
-#   bot_network:
+  timescaledb:
+    image: timescale/timescaledb-ha:pg14-latest # Use HA image for TimescaleDB features
+    container_name: timescaledb-obi
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER:-your_db_user} # Use from .env or default
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-your_db_password} # Use from .env or default
+      POSTGRES_DB: ${DB_NAME:-obi_scalp_bot_db}       # Use from .env or default
+      # For TimescaleDB specific settings, if needed
+      # TS_TUNE_MEMORY: "4GB" # Example: Tune based on available memory
+      # TS_TUNE_NUM_CPUS: "2"  # Example: Tune based on available CPUs
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data # Persist data
+      - ./db/schema:/docker-entrypoint-initdb.d   # Mount schema initialization scripts
+                                                  # All .sql, .sh files in this dir will be run on first init
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - bot_network
+
+volumes:
+  timescaledb_data: # Defines the named volume for TimescaleDB data persistence
+
+networks:
+  bot_network: # Defines the custom network for services to communicate
+    driver: bridge

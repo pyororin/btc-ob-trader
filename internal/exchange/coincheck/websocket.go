@@ -2,30 +2,38 @@
 package coincheck
 
 import (
+	"context" // Added for dbWriter operations
+	"encoding/json"
 	"errors"
-	"log"
+	// "log" // Replaced by pkg/logger
 	"net"
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/your-org/obi-scalp-bot/internal/dbwriter"
+	"github.com/your-org/obi-scalp-bot/pkg/logger"
 )
 
 const (
-	coincheckWebSocketURL = "wss://ws-api.coincheck.com/"
+	coincheckWebSocketURL  = "wss://ws-api.coincheck.com/"
+	orderbookChannelSuffix = "-orderbook" // Corrected suffix identifier
 )
 
 // WebSocketClient represents a Coincheck WebSocket client.
 type WebSocketClient struct {
-	conn *websocket.Conn
+	conn     *websocket.Conn
+	dbWriter *dbwriter.Writer // For writing order book updates
 	// TODO: Add channels for sending/receiving messages and managing state
 }
 
 // NewWebSocketClient creates a new WebSocketClient.
-func NewWebSocketClient() *WebSocketClient {
-	return &WebSocketClient{}
+func NewWebSocketClient(dbw *dbwriter.Writer) *WebSocketClient {
+	return &WebSocketClient{dbWriter: dbw}
 }
 
 // Connect establishes a WebSocket connection and handles message receiving and pinging.
@@ -36,9 +44,9 @@ func (c *WebSocketClient) Connect() error {
 
 	u, err := url.Parse(coincheckWebSocketURL)
 	if err != nil {
-		log.Fatalf("Error parsing WebSocket URL: %v", err) // Fatal, as URL should be static and correct
+		logger.Fatalf("Error parsing WebSocket URL: %v", err)
 	}
-	log.Printf("Attempting to connect to %s", u.String())
+	logger.Infof("Attempting to connect to %s", u.String())
 
 	var conn *websocket.Conn
 	var dialErr error
@@ -51,20 +59,20 @@ func (c *WebSocketClient) Connect() error {
 		if dialErr == nil {
 			break // Connection successful
 		}
-		log.Printf("Dial error (attempt %d/%d): %v. Retrying in %v...", retryCount+1, maxRetries, dialErr, backoff)
+		logger.Errorf("Dial error (attempt %d/%d): %v. Retrying in %v...", retryCount+1, maxRetries, dialErr, backoff) // Warnf -> Errorf
 		time.Sleep(backoff)
 		backoff *= 2 // Exponential backoff
 		retryCount++
 	}
 	if dialErr != nil {
-		log.Printf("Failed to connect after %d attempts: %v", maxRetries, dialErr)
+		logger.Errorf("Failed to connect after %d attempts: %v", maxRetries, dialErr)
 		return dialErr
 	}
 
 	c.conn = conn
-	log.Printf("Successfully connected to %s", u.String())
+	logger.Infof("Successfully connected to %s", u.String())
 	defer func() {
-		log.Println("Closing WebSocket connection.")
+		logger.Info("Closing WebSocket connection.")
 		c.conn.Close()
 	}()
 
@@ -76,95 +84,187 @@ func (c *WebSocketClient) Connect() error {
 		for {
 			messageType, message, err := c.conn.ReadMessage()
 			if err != nil {
-				log.Println("Read error:", err)
+				logger.Errorf("Read error: %v", err)
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNormalClosure) {
-					log.Println("Unexpected close error, attempting to reconnect...")
+					logger.Error("Unexpected close error, attempting to reconnect...") // Warn -> Error
 					reconnect <- true
 				} else if err == websocket.ErrCloseSent {
-					log.Println("Connection closed by client.")
+					logger.Info("Connection closed by client.")
 				} else if opError, ok := err.(*net.OpError); ok && opError.Err.Error() == "use of closed network connection" {
-					log.Println("Connection closed, possibly by server or network issue.")
+					logger.Info("Connection closed, possibly by server or network issue.")
 				} else {
-					log.Printf("Unhandled read error: %T %v", err, err)
+					logger.Errorf("Unhandled read error: %T %v", err, err)
 				}
 				return // Exit goroutine on error
 			}
 			switch messageType {
 			case websocket.TextMessage:
-				log.Printf("recv: %s", message)
+				var msgArray []json.RawMessage // Use json.RawMessage for deferred parsing
+				if err := json.Unmarshal(message, &msgArray); err == nil && len(msgArray) == 2 {
+					var pair string
+					if err := json.Unmarshal(msgArray[0], &pair); err == nil {
+						// Check if it's an orderbook message by suffix (e.g., "btc_jpy-orderbook")
+						if strings.HasSuffix(pair, orderbookChannelSuffix) {
+							var obData OrderBookData
+							if err := json.Unmarshal(msgArray[1], &obData); err == nil {
+								// Successfully parsed order book data
+								// Pair name for DB should be without the suffix
+								basePair := strings.TrimSuffix(pair, orderbookChannelSuffix)
+								c.processAndSaveOrderBook(basePair, obData)
+							} else {
+								logger.Errorf("Error unmarshalling OrderBookData: %v. OrderBook JSON: %s", err, msgArray[1])
+							}
+						} else if pair == "keepalive" { // Example of another known message type
+							logger.Info("Received keepalive message.")
+						} else {
+							// Not an orderbook message or known type, log as generic message
+							logger.Infof("Received non-orderbook text message: Pair: %s, Data: %s", pair, msgArray[1])
+						}
+					} else {
+						logger.Errorf("Error unmarshalling pair from WebSocket message: %v. Original message: %s", err, message)
+					}
+				} else if err != nil {
+					logger.Errorf("Error unmarshalling WebSocket message into array: %v. Original message: %s", err, message)
+				} else {
+					// Generic text message that doesn't fit the 2-element array structure
+					logger.Infof("Received generic text message (not a 2-element JSON array): %s", message)
+				}
+
 			case websocket.BinaryMessage:
-				log.Printf("recv binary: %s", message) // Or handle as appropriate
+				logger.Infof("Received binary message: %s", message)
 			case websocket.PongMessage:
-				log.Println("Pong received") // Good for confirming connection health
+				logger.Info("Pong received")
 			default:
-				log.Printf("Received unhandled message type: %d", messageType)
+				logger.Errorf("Received unhandled message type: %d", messageType) // Warnf -> Errorf
 			}
 		}
 	}()
 
 	// Subscribe to orderbook and trades
-	if err := c.subscribe("btc_jpy-orderbook"); err != nil {
-		log.Printf("Failed to subscribe to orderbook: %v", err)
-		// Depending on requirements, might want to return err or retry
+	// Example: "btc_jpy-orderbook", "btc_jpy-trades"
+	// TODO: Make the pair configurable
+	targetPair := "btc_jpy"
+	if err := c.subscribe(targetPair + orderbookChannelSuffix); err != nil {
+		logger.Errorf("Failed to subscribe to orderbook %s: %v", targetPair, err)
 	}
-	if err := c.subscribe("btc_jpy-trades"); err != nil {
-		log.Printf("Failed to subscribe to trades: %v", err)
-		// Depending on requirements, might want to return err or retry
-	}
+	// if err := c.subscribe(targetPair + "-trades"); err != nil { // If trades are also needed
+	// 	logger.Errorf("Failed to subscribe to trades %s: %v", targetPair, err)
+	// }
 
-	pingTicker := time.NewTicker(30 * time.Second) // As per spec, ping/pong 30s
+	pingTicker := time.NewTicker(30 * time.Second)
 	defer pingTicker.Stop()
 
 	for {
 		select {
-		case <-done: // Read goroutine exited, probably due to error
-			log.Println("Read goroutine finished.")
-			// Wait for reconnect signal or interrupt
+		case <-done:
+			logger.Info("Read goroutine finished.")
 			select {
 			case <-reconnect:
-				log.Println("Reconnect signal received. Attempting to reconnect...")
-				c.conn.Close()     // Ensure old connection is closed
-				return c.Connect() // Recursive call to reconnect with backoff
+				logger.Info("Reconnect signal received. Attempting to reconnect...")
+				c.conn.Close()
+				return c.Connect()
 			case <-interrupt:
-				log.Println("Interrupt signal received while read goroutine was done.")
+				logger.Info("Interrupt signal received while read goroutine was done.")
 				return nil
-			case <-time.After(5 * time.Second): // Timeout if no reconnect signal
-				log.Println("Timeout waiting for reconnect signal after read error.")
-				return nil // Or some error indicating failure to maintain connection
+			case <-time.After(5 * time.Second):
+				logger.Error("Timeout waiting for reconnect signal after read error.") // Warn -> Error
+				return errors.New("failed to maintain WebSocket connection after read error")
 			}
 
 		case <-pingTicker.C:
-			log.Println("Sending Ping")
+			logger.Infof("Sending Ping") // Debug -> Infof
 			if err := c.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-				log.Println("Ping error:", err)
-				// If ping fails, it might indicate a dead connection.
-				// Trigger reconnect logic.
+				logger.Errorf("Ping error: %v", err)
 				reconnect <- true
-				// No return here, wait for the done/reconnect select case above
 			}
 
 		case <-interrupt:
-			log.Println("Interrupt signal received. Closing connection...")
-			// Cleanly close the connection by sending a close message and then
-			// waiting (with timeout) for the server to close the connection.
+			logger.Info("Interrupt signal received. Closing connection...")
 			err := c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 			if err != nil {
-				log.Println("Write close error:", err)
+				logger.Errorf("Write close error: %v", err)
 				return err
 			}
 			select {
-			case <-done: // Wait for read goroutine to finish after sending close
-				log.Println("Read goroutine finished after sending close message.")
-			case <-time.After(2 * time.Second): // Timeout for server to close
-				log.Println("Timeout waiting for server to close connection.")
+			case <-done:
+				logger.Info("Read goroutine finished after sending close message.")
+			case <-time.After(2 * time.Second):
+				logger.Error("Timeout waiting for server to close connection.") // Warn -> Error
 			}
 			return nil
 		}
 	}
 }
 
+// processAndSaveOrderBook converts Coincheck's order book data to dbwriter.OrderBookUpdate
+// and saves it to the database.
+func (c *WebSocketClient) processAndSaveOrderBook(pair string, data OrderBookData) {
+	if c.dbWriter == nil {
+		logger.Error("dbWriter is nil, cannot save order book update.") // Warn -> Error
+		return
+	}
+
+	ctx := context.TODO() // Or a more appropriate context
+
+	timestampMs, err := strconv.ParseInt(data.LastUpdateAt, 10, 64)
+	if err != nil {
+		logger.Errorf("Error parsing LastUpdateAt timestamp '%s': %v", data.LastUpdateAt, err)
+		return
+	}
+	eventTime := time.Unix(timestampMs, 0) // Assuming LastUpdateAt is in seconds. If ms, use time.UnixMilli.
+                                          // Coincheck doc example "1659321701" looks like seconds.
+
+	// Process bids
+	for _, bid := range data.Bids {
+		if len(bid) == 2 {
+			price, errPrice := strconv.ParseFloat(bid[0], 64)
+			size, errSize := strconv.ParseFloat(bid[1], 64)
+			if errPrice != nil || errSize != nil {
+				logger.Errorf("Error parsing bid data for pair %s: price_str='%s', size_str='%s', errors: %v, %v", pair, bid[0], bid[1], errPrice, errSize)
+				continue
+			}
+			obu := dbwriter.OrderBookUpdate{
+				Time:       eventTime,
+				Pair:       pair,
+				Side:       "bid",
+				Price:      price,
+				Size:       size,
+				IsSnapshot: false, // Assuming these are updates, not full snapshots unless specified by API
+			}
+			if err := c.dbWriter.SaveOrderBookUpdate(ctx, obu); err != nil {
+				logger.Errorf("Failed to save order book bid update for pair %s: %v", pair, err)
+				// Continue processing other updates
+			}
+		}
+	}
+
+	// Process asks
+	for _, ask := range data.Asks {
+		if len(ask) == 2 {
+			price, errPrice := strconv.ParseFloat(ask[0], 64)
+			size, errSize := strconv.ParseFloat(ask[1], 64)
+			if errPrice != nil || errSize != nil {
+				logger.Errorf("Error parsing ask data for pair %s: price_str='%s', size_str='%s', errors: %v, %v", pair, ask[0], ask[1], errPrice, errSize)
+				continue
+			}
+			obu := dbwriter.OrderBookUpdate{
+				Time:       eventTime,
+				Pair:       pair,
+				Side:       "ask",
+				Price:      price,
+				Size:       size,
+				IsSnapshot: false, // Assuming these are updates
+			}
+			if err := c.dbWriter.SaveOrderBookUpdate(ctx, obu); err != nil {
+				logger.Errorf("Failed to save order book ask update for pair %s: %v", pair, err)
+			}
+		}
+	}
+	// logger.Debugf("Processed and attempted to save order book for %s at %s", pair, eventTime)
+}
+
+
 // subscribe sends a subscription message to the WebSocket server.
-// The message format is based on Coincheck API documentation.
 type subscriptionMessage struct {
 	Type    string `json:"type"`
 	Channel string `json:"channel"`
@@ -174,22 +274,24 @@ func (c *WebSocketClient) subscribe(channel string) error {
 	if c.conn == nil {
 		return errors.New("cannot subscribe: WebSocket connection is not established")
 	}
-	log.Printf("Subscribing to channel: %s", channel)
+	logger.Infof("Subscribing to channel: %s", channel)
 	msg := subscriptionMessage{
 		Type:    "subscribe",
 		Channel: channel,
 	}
 	err := c.conn.WriteJSON(msg)
 	if err != nil {
-		log.Printf("Error subscribing to channel %s: %v", channel, err)
+		logger.Errorf("Error subscribing to channel %s: %v", channel, err)
 	}
 	return err
 }
 
 // Close closes the WebSocket connection.
-// It's a good practice to provide a way to explicitly close the client.
 func (c *WebSocketClient) Close() error {
 	if c.conn != nil {
+		// Inform the read loop to terminate if it's blocked on ReadMessage
+		// One way is to send a close message to self, but that's tricky.
+		// Simply closing the connection should make ReadMessage return an error.
 		return c.conn.Close()
 	}
 	return nil
