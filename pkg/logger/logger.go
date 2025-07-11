@@ -48,21 +48,24 @@ func NewLogger(logLevel string) Logger {
 	// This example: "error" or "fatal" level will suppress "INFO" logs.
 	// "fatal" will suppress "INFO" and "ERROR". (This is just an example, not fully robust)
 	// A real implementation would use constants and a hierarchy.
+	// For now, NewLogger doesn't control global state directly to avoid cycles.
+	// It just returns a new logger configured to the given level.
+	// The global `std` logger will be initialized separately.
 	if logLevel == "error" || logLevel == "fatal" {
-		iLog = log.New(io.Discard, "", 0) // Discard info logs
+		iLog = log.New(io.Discard, "", 0) // Discard info logs for error/fatal level
 	}
 	if logLevel == "fatal" {
-		eLog = log.New(io.Discard, "", 0) // Discard error logs
+		eLog = log.New(io.Discard, "", 0) // Discard error logs for fatal level
 	}
 
-
-	logger := &defaultLogger{
+	return &defaultLogger{
 		infoLogger:  iLog,
 		errorLogger: eLog,
 		fatalLogger: fLog,
 	}
-	std = logger // Update the global logger
-	return logger
+	// No longer updating global `std` here:
+	// std = logger
+	// return logger
 }
 
 func (l *defaultLogger) Info(args ...interface{}) {
@@ -89,9 +92,42 @@ func (l *defaultLogger) Fatalf(format string, args ...interface{}) {
 	l.fatalLogger.Fatalf(format, args...)
 }
 
-// Global std logger instance, initialized with default "info" level.
-// NewLogger will update this instance.
-var std Logger = NewLogger("info")
+// Global std logger instance, initialized directly with default "info" settings.
+var std Logger = &defaultLogger{
+	infoLogger:  log.New(os.Stdout, "INFO:  ", log.Ldate|log.Ltime|log.Lshortfile),
+	errorLogger: log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile),
+	fatalLogger: log.New(os.Stderr, "FATAL: ", log.Ldate|log.Ltime|log.Lshortfile),
+}
+
+// SetGlobalLogLevel reconfigures the global std logger's level.
+// This is a basic implementation. A more robust one would parse levels carefully.
+func SetGlobalLogLevel(logLevel string) {
+	infoHandle := os.Stdout
+	errorHandle := os.Stderr
+	// fatalHandle := os.Stderr // fatal always goes to Stderr
+
+	if logLevel == "error" || logLevel == "fatal" {
+		infoHandle = io.Discard
+	}
+	if logLevel == "fatal" {
+		errorHandle = io.Discard
+	}
+
+	// Update the global std logger's internal loggers
+	// This requires std to be of a concrete type or have methods to set internal loggers.
+	// For simplicity, let's assume std is *defaultLogger for this operation,
+	// or we add methods to the Logger interface (which is more complex).
+	// Casting to *defaultLogger for this internal function:
+	if globalStd, ok := std.(*defaultLogger); ok {
+		globalStd.infoLogger = log.New(infoHandle, "INFO:  ", log.Ldate|log.Ltime|log.Lshortfile)
+		globalStd.errorLogger = log.New(errorHandle, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
+		// fatalLogger usually isn't silenced by level, but if needed:
+		// globalStd.fatalLogger = log.New(fatalHandle, "FATAL: ", log.Ldate|log.Ltime|log.Lshortfile)
+	} else {
+		// This case should ideally not happen if std is always *defaultLogger
+		log.Println("Error: Global logger is not of type *defaultLogger, cannot set level.")
+	}
+}
 
 
 // Info logs an informational message using the global std logger.
