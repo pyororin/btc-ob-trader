@@ -1,22 +1,32 @@
-.PHONY: help up down logs shell clean test build replay
+.PHONY: help up down logs shell clean test build replay monitor
 
 # ==============================================================================
 # HELP
 # ==============================================================================
 # Shows a list of all available commands and their descriptions.
-# Descriptions are extracted from comments following each target.
 help:
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo "Usage: make [command]"
+	@echo ""
+	@echo "Available commands:"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Grafana Dashboard:"
+	@echo "  After running 'make monitor' or 'make up', access the PnL dashboard at:"
+	@echo "  \033[32mhttp://localhost:3000\033[0m (login: admin/admin)"
 
 # ==============================================================================
 # DOCKER COMPOSE
 # ==============================================================================
-up: ## Start the application stack in detached mode.
-	@echo "Starting OBI Scalp Bot..."
+up: ## Start all services including the bot for live trading.
+	@echo "Starting all services (including trading bot)..."
 	docker-compose up -d --build
 
-down: ## Stop and remove the application stack.
-	@echo "Stopping OBI Scalp Bot..."
+monitor: ## Start monitoring services (DB, Grafana) without the bot.
+	@echo "Starting monitoring services (TimescaleDB, Grafana)..."
+	docker-compose up -d timescaledb grafana
+
+down: ## Stop and remove all application stack containers.
+	@echo "Stopping application stack..."
 	docker-compose down
 
 logs: ## Follow logs from the bot service.
@@ -27,12 +37,15 @@ shell: ## Access a shell inside the running bot container.
 	@echo "Accessing shell in 'bot' container..."
 	docker-compose exec bot /bin/sh
 
-clean: ## Stop and remove containers, and remove volumes.
-	@echo "Stopping OBI Scalp Bot and removing volumes..."
+clean: ## Stop, remove containers, and remove volumes.
+	@echo "Stopping application stack and removing volumes..."
 	docker-compose down -v --remove-orphans
 
-replay: ## Replay historical tick data for backtesting.
+replay: ## Run a backtest using historical data.
 	@echo "Starting replay..."
+	@echo "Ensuring monitoring services are running first..."
+	@make monitor
+	@echo "Running replay task..."
 	docker-compose run --rm bot ./obi-scalp-bot -replay -config config/config-replay.yaml
 
 # ==============================================================================
