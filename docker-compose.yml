@@ -32,6 +32,8 @@ services:
     ports:
       - "8080:8080" # Expose healthcheck port
     healthcheck:
+      # The 'bot' service requires a /health endpoint to be implemented in the application
+      # for this healthcheck to pass. See T-11.
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
