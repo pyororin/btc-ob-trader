@@ -60,24 +60,34 @@ CREATE INDEX IF NOT EXISTS idx_order_book_updates_side_time ON order_book_update
 
 CREATE INDEX IF NOT EXISTS idx_pnl_summary_strategy_pair_time ON pnl_summary (strategy_id, pair, time DESC);
 
--- （オプション）より詳細なトレード履歴テーブル (trades)
--- Botが行った個々の取引を記録
--- CREATE TABLE IF NOT EXISTS trades (
---     time TIMESTAMPTZ NOT NULL,
---     trade_id TEXT PRIMARY KEY, -- 取引所が発行するIDまたは内部生成ID
---     client_order_id TEXT,      -- Botが発注時に設定するID
---     pair TEXT NOT NULL,
---     side TEXT NOT NULL,        -- 'buy' or 'sell'
---     price DECIMAL NOT NULL,
---     size DECIMAL NOT NULL,
---     fee DECIMAL,
---     role TEXT,                 -- 'maker' or 'taker'
---     CONSTRAINT check_trade_side CHECK (side IN ('buy', 'sell'))
--- );
--- SELECT create_hypertable('trades', 'time', if_not_exists => TRUE);
--- ALTER TABLE trades SET (timescaledb.compress, timescaledb.compress_segmentby = 'pair, side');
--- SELECT add_compression_policy('trades', INTERVAL '7 days', if_not_exists => TRUE);
--- CREATE INDEX IF NOT EXISTS idx_trades_pair_time ON trades (pair, time DESC);
+-- Botが受信した約定履歴テーブル (trades)
+-- WebSocketから受信した全ての約定情報を記録
+CREATE TABLE IF NOT EXISTS trades (
+    time TIMESTAMPTZ NOT NULL,
+    pair TEXT NOT NULL,
+    side TEXT NOT NULL,        -- 'buy' or 'sell'
+    price DECIMAL NOT NULL,
+    size DECIMAL NOT NULL,
+    transaction_id BIGINT NOT NULL,
+    CONSTRAINT check_trade_side CHECK (side IN ('buy', 'sell'))
+);
+
+-- trades テーブルをHypertableに変換
+SELECT create_hypertable('trades', 'time', if_not_exists => TRUE);
+
+-- trades テーブルの圧縮設定
+-- 7日経過したチャンクを圧縮
+ALTER TABLE trades SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'pair, side',
+    timescaledb.compress_orderby = 'time DESC, transaction_id DESC'
+);
+
+-- 圧縮ポリシーの追加 (例: 7日後に圧縮ジョブを実行)
+SELECT add_compression_policy('trades', INTERVAL '7 days', if_not_exists => TRUE);
+
+CREATE INDEX IF NOT EXISTS idx_trades_pair_time ON trades (pair, time DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_transaction_id ON trades (transaction_id, time);
 
 -- （オプション）ポジション管理テーブル (positions)
 -- 通貨ペアごとの現在の詳細なポジション情報を保持 (PnLサマリーと重複する部分もあるがより詳細)

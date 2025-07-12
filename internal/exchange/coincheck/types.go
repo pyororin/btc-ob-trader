@@ -113,3 +113,32 @@ func (obu OrderBookUpdate) Data() (OrderBookData, bool) {
 	}
 	return OrderBookData{}, false
 }
+
+// TradeData represents a single trade update from the WebSocket API.
+// It's a JSON array: [transaction_id, pair, rate, amount, taker_side]
+type TradeData [5]string
+
+// TransactionID returns the transaction ID from the trade data.
+func (td TradeData) TransactionID() string {
+	return td[0]
+}
+
+// Pair returns the trading pair from the trade data.
+func (td TradeData) Pair() string {
+	return td[1]
+}
+
+// Rate returns the rate from the trade data.
+func (td TradeData) Rate() string {
+	return td[2]
+}
+
+// Amount returns the amount from the trade data.
+func (td TradeData) Amount() string {
+	return td[3]
+}
+
+// TakerSide returns the taker side ("buy" or "sell") from the trade data.
+func (td TradeData) TakerSide() string {
+	return td[4]
+}

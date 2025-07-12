@@ -17,23 +17,29 @@ import (
 const (
 	coincheckWebSocketURL  = "wss://ws-api.coincheck.com/"
 	orderbookChannelSuffix = "-orderbook"
+	tradesChannelSuffix    = "-trades"
 )
 
 // OrderBookHandler is a function type that handles order book updates.
 type OrderBookHandler func(data OrderBookData)
 
+// TradeHandler is a function type that handles trade updates.
+type TradeHandler func(data TradeData)
+
 // WebSocketClient represents a Coincheck WebSocket client.
 type WebSocketClient struct {
 	conn             *websocket.Conn
 	orderBookHandler OrderBookHandler
+	tradeHandler     TradeHandler
 	interrupt        chan os.Signal
 	done             chan struct{}
 }
 
 // NewWebSocketClient creates a new WebSocketClient.
-func NewWebSocketClient(handler OrderBookHandler) *WebSocketClient {
+func NewWebSocketClient(obHandler OrderBookHandler, tHandler TradeHandler) *WebSocketClient {
 	return &WebSocketClient{
-		orderBookHandler: handler,
+		orderBookHandler: obHandler,
+		tradeHandler:     tHandler,
 	}
 }
 
@@ -52,7 +58,7 @@ func (c *WebSocketClient) Connect() error {
 
 	var conn *websocket.Conn
 	var dialErr error
-	maxRetries := 5
+	maxRetries := 10
 	retryCount := 0
 	backoff := 1 * time.Second
 
@@ -63,7 +69,10 @@ func (c *WebSocketClient) Connect() error {
 		}
 		logger.Errorf("Dial error (attempt %d/%d): %v. Retrying in %v...", retryCount+1, maxRetries, dialErr, backoff)
 		time.Sleep(backoff)
-		backoff *= 2
+		backoff = time.Duration(float64(backoff) * 1.5)
+		if backoff > 60*time.Second {
+			backoff = 60 * time.Second
+		}
 		retryCount++
 	}
 	if dialErr != nil {
@@ -75,7 +84,7 @@ func (c *WebSocketClient) Connect() error {
 	logger.Infof("Successfully connected to %s", u.String())
 
 	c.done = make(chan struct{})
-	reconnect := make(chan bool)
+	reconnect := make(chan bool, 1)
 
 	go func() {
 		defer close(c.done)
@@ -98,17 +107,35 @@ func (c *WebSocketClient) Connect() error {
 				}
 				return
 			}
+
+			// Handle trades message (different format)
+			var tradeMsg [4]json.RawMessage
+			if err := json.Unmarshal(message, &tradeMsg); err == nil {
+				var tradeData TradeData
+				if err := json.Unmarshal(message, &tradeData); err == nil {
+					if c.tradeHandler != nil {
+						c.tradeHandler(tradeData)
+					}
+					continue
+				}
+			}
+
+			// Handle orderbook message
 			var msgArray []json.RawMessage
-			if err := json.Unmarshal(message, &msgArray); err == nil && len(msgArray) == 2 {
-				var channelName string
-				if err := json.Unmarshal(msgArray[0], &channelName); err == nil && channelName == targetPair {
-					var obData OrderBookData
-					if err := json.Unmarshal(msgArray[1], &obData); err == nil {
-						if c.orderBookHandler != nil {
-							c.orderBookHandler(obData)
+			if err := json.Unmarshal(message, &msgArray); err == nil {
+				if len(msgArray) > 0 {
+					var channelName string
+					if err := json.Unmarshal(msgArray[0], &channelName); err == nil {
+						if channelName == targetPair+orderbookChannelSuffix {
+							var obData OrderBookData
+							if err := json.Unmarshal(msgArray[1], &obData); err == nil {
+								if c.orderBookHandler != nil {
+									c.orderBookHandler(obData)
+								}
+							} else {
+								logger.Errorf("Error unmarshalling OrderBookData: %v. JSON: %s", err, msgArray[1])
+							}
 						}
-					} else {
-						logger.Errorf("Error unmarshalling OrderBookData: %v. JSON: %s", err, msgArray[1])
 					}
 				}
 			}
@@ -117,6 +144,11 @@ func (c *WebSocketClient) Connect() error {
 
 	if err := c.subscribe(targetPair + orderbookChannelSuffix); err != nil {
 		logger.Errorf("Failed to subscribe to orderbook %s: %v", targetPair, err)
+		c.conn.Close()
+		return err
+	}
+	if err := c.subscribe(targetPair + tradesChannelSuffix); err != nil {
+		logger.Errorf("Failed to subscribe to trades %s: %v", targetPair, err)
 		c.conn.Close()
 		return err
 	}
