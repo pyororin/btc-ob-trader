@@ -1,18 +1,14 @@
 # docker-compose.replay.yml
 #
-# This file is used to override the default docker-compose.yml for replay mode.
-# It changes the command for the bot service to run the replay and
-# mounts the correct replay configuration file.
+# Overrides for replay mode.
+# This file specifies the command to run the bot in replay mode and
+# ensures the correct configuration file is used.
 
 services:
   bot:
-    volumes:
-      # Unset the default config.yaml mount
-      - /dev/null:/app/config/config.yaml
-      # Mount the replay config file instead
-      - ./config/config-replay.yaml:/app/config/config-replay.yaml:ro
+    # The main docker-compose.yml already mounts the entire ./config directory.
+    # We just need to override the command to point to the correct file and add the -replay flag.
     command: ./obi-scalp-bot -replay -config /app/config/config-replay.yaml
-    # In replay mode, we don't need a healthcheck as it's a short-lived task
     healthcheck:
       disable: true
     restart: "no"

@@ -5,14 +5,11 @@ services:
       dockerfile: Dockerfile
     container_name: obi-scalp-bot
     volumes:
-      # Mount the local .env file into the container.
-      # Create a .env file from .env.sample and fill in your API keys.
       - ./.env:/app/.env:ro
-      # Mount the local config file into the container for easier development.
-      # Changes to config.yaml on the host will be reflected in the container without rebuilding.
-      - ./config/config.yaml:/app/config/config.yaml:ro
+      - ./config:/app/config:ro
     env_file:
-      - .env # Loads environment variables from the .env file at the root of the project
+      - .env
+    command: ./obi-scalp-bot -config /app/config/config.yaml
     environment:
       - DB_HOST=timescaledb
     ports:
