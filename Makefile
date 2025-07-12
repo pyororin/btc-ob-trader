@@ -6,7 +6,14 @@
 # Shows a list of all available commands and their descriptions.
 # Descriptions are extracted from comments following each target.
 help:
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo "Usage: make [command]"
+	@echo ""
+	@echo "Available commands:"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Grafana Dashboard:"
+	@echo "  After running 'make up', access the PnL dashboard at:"
+	@echo "  \033[32mhttp://localhost:3000\033[0m (login: admin/admin)"
 
 # ==============================================================================
 # DOCKER COMPOSE

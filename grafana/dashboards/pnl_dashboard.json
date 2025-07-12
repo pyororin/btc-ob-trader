@@ -1,0 +1,259 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_TIMESCALEDB_PRODUCTION",
+      "label": "TimescaleDB (Production)",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "postgres",
+      "pluginName": "PostgreSQL"
+    },
+    {
+      "name": "DS_TIMESCALEDB_REPLAY",
+      "label": "TimescaleDB (Replay)",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "postgres",
+      "pluginName": "PostgreSQL"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "8.5.0"
+    },
+    {
+      "type": "panel",
+      "id": "timeseries",
+      "name": "Time series",
+      "version": ""
+    },
+    {
+      "type": "datasource",
+      "id": "postgres",
+      "name": "PostgreSQL",
+      "version": "1.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "Stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "table",
+      "name": "Table",
+      "version": ""
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": 1,
+  "links": [],
+  "panels": [
+    {
+      "title": "Cumulative PnL Over Time",
+      "type": "timeseries",
+      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisPlacement": "right",
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "gradientMode": "opacity"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "red", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "format": "time_series",
+          "group": [],
+          "metricColumn": "pnl",
+          "rawSql": "SELECT time, cumulative_pnl FROM pnl_history ORDER BY time ASC",
+          "select": [
+            [
+              { "type": "column", "params": ["cumulative_pnl"] }
+            ]
+          ],
+          "table": "pnl_history",
+          "timeColumn": "time",
+          "where": []
+        }
+      ]
+    },
+    {
+      "title": "Total Trades",
+      "type": "stat",
+      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 9 },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "rawSql": "SELECT COUNT(*) FROM trades",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "title": "Win Rate",
+      "type": "stat",
+      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 9 },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "unit": "%"
+      },
+      "targets": [
+        {
+          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "rawSql": "SELECT (COUNT(CASE WHEN pnl > 0 THEN 1 END) * 100.0) / COUNT(*) FROM trades",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "title": "Total PnL",
+      "type": "stat",
+      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 9 },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "rawSql": "SELECT SUM(pnl) FROM trades",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "title": "Sharpe Ratio (placeholder)",
+      "type": "stat",
+      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 9 },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "rawSql": "SELECT 0.0 -- Placeholder for Sharpe Ratio calculation",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "title": "Recent Trades",
+      "type": "table",
+      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "rawSql": "SELECT * FROM trades ORDER BY created_at DESC LIMIT 20",
+          "format": "table"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 35,
+  "style": "dark",
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "TimescaleDB (Production)",
+          "value": "${DS_TIMESCALEDB_PRODUCTION}"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Datasource",
+        "multi": false,
+        "name": "datasource",
+        "options": [
+          {
+            "selected": true,
+            "text": "TimescaleDB (Production)",
+            "value": "${DS_TIMESCALEDB_PRODUCTION}"
+          },
+          {
+            "selected": false,
+            "text": "TimescaleDB (Replay)",
+            "value": "${DS_TIMESCALEDB_REPLAY}"
+          }
+        ],
+        "query": "postgres",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "OBI Scalp Bot PnL",
+  "uid": "unique-pnl-dashboard-uid",
+  "version": 1
+}
