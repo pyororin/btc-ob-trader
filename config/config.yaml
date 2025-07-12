@@ -10,7 +10,12 @@ short:
   tp: 18
   sl: -12
 volatility:
-  ewma_lambda: 0.1
+  ewma_lambda: 0.1 # For EWMA of returns and EWMVariance of returns
+  dynamic_obi:
+    enabled: true
+    volatility_factor: 1.0 # Multiplier for standard deviation
+    min_threshold_factor: 0.5 # Minimum OBI threshold factor (e.g. 0.5 * base_threshold)
+    max_threshold_factor: 2.0 # Maximum OBI threshold factor (e.g. 2.0 * base_threshold)
 
 # Database Configuration
 # These settings are for the TimescaleDB connection.
