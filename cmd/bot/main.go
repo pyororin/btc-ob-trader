@@ -22,21 +22,14 @@ import (
 )
 
 func main() {
-	// --- Health Check Server ---
-	go func() {
-		http.HandleFunc("/health", handler.HealthCheckHandler)
-		logger.Info("Health check server starting on :8080")
-		if err := http.ListenAndServe(":8080", nil); err != nil {
-			logger.Fatalf("Health check server failed: %v", err)
-		}
-	}()
+	// --- Configuration ---
+	configPath := flag.String("config", "config/config.yaml", "Path to the configuration file")
+	replayMode := flag.Bool("replay", false, "Enable replay mode")
+	flag.Parse()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// --- Configuration ---
-	configPath := flag.String("config", "config/config.yaml", "Path to the configuration file")
-	flag.Parse()
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load configuration: %v\n", err)
@@ -48,6 +41,17 @@ func main() {
 	logger.Info("OBI Scalping Bot starting...")
 	logger.Infof("Loaded configuration from: %s", *configPath)
 	logger.Infof("Target pair: %s", cfg.Pair)
+
+	// --- Health Check Server (only in non-replay mode) ---
+	if !*replayMode {
+		go func() {
+			http.HandleFunc("/health", handler.HealthCheckHandler)
+			logger.Info("Health check server starting on :8080")
+			if err := http.ListenAndServe(":8080", nil); err != nil {
+				logger.Fatalf("Health check server failed: %v", err)
+			}
+		}()
+	}
 
 	// --- TimescaleDB Writer (Optional) ---
 	var dbWriter *dbwriter.Writer
@@ -62,7 +66,13 @@ func main() {
 		if zapErr != nil {
 			logger.Fatalf("Failed to initialize Zap logger for DBWriter: %v", zapErr)
 		}
-		defer zapLogger.Sync()
+		defer func() {
+			if err := zapLogger.Sync(); err != nil {
+				// We can't use the logger here because it's being synced.
+				// Print to stderr instead.
+				fmt.Fprintf(os.Stderr, "Failed to sync zap logger: %v\n", err)
+			}
+		}()
 
 		dbWriter, err = dbwriter.NewWriter(ctx, cfg.Database, cfg.DBWriter, zapLogger)
 		if err != nil {
@@ -76,14 +86,12 @@ func main() {
 	orderBook := indicator.NewOrderBook()
 	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
 
-	// --- WebSocket Client ---
 	orderBookHandler := func(data coincheck.OrderBookData) {
 		orderBook.ApplyUpdate(data)
 	}
 
 	tradeHandler := func(data coincheck.TradeData) {
 		if dbWriter != nil {
-			// Convert coincheck.TradeData to dbwriter.Trade
 			price, err := strconv.ParseFloat(data.Rate(), 64)
 			if err != nil {
 				logger.Errorf("Failed to parse trade price: %v", err)
@@ -113,9 +121,6 @@ func main() {
 		logger.Debugf("Trade received: Pair=%s, Side=%s, Price=%s, Amount=%s", data.Pair(), data.TakerSide(), data.Rate(), data.Amount())
 	}
 
-	wsClient := coincheck.NewWebSocketClient(orderBookHandler, tradeHandler)
-
-
 	// --- Graceful Shutdown Setup ---
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
@@ -123,7 +128,6 @@ func main() {
 	// --- Start Services ---
 	obiCalculator.Start(ctx)
 
-	// Goroutine to process OBI results
 	go func() {
 		resultsCh := obiCalculator.Subscribe()
 		for {
@@ -132,22 +136,24 @@ func main() {
 				logger.Info("OBI processing goroutine shutting down.")
 				return
 			case result := <-resultsCh:
-				// For now, we just log the result.
-				// In the future, this could be sent to the SignalEngine or DBWriter.
 				logger.Infof("OBI Calculated: OBI8=%.4f, OBI16=%.4f, Timestamp=%v", result.OBI8, result.OBI16, result.Timestamp)
 			}
 		}
 	}()
 
 	// --- Main Execution Loop ---
-	go func() {
-		logger.Info("Attempting to connect to Coincheck WebSocket API...")
-		if err := wsClient.Connect(); err != nil {
-			logger.Errorf("WebSocket client exited with error: %v", err)
-			// Signal main goroutine to shut down if WebSocket connection fails permanently
-			sigs <- syscall.SIGTERM
-		}
-	}()
+	if *replayMode {
+		go runReplay(ctx, cfg, orderBookHandler, tradeHandler, sigs)
+	} else {
+		wsClient := coincheck.NewWebSocketClient(orderBookHandler, tradeHandler)
+		go func() {
+			logger.Info("Attempting to connect to Coincheck WebSocket API...")
+			if err := wsClient.Connect(); err != nil {
+				logger.Errorf("WebSocket client exited with error: %v", err)
+				sigs <- syscall.SIGTERM
+			}
+		}()
+	}
 
 	// Wait for shutdown signal
 	sig := <-sigs
@@ -155,12 +161,38 @@ func main() {
 
 	// Trigger graceful shutdown
 	cancel()
-	if err := wsClient.Close(); err != nil {
-		logger.Errorf("Error closing WebSocket client: %v", err)
-	}
-
-	// Allow a moment for goroutines to clean up
+	// In a real scenario, you might need to close other resources here as well.
 	time.Sleep(1 * time.Second)
-
 	logger.Info("OBI Scalping Bot shut down gracefully.")
+}
+
+// runReplay simulates market data based on the replay configuration.
+func runReplay(ctx context.Context, cfg *config.Config, obHandler coincheck.OrderBookHandler, tradeHandler coincheck.TradeHandler, sigs chan<- os.Signal) {
+	logger.Info("Starting replay mode...")
+	// This is a placeholder for the actual replay logic.
+	// In a real implementation, you would read from a CSV or database.
+	// For now, we just log a message and exit after a short period.
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	replayEndTime := time.Now().Add(10 * time.Second) // Run replay for 10 seconds
+
+	for {
+		select {
+		case <-ticker.C:
+			if time.Now().After(replayEndTime) {
+				logger.Info("Replay finished.")
+				sigs <- syscall.SIGTERM // Signal main goroutine to shut down
+				return
+			}
+			logger.Info("Replay tick...")
+			// Here you would generate or read data and call handlers:
+			// obHandler(mockOrderBookData)
+			// tradeHandler(mockTradeData)
+		case <-ctx.Done():
+			logger.Info("Replay mode shutting down due to context cancellation.")
+			return
+		}
+	}
 }

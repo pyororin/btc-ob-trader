@@ -31,9 +31,9 @@ clean: ## Stop and remove containers, and remove volumes.
 	@echo "Stopping OBI Scalp Bot and removing volumes..."
 	docker-compose down -v --remove-orphans
 
-replay: ## Replay historical tick data for backtesting (Not yet implemented).
-	@echo "Replay function is not yet implemented."
-	# docker-compose run --rm bot ./obi-scalp-bot -replay -config config/config-replay.yaml
+replay: ## Replay historical tick data for backtesting.
+	@echo "Starting replay..."
+	docker-compose run --rm bot ./obi-scalp-bot -replay -config config/config-replay.yaml
 
 # ==============================================================================
 # GO BUILDS & TESTS
