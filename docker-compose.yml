@@ -9,7 +9,6 @@ services:
       - ./config:/app/config:ro
     env_file:
       - .env
-    command: ./obi-scalp-bot -config /app/config/config.yaml
     environment:
       - DB_HOST=timescaledb
     ports:
