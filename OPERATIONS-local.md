@@ -95,14 +95,39 @@
 
 ## 4. Botの起動とMakefileコマンド
 
-`README.md` に記載されている `make` コマンド (`make up`, `make logs`, `make down` など) は、WSL2ターミナル内のプロジェクトルートディレクトリで実行します。
+プロジェクトの操作には `Makefile` に定義されたコマンドを使用します。これにより、長くなりがちな `docker-compose` コマンドを簡略化し、意図を明確にできます。
 
-### `make up` の仕組み (WSL2 + Docker Desktop)
+### コマンドの役割分担
 
-- `make up` を実行すると、WSL2内の `docker-compose` コマンドが呼び出されます。
-- Docker Desktop の WSL2 統合により、Windows側で動作している Docker Engine が使用されます。
-- コンテナイメージのビルド (Dockerfileに基づく) やコンテナの起動が行われます。
-- ソースコードはWSL2ファイルシステム上にあり、これがDockerコンテナにマウントされます (もし `docker-compose.yml` でボリュームマウントが設定されていれば)。
+意図しない取引の開始を防ぐため、コマンドの役割が明確に分かれています。
+
+- `make up`: **取引Botを含む**すべてのサービス（Bot, DB, Grafana）を起動します。実際の取引を開始する場合に使用します。
+- `make monitor`: **取引Botを除く**、モニタリング関連のサービス（DB, Grafana）のみを起動します。リプレイ結果の確認や、過去のデータを分析する際に使用します。
+- `make replay`: 過去のデータを用いてバックテストを実行します。内部的に `make monitor` を呼び出し、DBとGrafanaが起動している状態を保証します。
+- `make down`: すべてのサービスを停止します。
+- `make help`: 利用可能なすべてのコマンドとその説明を表示します。
+
+### 一般的な開発フロー
+
+1.  **リプレイ結果の確認やデータ分析のみを行う場合**:
+    ```bash
+    # モニタリングサービス (DB, Grafana) を起動
+    make monitor
+    ```
+    その後、ブラウザで `http://localhost:3000` を開いてGrafanaダッシュボードを確認します。
+
+2.  **バックテストを実行する場合**:
+    ```bash
+    # リプレイを実行（DBとGrafanaも自動で起動します）
+    make replay
+    ```
+    完了後、Grafanaで `TimescaleDB (Replay)` データソースを選択して結果を確認します。
+
+3.  **実際の取引を開始する場合**:
+    ```bash
+    # Botを含む全サービスを起動
+    make up
+    ```
 
 ## 5. トラブルシューティング / FAQ
 
@@ -243,12 +268,13 @@
 
 ### 8.1. Grafanaへのアクセス
 
-1.  **Botを起動します。**
+1.  **モニタリングサービスを起動します。**
     WSL2ターミナルで、プロジェクトのルートディレクトリから以下のコマンドを実行します。
     ```bash
-    make up
+    make monitor
     ```
-    これにより、`bot`, `timescaledb`, `grafana` を含むすべてのサービスが起動します。
+    これにより、取引Botを起動せずに、`timescaledb` と `grafana` サービスが安全に起動します。
+    実際の取引を開始したい場合は `make up` を使用します。
 
 2.  **ブラウザでGrafanaを開きます。**
     Webブラウザで以下のURLにアクセスします。
