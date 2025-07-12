@@ -9,14 +9,27 @@ import (
 	"syscall"
 	"context" // Added for dbwriter context
 
+	"net/http" // Added for healthcheck endpoint
+
 	"github.com/your-org/obi-scalp-bot/internal/config"
 	"github.com/your-org/obi-scalp-bot/internal/dbwriter" // Added for TimescaleDB
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
+	"github.com/your-org/obi-scalp-bot/internal/http/handler" // Added for healthcheck endpoint
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
 	"go.uber.org/zap" // Added for Zap logger
 )
 
 func main() {
+	// --- Health Check Server ---
+	// Run the health check server in a separate goroutine.
+	// This is for Docker's HEALTHCHECK instruction or other monitoring.
+	go func() {
+		http.HandleFunc("/health", handler.HealthCheckHandler)
+		logger.Info("Health check server starting on :8080")
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			logger.Fatalf("Health check server failed: %v", err)
+		}
+	}()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
