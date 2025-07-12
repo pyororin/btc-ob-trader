@@ -1,0 +1,46 @@
+# Configuration for replay mode.
+# This might point to a different database or disable external connections.
+
+log_level: "info" # Log level: "debug", "info", "warn", "error"
+pair: "btc_jpy"
+
+# In replay mode, API keys might not be necessary, but we keep the structure.
+coincheck:
+  api_key: "REPLAY_MODE_NO_KEY"
+  api_secret: "REPLAY_MODE_NO_SECRET"
+
+# Database configuration for storing metrics, trades, etc.
+# For replay, you might want to write to a separate test database.
+database:
+  host: "timescaledb"
+  port: "5432"
+  user: "your_db_user"
+  password: "your_db_password"
+  name: "obi_scalp_bot_db_replay" # Use a separate DB for replay results
+  ssl_mode: "disable"
+
+# DB Writer configuration
+db_writer:
+  batch_size: 100
+  batch_interval_seconds: 5
+
+# Strategy configurations
+long:
+  obi_threshold: 0.25
+  tp: 200 # Take Profit in JPY
+  sl: -100 # Stop Loss in JPY
+
+short:
+  obi_threshold: 0.27
+  tp: 200 # Take Profit in JPY
+  sl: -100 # Stop Loss in JPY
+
+signal_hold_duration_ms: 300
+
+volatility:
+  ewma_lambda: 0.1 # Decay factor for EWMA volatility calculation
+  dynamic_obi:
+    enabled: true
+    volatility_factor: 1.0 # How much volatility affects the OBI threshold
+    min_threshold_factor: 0.5 # Minimum OBI threshold = base * this factor
+    max_threshold_factor: 2.0 # Maximum OBI threshold = base * this factor
