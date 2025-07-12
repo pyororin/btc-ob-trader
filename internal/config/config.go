@@ -46,13 +46,23 @@ type StrategyConf struct {
 	SL           float64 `yaml:"sl"` // Stop Loss
 }
 
-// VolConf holds configuration for volatility calculation.
+// VolConf holds configuration for volatility calculation and dynamic adjustments.
 type VolConf struct {
-	EWMA Lambda `yaml:"ewma_lambda"`
+	EWMALambda         float64        `yaml:"ewma_lambda"`
+	DynamicOBI         DynamicOBIConf `yaml:"dynamic_obi"`
+}
+
+// DynamicOBIConf holds configuration for dynamic OBI threshold adjustments.
+type DynamicOBIConf struct {
+	Enabled            bool    `yaml:"enabled"`
+	VolatilityFactor   float64 `yaml:"volatility_factor"`
+	MinThresholdFactor float64 `yaml:"min_threshold_factor"`
+	MaxThresholdFactor float64 `yaml:"max_threshold_factor"`
 }
 
 // Lambda is a type alias for float64 for clarity in config.
-type Lambda float64
+// This type alias is not used anymore, float64 is used directly.
+// type Lambda float64
 
 // LoadConfig loads configuration from the specified YAML file path
 // and environment variables.

@@ -27,10 +27,10 @@
 | T-10 | OPERATIONS-local.md | review  | **目的**：Win11+WSL2 手順。<br>**手順**：(詳細未定)<br>**DoD**：新規 PC で `make replay` 成功                                                                              |      |      |             |
 | T-11 | docker-compose.yml  | wip   | **目的**：Bot単体起動、Healthcheck・ボリューム永続。<br>**手順**：Botサービス定義、.env・configマウント<br>**DoD**：`docker-compose up bot` 成功、再起動後データ保持(DB接続後)                                                              |      |      | Bot単体起動は実装済み。Healthcheck, Volume永続(DB)は後続 |
 | T-12 | Makefile            | wip   | **目的**：`up/replay/down` ラッパ。<br>**手順**：`up, down, logs, shell, clean`実装<br>**DoD**：Win11 & Linux 両対応 (`make up`, `make down` 動作確認)                                                                    |      |      | `replay`は未実装 |
-| T-13 | MicroPrice & OFI    | todo  | **目的**：追加指標実装。<br>**手順**：(詳細未定)<br>**DoD**：単体テスト誤差 0                                                                                                    |      |      |             |
-| T-14 | ボラ閾値スケール            | todo  | **目的**：σ に基づく動的 OBI 閾値。<br>**手順**：(詳細未定)<br>**DoD**：高ボラ期発火率安定                                                                                           |      |      |             |
-| T-15 | Long/Short 非対称 R/R  | todo  | **目的**：方向別 TP/SL・閾値。<br>**手順**：(詳細未定)<br>**DoD**：Backtest Sharpe +10 %、DD −5 %                                                                          |      |      |             |
-| T-16 | 回帰ベンチ / A-B         | todo  | **目的**：v0↔v1 性能比較レポート。<br>**手順**：(詳細未定)<br>**DoD**：README に結果貼付                                                                                         |      |      |             |
+| T-13 | MicroPrice & OFI    | review| **目的**：追加指標実装。<br>**手順**：(詳細未定)<br>**DoD**：単体テスト誤差 0                                                                                                    |      |      |             |
+| T-14 | ボラ閾値スケール            | review| **目的**：σ に基づく動的 OBI 閾値。<br>**手順**：(詳細未定)<br>**DoD**：高ボラ期発火率安定                                                                                           |      |      |             |
+| T-15 | Long/Short 非対称 R/R  | review| **目的**：方向別 TP/SL・閾値。<br>**手順**：(詳細未定)<br>**DoD**：Backtest Sharpe +10 %、DD −5 %                                                                          |      |      |             |
+| T-16 | 回帰ベンチ / A-B         | todo  | **目的**：v0↔v1 性能比較レポート。<br>**手順**：(詳細未定)<br>**DoD**：README に結果貼付                                                                                         |      |      | 実装タスクではなく分析・ドキュメンテーションタスク。手動での対応が必要。 |
 
 *注: 「担当者」「期限」「備考」列は、実際のプロジェクト管理ツールやチームでの運用に合わせて活用してください。*
 *DoD (Definition of Done) はタスク完了の明確な基準です。*
