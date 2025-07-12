@@ -29,9 +29,18 @@ services:
       # - DB_NAME=${DB_NAME:-obi_scalp_bot_db}
       # - DB_PORT=${DB_PORT:-5432}
       # - DB_SSLMODE=${DB_SSLMODE:-disable}
+    ports:
+      - "8080:8080" # Expose healthcheck port
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s # Give the container time to start before the first healthcheck.
     restart: unless-stopped # This is the one to keep
     depends_on:
-      - timescaledb
+      timescaledb:
+        condition: service_healthy # Wait for timescaledb to be healthy
     networks:
       - bot_network
 

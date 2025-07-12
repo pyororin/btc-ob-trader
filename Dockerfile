@@ -24,8 +24,8 @@ FROM alpine:latest
 
 WORKDIR /app
 
-# Install ca-certificates for HTTPS communication by the application
-RUN apk add --no-cache ca-certificates
+# Install ca-certificates for HTTPS and curl for healthchecks
+RUN apk add --no-cache ca-certificates curl
 
 # Copy the config directory and .env.sample
 # Note: .env.sample is for reference; actual .env or environment variables should be used for secrets
