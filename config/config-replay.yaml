@@ -1,46 +1,100 @@
-# Configuration for replay mode.
-# This might point to a different database or disable external connections.
+# OBI-Scalp-Bot リプレイモード用設定ファイル (config-replay.yaml)
+#
+# このファイルは `make replay` コマンド実行時に使用される設定です。
+# 過去のデータを使って戦略のバックテストやデバッグを行うことを目的としています。
+#
+# - `config.yaml` と同じ構造を持ちますが、リプレイに特化した設定値を含みます。
+# - 外部APIへの接続は行わないため、APIキーはダミーの値を設定します。
+# - 結果は通常、本番用とは別のデータベースに保存します。
 
-log_level: "info" # Log level: "debug", "info", "warn", "error"
+# --- 全体設定 ---
+
+# ログレベル
+# "debug", "info", "warn", "error" から選択します。
+# デバッグ時は "debug" に設定すると詳細なログが出力されます。
+log_level: "info"
+
+# 取引ペア
+# リプレイ対象の取引ペアを指定します。
 pair: "btc_jpy"
 
-# In replay mode, API keys might not be necessary, but we keep the structure.
+# --- Coincheck API 設定 ---
+#
+# リプレイモードでは外部APIに接続しないため、これらの値は使用されません。
+# 構造を維持するためにダミーの値を設定しています。
 coincheck:
   api_key: "REPLAY_MODE_NO_KEY"
   api_secret: "REPLAY_MODE_NO_SECRET"
 
-# Database configuration for storing metrics, trades, etc.
-# For replay, you might want to write to a separate test database.
+# --- データベース (TimescaleDB) 接続設定 ---
+#
+# リプレイ結果を保存するためのデータベース接続設定です。
+# 本番環境 (`config.yaml`) とは別のデータベース名 (`name`) を指定することを強く推奨します。
 database:
+  # データベースホスト名
+  # Docker Compose を利用する場合、サービス名 "timescaledb" を指定します。
   host: "timescaledb"
+
+  # ポート番号
   port: "5432"
-  user: "your_db_user"
-  password: "your_db_password"
-  name: "obi_scalp_bot_db_replay" # Use a separate DB for replay results
+
+  # ユーザー名
+  # .env ファイルや環境変数での設定を推奨します。
+  user: "postgres"
+
+  # パスワード
+  # .env ファイルや環境変数での設定を強く推奨します。
+  password: "password"
+
+  # データベース名
+  # リプレイ結果専用のデータベース名を指定します。
+  # 例: "obi_scalp_bot_db_replay"
+  name: "obi_scalp_bot_db_replay"
+
+  # SSLモード
   ssl_mode: "disable"
 
-# DB Writer configuration
+# --- DBライター設定 ---
 db_writer:
+  # バッチサイズ
+  # 一度にデータベースへ書き込むレコード数。
   batch_size: 100
+
+  # 書き込み間隔 (秒)
+  # `make replay` では高速にデータが処理されるため、この値はあまり影響しません。
   batch_interval_seconds: 5
 
-# Strategy configurations
+# --- 戦略パラメータ ---
+#
+# リプレイでは、戦略の有効性を検証するために様々な値を試します。
+# 例えば、TP/SLを広めに設定して、シグナルの優位性を確認するなどの使い方があります。
+
+# --- ロング戦略パラメータ ---
 long:
   obi_threshold: 0.25
-  tp: 200 # Take Profit in JPY
-  sl: -100 # Stop Loss in JPY
+  tp: 200 # 利食い (Take Profit) 幅 (円)
+  sl: -100 # 損切り (Stop Loss) 幅 (円)
 
+# --- ショート戦略パラメータ ---
 short:
-  obi_threshold: 0.27
-  tp: 200 # Take Profit in JPY
-  sl: -100 # Stop Loss in JPY
+  obi_threshold: -0.27 # ショートは負の値
+  tp: 200 # 利食い (Take Profit) 幅 (円)
+  sl: -100 # 損切り (Stop Loss) 幅 (円)
 
+# シグナルホールド時間 (ミリ秒)
+# シグナルが連続して発生した場合に、エントリーを見送る期間。
+# 短期間での連続エントリー（ドテンなど）を防ぎます。
+# 例: 300
 signal_hold_duration_ms: 300
 
+# --- ボラティリティ適応設定 ---
 volatility:
-  ewma_lambda: 0.1 # Decay factor for EWMA volatility calculation
+  # EWMA (指数平滑移動平均) の減衰パラメータ (λ)
+  ewma_lambda: 0.1
+
+  # 動的OBI閾値設定
   dynamic_obi:
     enabled: true
-    volatility_factor: 1.0 # How much volatility affects the OBI threshold
-    min_threshold_factor: 0.5 # Minimum OBI threshold = base * this factor
-    max_threshold_factor: 2.0 # Maximum OBI threshold = base * this factor
+    volatility_factor: 1.0
+    min_threshold_factor: 0.5
+    max_threshold_factor: 2.0
