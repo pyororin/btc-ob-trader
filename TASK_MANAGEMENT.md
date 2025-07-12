@@ -16,12 +16,12 @@
 
 | ID   | タイトル                | ステータス | 目的 / 手順 / **DoD**                                                                                                       | 担当者 | 期限   | 備考        |
 | ---- | ------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------- | ---- | ---- | ----------- |
-| T-01 | WebSocket クライアント    | wip   | **目的**：orderbook・trades 購読、再接続<br>**手順**：gorilla/websocket、ping/pong 実装、指数バックオフ<br>**DoD**：10 分連続欠落ゼロ、TimescaleDB 保存 OK |      |      |             |
+| T-01 | WebSocket クライアント    | review| **目的**：orderbook・trades 購読、再接続<br>**手順**：gorilla/websocket、ping/pong 実装、指数バックオフ<br>**DoD**：10 分連続欠落ゼロ、TimescaleDB 保存 OK |      |      |             |
 | T-02 | L2 & OBI            | review  | **目的**：OBI₈/₁₆ 計算。ヒープ構造、300 ms 更新。<br>**手順**：(詳細未定)<br>**DoD**：単体テストで理論値一致                                                              |      |      |             |
 | T-03 | TradeHandler & CVD  | done | **目的**：500 ms ロール CVD。ring-buffer 実装。<br>**手順**：(詳細未定)<br>**DoD**：csv テストで符号一致                                                                          |      |      |             |
-| T-04 | SignalEngine v1     | wip   | **目的**：50 ms 判定・300 ms 継続ロジック。<br>**手順**：(詳細未定)<br>**DoD**：ロング5/ショート5 シグナル発火                                                                            |      |      |             |
+| T-04 | SignalEngine v1     | review| **目的**：50 ms 判定・300 ms 継続ロジック。<br>**手順**：(詳細未定)<br>**DoD**：ロング5/ショート5 シグナル発火                                                                            |      |      |             |
 | T-05 | ExecutionEngine     | review| **目的**：POST\_ONLY 指値・cancel/replace。<br>**手順**：(詳細未定)<br>**DoD**：Mock 50 注文全成功                                                                          |      |      |             |
-| T-06 | TimescaleDB Writer  | wip   | **目的**：板差分・PnL 保存、圧縮。<br>**手順**：(詳細未定)<br>**DoD**：10 万行→圧縮率 >60 %                                                                                       |      |      |             |
+| T-06 | TimescaleDB Writer  | review| **目的**：板差分・PnL 保存、圧縮。<br>**手順**：(詳細未定)<br>**DoD**：10 万行→圧縮率 >60 %                                                                                       |      |      |             |
 | T-07 | README.md           | review| **目的**：日本語クイックスタート。<br>**手順**：プロジェクト概要、ローカル起動手順、Makefileコマンド説明<br>**DoD**：新環境で `make up` 成功                                                                 |      |      | README.md 更新済み、DoDは`make up`の成功で判断 |
 | T-08 | OPERATIONS.md       | review  | **目的**：本番手順・監視 SOP。<br>**手順**：(詳細未定)<br>**DoD**：Staging healthcheck PASS                                                                                |      |      |             |
 | T-10 | OPERATIONS-local.md | review  | **目的**：Win11+WSL2 手順。<br>**手順**：(詳細未定)<br>**DoD**：新規 PC で `make replay` 成功                                                                              |      |      |             |

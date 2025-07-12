@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -76,9 +77,44 @@ func main() {
 	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
 
 	// --- WebSocket Client ---
-	wsClient := coincheck.NewWebSocketClient(func(data coincheck.OrderBookData) {
+	orderBookHandler := func(data coincheck.OrderBookData) {
 		orderBook.ApplyUpdate(data)
-	})
+	}
+
+	tradeHandler := func(data coincheck.TradeData) {
+		if dbWriter != nil {
+			// Convert coincheck.TradeData to dbwriter.Trade
+			price, err := strconv.ParseFloat(data.Rate(), 64)
+			if err != nil {
+				logger.Errorf("Failed to parse trade price: %v", err)
+				return
+			}
+			size, err := strconv.ParseFloat(data.Amount(), 64)
+			if err != nil {
+				logger.Errorf("Failed to parse trade size: %v", err)
+				return
+			}
+			txID, err := strconv.ParseInt(data.TransactionID(), 10, 64)
+			if err != nil {
+				logger.Errorf("Failed to parse transaction ID: %v", err)
+				return
+			}
+
+			trade := dbwriter.Trade{
+				Time:        time.Now().UTC(), // Or use a timestamp from the trade data if available
+				Pair:        data.Pair(),
+				Side:        data.TakerSide(),
+				Price:       price,
+				Size:        size,
+				TransactionID: txID,
+			}
+			dbWriter.SaveTrade(trade)
+		}
+		logger.Debugf("Trade received: Pair=%s, Side=%s, Price=%s, Amount=%s", data.Pair(), data.TakerSide(), data.Rate(), data.Amount())
+	}
+
+	wsClient := coincheck.NewWebSocketClient(orderBookHandler, tradeHandler)
+
 
 	// --- Graceful Shutdown Setup ---
 	sigs := make(chan os.Signal, 1)
