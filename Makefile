@@ -43,7 +43,7 @@ clean: ## Stop, remove containers, and remove volumes.
 
 replay: ## Run a backtest using historical data.
 	@echo "Running replay task..."
-	sudo -E docker compose run --rm bot-replay
+	sudo -E docker compose run --build --rm bot-replay
 
 # ==============================================================================
 # GO BUILDS & TESTS
