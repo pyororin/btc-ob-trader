@@ -41,10 +41,7 @@ func main() {
 		startHealthCheckServer()
 	}
 
-	var dbWriter *dbwriter.Writer
-	if !f.replayMode {
-		dbWriter = setupDBWriter(ctx, cfg)
-	}
+	dbWriter := setupDBWriter(ctx, cfg)
 	if dbWriter != nil {
 		defer dbWriter.Close()
 	}
