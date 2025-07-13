@@ -12,7 +12,7 @@
 # ログレベル
 # "debug", "info", "warn", "error" から選択します。
 # デバッグ時は "debug" に設定すると詳細なログが出力されます。
-log_level: "info"
+log_level: "debug"
 
 # 取引ペア
 # リプレイ対象の取引ペアを指定します。
@@ -86,6 +86,11 @@ short:
 # 短期間での連続エントリー（ドテンなど）を防ぎます。
 # 例: 300
 signal_hold_duration_ms: 300
+
+# --- リプレイ設定 ---
+replay:
+  # バックテストに使用する取引データCSVファイルのパス
+  csv_path: "pkg/cvd/test_trades.csv"
 
 # --- ボラティリティ適応設定 ---
 volatility:

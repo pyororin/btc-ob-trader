@@ -9,6 +9,10 @@
 
 # --- 全体設定 ---
 
+# ログレベル
+# "debug"、"info"、"warn"、"error" から選択します。
+log_level: "info"
+
 # 取引ペア (例: "btc_jpy", "eth_jpy")
 # Coincheck API でサポートされているペアを指定します。
 pair: "btc_jpy"

@@ -3,8 +3,10 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -39,7 +41,10 @@ func main() {
 		startHealthCheckServer()
 	}
 
-	dbWriter := setupDBWriter(ctx, cfg)
+	var dbWriter *dbwriter.Writer
+	if !f.replayMode {
+		dbWriter = setupDBWriter(ctx, cfg)
+	}
 	if dbWriter != nil {
 		defer dbWriter.Close()
 	}
@@ -212,32 +217,75 @@ func waitForShutdownSignal(sigs <-chan os.Signal) {
 	logger.Infof("Received signal: %s", sig)
 }
 
-// runReplay simulates market data for backtesting.
+// runReplay reads trade data from a CSV file and simulates the market for backtesting.
 func runReplay(ctx context.Context, cfg *config.Config, obHandler coincheck.OrderBookHandler, tradeHandler coincheck.TradeHandler, sigs chan<- os.Signal) {
 	logger.Info("Starting replay mode...")
-	// This is a placeholder. Real implementation would read from a data source.
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
 
-	// Simulate a 10-second replay for demonstration purposes.
-	replayEndTime := time.Now().Add(10 * time.Second)
-
-	for {
-		select {
-		case <-ticker.C:
-			if time.Now().After(replayEndTime) {
-				logger.Info("Replay finished.")
-				sigs <- syscall.SIGTERM // Signal completion
-				return
-			}
-			logger.Info("Replay tick...")
-			// In a real scenario, you would generate or read historical data
-			// and pass it to the respective handlers.
-			// e.g., obHandler(mockOrderBookData)
-			// e.g., tradeHandler(mockTradeData)
-		case <-ctx.Done():
-			logger.Info("Replay mode shutting down due to context cancellation.")
-			return
-		}
+	file, err := os.Open(cfg.Replay.CSVPath)
+	if err != nil {
+		logger.Fatalf("Failed to open replay CSV file: %v", err)
 	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	// ヘッダーを読み飛ばす
+	if _, err := reader.Read(); err != nil {
+		logger.Fatalf("Failed to read header from CSV: %v", err)
+	}
+
+	go func() {
+		defer func() {
+			logger.Info("Replay finished.")
+			sigs <- syscall.SIGTERM // 完了を通知
+		}()
+
+		for {
+			record, err := reader.Read()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				logger.Errorf("Error reading CSV record: %v", err)
+				continue
+			}
+
+			tradeData, err := parseTradeData(record, cfg.Pair)
+			if err != nil {
+				logger.Errorf("Failed to parse trade data: %v", err)
+				continue
+			}
+
+			tradeHandler(tradeData)
+			logger.Debugf("Processed trade: ID=%s, Rate=%s, Amount=%s", tradeData.TransactionID(), tradeData.Rate(), tradeData.Amount())
+
+			// Simulate some delay
+			time.Sleep(10 * time.Millisecond)
+
+			select {
+			case <-ctx.Done():
+				logger.Info("Replay cancelled.")
+				return
+			default:
+			}
+		}
+	}()
+}
+
+// parseTradeData converts a CSV record to a coincheck.TradeData object.
+// CSV format: [transaction_id, pair, rate, amount, taker_side]
+// Our sample CSV has: id,order_id,created_at,amount,rate,side
+func parseTradeData(record []string, pair string) (coincheck.TradeData, error) {
+	if len(record) < 6 {
+		return coincheck.TradeData{}, fmt.Errorf("invalid record: %+v", record)
+	}
+	// Mapping: [transaction_id, pair, rate, amount, taker_side]
+	// CSV:       [0:id,         1:pair, 2:rate, 3:amount, 4:taker_side] - simplified mapping
+	// Our CSV:   [0:id,         ...,    4:rate, 3:amount, 5:side]
+	return coincheck.TradeData{
+		record[0], // TransactionID
+		pair,      // Pair
+		record[4], // Rate
+		record[3], // Amount
+		record[5], // TakerSide
+	}, nil
 }
