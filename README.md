@@ -1,95 +1,121 @@
-# 板情報を核とした BTC/JPY スキャルピング Bot (obi-scalp-bot)
+# OBI Scalp Bot
 
-Coincheck BTC/JPY のオーダーブックと出来高フローをリアルタイム解析し、**超短期スキャルピング**で高効率に資金を回転させることを目的としたトレーディングボットです。
+OBI (Order Book Imbalance) に基づいてスキャルピングを行う取引ボットです。
 
-## 📜 プロジェクト概要
+## 主な機能
 
-本プロジェクトは、Coincheck Exchange API および WebSocket β版を利用して、以下の戦略に基づいた自動取引を実現します。
+-   Coincheck の WebSocket API を利用してリアルタイムに板情報・取引情報を取得
+-   OBI (Order Book Imbalance) を計算し、売買シグナルを生成
+-   ボラティリティに応じて動的にパラメータを調整
+-   TimescaleDB に取引履歴や計算指標を保存
+-   Grafana によるパフォーマンスの可視化
+-   過去データを利用したリプレイ（バックテスト）機能
 
-- **戦略目標**: Coincheck BTC/JPY のオーダーブックと出来高フローをリアルタイム解析し、超短期スキャルピングで約200万円を高効率に回転させる。
-- **実装言語**: Go 1.22+
-- **本番環境**: Google Cloud Run + Cloud SQL (PostgreSQL + TimescaleDB) を想定 (コンテナ化前提)
+## 技術スタック
 
-詳細な仕様については、包括仕様書（別途管理）を参照してください。
+-   **言語**: Go
+-   **データベース**: TimescaleDB (PostgreSQL + TimescaleDB拡張)
+-   **可視化**: Grafana
+-   **コンテナ化**: Docker, Docker Compose
 
-## 🚀 5分クイックスタート (ローカル開発環境)
-
-ローカルマシンでBotを起動し、動作を確認するための手順です。
+## セットアップ
 
 ### 前提条件
 
-- [Git](https://git-scm.com/)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Docker Engine および Docker Compose v2 を含む)
-- Go 1.22+ (ローカルでのビルドやテストに必要。Botの実行自体はDocker内で行われます)
+-   Docker および Docker Compose がインストールされていること
+-   `make`コマンドが利用できること
 
-### セットアップと実行
+### 1. リポジトリのクローン
 
-1.  **リポジトリをクローン:**
-    ```bash
-    git clone https://github.com/your-org/obi-scalp-bot.git
-    cd obi-scalp-bot
-    ```
+```bash
+git clone https://github.com/your-org/obi-scalp-bot.git
+cd obi-scalp-bot
+```
 
-2.  **環境設定ファイルを作成:**
-    `.env.sample` をコピーして `.env` ファイルを作成し、CoincheckのAPIキーとシークレットを追記します。
-    ```bash
-    cp .env.sample .env
-    ```
-    エディタで `.env` を開き、以下の項目を実際の値に置き換えてください。
-    ```dotenv
-    COINCHECK_API_KEY="YOUR_API_KEY"
-    COINCHECK_API_SECRET="YOUR_API_SECRET"
-    # 他のDB設定等は開発初期段階ではデフォルトのままでOK
-    ```
+### 2. 環境変数の設定
 
-3.  **Botを起動:**
-    以下のコマンドで、Dockerコンテナ内でBotをビルドし、バックグラウンドで起動します。
-    ```bash
-    make up
-    ```
-    初回起動時はイメージのビルドに数分かかることがあります。
+.env.sample ファイルをコピーして .env ファイルを作成し、必要な情報を設定します。
 
-4.  **ログを確認:**
-    Botの動作状況はログで確認できます。
-    ```bash
-    make logs
-    ```
-    Ctrl+C でログのフォローを停止できます。
+```bash
+cp .env.sample .env
+```
+.envファイルの中身を編集します。
 
-5.  **Botを停止:**
-    Botを停止し、関連するコンテナを削除するには以下のコマンドを実行します。
-    ```bash
-    make down
-    ```
+```
+# Coincheck API
+COINCHECK_API_KEY="YOUR_API_KEY"
+COINCHECK_API_SECRET="YOUR_API_SECRET"
 
-### 主な Makefile コマンド
+# Database
+DB_USER="your_db_user"
+DB_PASSWORD="your_db_password"
+DB_NAME="obi_scalp_bot_db"
 
-- `make up`: Botを起動します (バックグラウンド実行、必要なら再ビルド)。
-- `make down`: Botを停止し、コンテナを削除します。
-- `make logs`: Botのログをリアルタイムで表示します。
-- `make shell`: 実行中のBotコンテナ内でシェルを起動します (デバッグ用)。
-- `make clean`: Botを停止し、コンテナと関連ボリューム (将来的にDBデータ等) を削除します。
-- `make help`: 利用可能なすべての `make` コマンドを表示します。
+# Grafana
+GRAFANA_USER="admin"
+GRAFana_PASSWORD="admin"
+```
 
-<!--
-## 🛠️ アーキテクチャ概要
+### 3. 設定ファイルの確認
 
-(後日追記: システム構成図など)
+`config/config.yaml` が基本的な設定ファイルです。取引ペアや戦略パラメータを調整できます。
 
-## 📚 依存ライブラリ
+## 実行方法
 
-(後日追記: 主なGoパッケージなど)
+### 通常起動（本番トレード）
 
-## 🔗 参考リソース
+以下のコマンドで、ボットと関連サービス（データベース、Grafana）を起動します。
 
-(後日追記: APIドキュメント、関連論文など)
--->
+```bash
+make up
+```
 
-## 📝 ドキュメント
+### 監視のみ
 
-- `OPERATIONS-local.md`: Windows 11 + WSL2 環境での詳細な構築手順、FAQ。
-- `OPERATIONS.md`: Google Cloud Run を使った本番運用手順、監視、障害対応。
-- `TASK_MANAGEMENT.md`: 開発タスク一覧と進捗。
+ボットを起動せず、データベースとGrafanaのみを起動します。
 
----
-*このプロジェクトは学習および実験を目的としています。実際の取引に利用する際は、十分なテストとリスク管理を行った上で、自己責任でお願いします。*
+```bash
+make monitor
+```
+
+### ログの確認
+
+```bash
+make logs
+```
+
+### サービスの停止
+
+```bash
+make down
+```
+
+### リプレイ（バックテスト）の実行
+
+`make replay` コマンドで、過去の取引データ（CSV）を使用してバックテストを実行できます。
+
+```bash
+make replay
+```
+リプレイモードでは、`config/config-replay.yaml` が使用されます。デフォルトでは `pkg/cvd/test_trades.csv` のデータを読み込みます。
+
+**注意**: `docker` コマンドの実行に `sudo` が必要な環境では、`Makefile` が `sudo -E` を使用して環境変数を引き継ぐように設定されています。`sudo` なしで `docker` を実行できるユーザーは、`Makefile` 内の `sudo -E` を削除してください。
+
+## Grafanaダッシュボード
+
+`make up` または `make monitor` を実行後、ブラウザで http://localhost:3000 にアクセスします。
+`.env` で設定したユーザー名とパスワードでログインしてください（デフォルト: admin/admin）。
+
+## 開発
+
+### テストの実行
+
+```bash
+make test
+```
+
+### ローカルビルド
+
+```bash
+make build
+```
