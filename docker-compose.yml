@@ -7,7 +7,7 @@ services:
     volumes:
       - ./.env:/app/.env:ro
       - ./config:/app/config:ro
-    entrypoint: ["./obi-scalp-bot"]
+    command: ["./obi-scalp-bot", "-config", "/app/config/config.yaml"]
     env_file:
       - .env
     environment:
