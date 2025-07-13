@@ -82,8 +82,13 @@ func NewWriter(ctx context.Context, dbConfig config.DatabaseConfig, writerConfig
 
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		logger.Error("Failed to ping database", zap.Error(err))
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+		logger.Warn("Failed to ping database, creating dummy writer", zap.Error(err))
+		// Return a "dummy" writer that does nothing if DB connection fails.
+		return &Writer{
+			pool:         nil, // Explicitly nil
+			logger:       logger,
+			shutdownChan: make(chan struct{}), // Still need a valid channel
+		}, nil
 	}
 
 	writer := &Writer{
@@ -95,16 +100,24 @@ func NewWriter(ctx context.Context, dbConfig config.DatabaseConfig, writerConfig
 		shutdownChan:    make(chan struct{}),
 	}
 
-	batchInterval := time.Duration(writerConfig.WriteIntervalSeconds) * time.Second
-	writer.flushTicker = time.NewTicker(batchInterval)
-	go writer.run()
+	// Only start the background writer if the pool is valid
+	if writer.pool != nil {
+		batchInterval := time.Duration(writerConfig.WriteIntervalSeconds) * time.Second
+		writer.flushTicker = time.NewTicker(batchInterval)
+		go writer.run()
+		logger.Info("Successfully connected to TimescaleDB and started batch writer")
+	}
 
-	logger.Info("Successfully connected to TimescaleDB and started batch writer")
 	return writer, nil
 }
 
 // Close はデータベース接続プールをクローズし、バッファをフラッシュします。
 func (w *Writer) Close() {
+	if w.pool == nil {
+		w.logger.Info("Closing dummy DB writer.")
+		return
+	}
+
 	w.logger.Info("Closing TimescaleDB writer...")
 	close(w.shutdownChan)
 	w.flushTicker.Stop()
@@ -119,6 +132,9 @@ func (w *Writer) Close() {
 }
 
 func (w *Writer) run() {
+	if w.pool == nil {
+		return // Do not run for dummy writer
+	}
 	for {
 		select {
 		case <-w.flushTicker.C:
@@ -131,6 +147,9 @@ func (w *Writer) run() {
 
 // SaveOrderBookUpdate は板情報更新をバッファに追加します。
 func (w *Writer) SaveOrderBookUpdate(obu OrderBookUpdate) {
+	if w.pool == nil {
+		return
+	}
 	w.bufferMutex.Lock()
 	defer w.bufferMutex.Unlock()
 
@@ -142,6 +161,9 @@ func (w *Writer) SaveOrderBookUpdate(obu OrderBookUpdate) {
 
 // SaveTrade は約定情報をバッファに追加します。
 func (w *Writer) SaveTrade(trade Trade) {
+	if w.pool == nil {
+		return
+	}
 	w.bufferMutex.Lock()
 	defer w.bufferMutex.Unlock()
 
@@ -152,6 +174,9 @@ func (w *Writer) SaveTrade(trade Trade) {
 }
 
 func (w *Writer) flushBuffers() {
+	if w.pool == nil {
+		return
+	}
 	w.bufferMutex.Lock()
 	defer w.bufferMutex.Unlock()
 
@@ -167,7 +192,7 @@ func (w *Writer) flushBuffers() {
 }
 
 func (w *Writer) batchInsertOrderBookUpdates(ctx context.Context, updates []OrderBookUpdate) {
-	if len(updates) == 0 {
+	if w.pool == nil || len(updates) == 0 {
 		return
 	}
 	w.logger.Info("Flushing order book updates", zap.Int("count", len(updates)))
@@ -184,7 +209,7 @@ func (w *Writer) batchInsertOrderBookUpdates(ctx context.Context, updates []Orde
 }
 
 func (w *Writer) batchInsertTrades(ctx context.Context, trades []Trade) {
-	if len(trades) == 0 {
+	if w.pool == nil || len(trades) == 0 {
 		return
 	}
 	w.logger.Info("Flushing trades", zap.Int("count", len(trades)))
@@ -217,6 +242,10 @@ func toTradeInterfaces(trades []Trade) [][]interface{} {
 
 // SavePnLSummary は単一のPnLサマリーをデータベースに保存します。
 func (w *Writer) SavePnLSummary(ctx context.Context, pnl PnLSummary) error {
+	if w.pool == nil {
+		w.logger.Info("Skipping PnL summary save for dummy writer", zap.Any("pnl", pnl))
+		return nil
+	}
 	query := `INSERT INTO pnl_summary (time, strategy_id, pair, realized_pnl, unrealized_pnl, total_pnl, position_size, avg_entry_price)
 	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 	_, err := w.pool.Exec(ctx, query,

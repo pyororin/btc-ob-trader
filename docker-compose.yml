@@ -28,12 +28,6 @@ services:
     networks:
       - bot_network
 
-  bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: obi-scalp-bot
-    entrypoint: ["./obi-scalp-bot"]
   bot-replay:
     build:
       context: .
@@ -48,8 +42,6 @@ services:
       - .env
     environment:
       - DB_HOST=timescaledb
-    depends_on:
-      - timescaledb
     networks:
       - bot_network
 
