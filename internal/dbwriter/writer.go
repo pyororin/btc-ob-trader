@@ -102,6 +102,16 @@ func NewWriter(ctx context.Context, dbConfig config.DatabaseConfig, writerConfig
 
 	// Only start the background writer if the pool is valid
 	if writer.pool != nil {
+		// Fallback for zero or invalid values
+		if writerConfig.WriteIntervalSeconds <= 0 {
+			writerConfig.WriteIntervalSeconds = 1 // Default to 1s to avoid panic
+			logger.Warn("WriteIntervalSeconds is zero or negative, defaulting to 1s.", zap.Int("originalValue", writerConfig.WriteIntervalSeconds))
+		}
+		if writer.config.BatchSize <= 0 {
+			writer.config.BatchSize = 100 // Default to 100 to avoid issues
+			logger.Warn("BatchSize is zero or negative, defaulting to 100.", zap.Int("originalValue", writer.config.BatchSize))
+		}
+
 		batchInterval := time.Duration(writerConfig.WriteIntervalSeconds) * time.Second
 		writer.flushTicker = time.NewTicker(batchInterval)
 		go writer.run()
