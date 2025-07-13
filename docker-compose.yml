@@ -28,15 +28,22 @@ services:
     networks:
       - bot_network
 
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: obi-scalp-bot
+    entrypoint: ["./obi-scalp-bot"]
   bot-replay:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: obi-scalp-bot-replay
+    entrypoint: ["./obi-scalp-bot"]
     volumes:
       - ./.env:/app/.env:ro
       - ./config:/app/config:ro
-    command: ["./obi-scalp-bot", "-replay", "-config", "/app/config/config-replay.yaml"]
+    command: ["-replay", "-config", "/app/config/config-replay.yaml"]
     env_file:
       - .env
     environment:
