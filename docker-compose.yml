@@ -33,19 +33,12 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: obi-scalp-bot-replay
-    entrypoint: ["./obi-scalp-bot"]
     volumes:
-      - ./.env:/app/.env:ro
       - ./config:/app/config:ro
       - ./pkg:/app/pkg:ro
+      - ./replay_output:/app/replay_output
     command: ["-replay", "-config", "/app/config/config-replay.yaml"]
-    env_file:
-      - .env
-    environment:
-      - DB_HOST=timescaledb
-    depends_on:
-      timescaledb:
-        condition: service_healthy
+    user: root
     networks:
       - bot_network
 

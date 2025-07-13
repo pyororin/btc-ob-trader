@@ -25,7 +25,8 @@ type Config struct {
 
 // ReplayConfig holds configuration for the replay mode.
 type ReplayConfig struct {
-	CSVPath string `yaml:"csv_path"`
+	CSVPath       string `yaml:"csv_path"`
+	OutputCSVPath string `yaml:"output_csv_path"`
 }
 
 // DatabaseConfig holds all database connection parameters.

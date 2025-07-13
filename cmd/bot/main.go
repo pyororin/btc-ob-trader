@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/your-org/obi-scalp-bot/internal/config"
+	"github.com/your-org/obi-scalp-bot/internal/csvwriter"
 	"github.com/your-org/obi-scalp-bot/internal/dbwriter"
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
 	"github.com/your-org/obi-scalp-bot/internal/http/handler"
@@ -35,25 +36,41 @@ func main() {
 	defer cancel()
 
 	cfg := setupConfig(f.configPath)
-	setupLogger(cfg.LogLevel, f.configPath, cfg.Pair)
+	zapLogger := setupLogger(cfg.LogLevel, f.configPath, cfg.Pair)
 
 	if !f.replayMode {
 		startHealthCheckServer()
 	}
 
-	dbWriter := setupDBWriter(ctx, cfg)
-	if dbWriter != nil {
-		defer dbWriter.Close()
+	var dbWriter *dbwriter.Writer
+	var csvWriter *csvwriter.Writer
+	if f.replayMode {
+		var err error
+		csvWriter, err = csvwriter.NewWriter(cfg.Replay.OutputCSVPath, zapLogger)
+		if err != nil {
+			logger.Fatalf("Failed to initialize CSV writer: %v", err)
+		}
+		defer csvWriter.Close()
+		// Write header to CSV
+		header := []string{"timestamp", "event_type", "details"}
+		if err := csvWriter.Write(header); err != nil {
+			logger.Errorf("Failed to write CSV header: %v", err)
+		}
+	} else {
+		dbWriter = setupDBWriter(ctx, cfg, zapLogger)
+		if dbWriter != nil {
+			defer dbWriter.Close()
+		}
 	}
 
 	// --- Setup Handlers and Indicators ---
 	orderBook := indicator.NewOrderBook()
 	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
-	orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter)
+	orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, csvWriter, f.replayMode)
 
 	// --- Start Services ---
 	obiCalculator.Start(ctx)
-	go processOBICalculations(ctx, obiCalculator)
+	go processOBICalculations(ctx, obiCalculator, csvWriter, f.replayMode)
 
 	// --- Main Execution Loop ---
 	sigs := make(chan os.Signal, 1)
@@ -88,11 +105,23 @@ func setupConfig(configPath string) *config.Config {
 }
 
 // setupLogger initializes the global logger.
-func setupLogger(logLevel, configPath, pair string) {
+func setupLogger(logLevel, configPath, pair string) *zap.Logger {
 	logger.SetGlobalLogLevel(logLevel)
 	logger.Info("OBI Scalping Bot starting...")
 	logger.Infof("Loaded configuration from: %s", configPath)
 	logger.Infof("Target pair: %s", pair)
+
+	var zapLogger *zap.Logger
+	var zapErr error
+	if logLevel == "debug" {
+		zapLogger, zapErr = zap.NewDevelopment()
+	} else {
+		zapLogger, zapErr = zap.NewProduction()
+	}
+	if zapErr != nil {
+		logger.Fatalf("Failed to initialize Zap logger: %v", zapErr)
+	}
+	return zapLogger
 }
 
 // startHealthCheckServer starts the HTTP server for health checks.
@@ -107,24 +136,10 @@ func startHealthCheckServer() {
 }
 
 // setupDBWriter initializes the TimescaleDB writer if enabled.
-func setupDBWriter(ctx context.Context, cfg *config.Config) *dbwriter.Writer {
+func setupDBWriter(ctx context.Context, cfg *config.Config, zapLogger *zap.Logger) *dbwriter.Writer {
 	if cfg.DBWriter.BatchSize <= 0 {
 		return nil
 	}
-
-	var zapLogger *zap.Logger
-	var zapErr error
-	if cfg.LogLevel == "debug" {
-		zapLogger, zapErr = zap.NewDevelopment()
-	} else {
-		zapLogger, zapErr = zap.NewProduction()
-	}
-	if zapErr != nil {
-		logger.Fatalf("Failed to initialize Zap logger for DBWriter: %v", zapErr)
-	}
-	// It's idiomatic to handle the sync in main's defer, but since we are encapsulating,
-	// we will rely on the application's main defer to handle process-wide concerns.
-	// A more robust solution might involve a dedicated lifecycle management component.
 
 	logger.Infof("Initializing DBWriter with config: BatchSize=%d, WriteIntervalSeconds=%d", cfg.DBWriter.BatchSize, cfg.DBWriter.WriteIntervalSeconds)
 
@@ -137,49 +152,63 @@ func setupDBWriter(ctx context.Context, cfg *config.Config) *dbwriter.Writer {
 }
 
 // setupHandlers creates and returns the handlers for order book and trade data.
-func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer) (coincheck.OrderBookHandler, coincheck.TradeHandler) {
+func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, csvWriter *csvwriter.Writer, isReplay bool) (coincheck.OrderBookHandler, coincheck.TradeHandler) {
 	orderBookHandler := func(data coincheck.OrderBookData) {
 		orderBook.ApplyUpdate(data)
 	}
 
 	tradeHandler := func(data coincheck.TradeData) {
 		logger.Debugf("Trade: Pair=%s, Side=%s, Price=%s, Amount=%s", data.Pair(), data.TakerSide(), data.Rate(), data.Amount())
-		if dbWriter == nil {
-			return
-		}
 
-		price, err := strconv.ParseFloat(data.Rate(), 64)
-		if err != nil {
-			logger.Errorf("Failed to parse trade price: %v", err)
-			return
-		}
-		size, err := strconv.ParseFloat(data.Amount(), 64)
-		if err != nil {
-			logger.Errorf("Failed to parse trade size: %v", err)
-			return
-		}
-		txID, err := strconv.ParseInt(data.TransactionID(), 10, 64)
-		if err != nil {
-			logger.Errorf("Failed to parse transaction ID: %v", err)
-			return
-		}
+		if isReplay {
+			if csvWriter != nil {
+				record := []string{
+					time.Now().UTC().Format(time.RFC3339),
+					"trade",
+					fmt.Sprintf("id=%s,side=%s,price=%s,amount=%s", data.TransactionID(), data.TakerSide(), data.Rate(), data.Amount()),
+				}
+				if err := csvWriter.Write(record); err != nil {
+					logger.Errorf("Failed to write trade to CSV: %v", err)
+				}
+			}
+		} else {
+			if dbWriter == nil {
+				return
+			}
 
-		trade := dbwriter.Trade{
-			Time:          time.Now().UTC(),
-			Pair:          data.Pair(),
-			Side:          data.TakerSide(),
-			Price:         price,
-			Size:          size,
-			TransactionID: txID,
+			price, err := strconv.ParseFloat(data.Rate(), 64)
+			if err != nil {
+				logger.Errorf("Failed to parse trade price: %v", err)
+				return
+			}
+			size, err := strconv.ParseFloat(data.Amount(), 64)
+			if err != nil {
+				logger.Errorf("Failed to parse trade size: %v", err)
+				return
+			}
+			txID, err := strconv.ParseInt(data.TransactionID(), 10, 64)
+			if err != nil {
+				logger.Errorf("Failed to parse transaction ID: %v", err)
+				return
+			}
+
+			trade := dbwriter.Trade{
+				Time:          time.Now().UTC(),
+				Pair:          data.Pair(),
+				Side:          data.TakerSide(),
+				Price:         price,
+				Size:          size,
+				TransactionID: txID,
+			}
+			dbWriter.SaveTrade(trade)
 		}
-		dbWriter.SaveTrade(trade)
 	}
 
 	return orderBookHandler, tradeHandler
 }
 
 // processOBICalculations subscribes to and logs OBI calculation results.
-func processOBICalculations(ctx context.Context, obiCalculator *indicator.OBICalculator) {
+func processOBICalculations(ctx context.Context, obiCalculator *indicator.OBICalculator, csvWriter *csvwriter.Writer, isReplay bool) {
 	go func() {
 		resultsCh := obiCalculator.Subscribe()
 		for {
@@ -189,6 +218,16 @@ func processOBICalculations(ctx context.Context, obiCalculator *indicator.OBICal
 				return
 			case result := <-resultsCh:
 				logger.Infof("OBI Calculated: OBI8=%.4f, OBI16=%.4f, Timestamp=%v", result.OBI8, result.OBI16, result.Timestamp)
+				if isReplay && csvWriter != nil {
+					record := []string{
+						result.Timestamp.UTC().Format(time.RFC3339),
+						"obi_calculation",
+						fmt.Sprintf("obi8=%.4f,obi16=%.4f", result.OBI8, result.OBI16),
+					}
+					if err := csvWriter.Write(record); err != nil {
+						logger.Errorf("Failed to write OBI calculation to CSV: %v", err)
+					}
+				}
 			}
 		}
 	}()

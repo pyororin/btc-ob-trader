@@ -7,9 +7,9 @@ OBI (Order Book Imbalance) に基づいてスキャルピングを行う取引�
 -   Coincheck の WebSocket API を利用してリアルタイムに板情報・取引情報を取得
 -   OBI (Order Book Imbalance) を計算し、売買シグナルを生成
 -   ボラティリティに応じて動的にパラメータを調整
--   TimescaleDB に取引履歴や計算指標を保存
+-   本番トレードでは TimescaleDB に取引履歴や計算指標を保存
 -   Grafana によるパフォーマンスの可視化
--   過去データを利用したリプレイ（バックテスト）機能
+-   過去データを利用したリプレイ（バックテスト）機能（結果はCSVに出力）
 
 ## 技術スタック
 
@@ -93,6 +93,7 @@ make down
 ### リプレイ（バックテスト）の実行
 
 `make replay` コマンドで、過去の取引データ（CSV）を使用してバックテストを実行できます。
+結果はプロジェクトルートに `replay_result.csv` として出力されます。
 
 ```bash
 make replay

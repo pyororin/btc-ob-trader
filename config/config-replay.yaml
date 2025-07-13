@@ -5,7 +5,7 @@
 #
 # - `config.yaml` と同じ構造を持ちますが、リプレイに特化した設定値を含みます。
 # - 外部APIへの接続は行わないため、APIキーはダミーの値を設定します。
-# - 結果は通常、本番用とは別のデータベースに保存します。
+# - 結果はCSVファイルに出力されます。
 
 # --- 全体設定 ---
 
@@ -28,40 +28,41 @@ coincheck:
 
 # --- データベース (TimescaleDB) 接続設定 ---
 #
-# リプレイ結果を保存するためのデータベース接続設定です。
-# 本番環境 (`config.yaml`) とは別のデータベース名 (`name`) を指定することを強く推奨します。
-database:
-  # データベースホスト名
-  # Docker Compose を利用する場合、サービス名 "timescaledb" を指定します。
-  host: "timescaledb"
-
-  # ポート番号
-  port: 5432
-
-  # ユーザー名
-  # .env ファイルや環境変数での設定を推奨します。
-  user: "postgres"
-
-  # パスワード
-  # .env ファイルや環境変数での設定を強く推奨します。
-  password: "password"
-
-  # データベース名
-  # リプレイ結果専用のデータベース名を指定します。
-  # 例: "obi_scalp_bot_db_replay"
-  name: "obi_scalp_bot_db_replay"
-
-  # SSLモード
-  ssl_mode: "disable"
+# リプレイモードではCSV出力を行うため、このセクションは使用されません。
+#
+# database:
+#   # データベースホスト名
+#   # Docker Compose を利用する場合、サービス名 "timescaledb" を指定します。
+#   host: "timescaledb"
+#
+#   # ポート番号
+#   port: 5432
+#
+#   # ユーザー名
+#   # .env ファイルや環境変数での設定を推奨します。
+#   user: "postgres"
+#
+#   # パスワード
+#   # .env ファイルや環境変数での設定を強く推奨します。
+#   password: "password"
+#
+#   # データベース名
+#   # リプレイ結果専用のデータベース名を指定します。
+#   # 例: "obi_scalp_bot_db_replay"
+#   name: "obi_scalp_bot_db_replay"
+#
+#   # SSLモード
+#   ssl_mode: "disable"
 
 # --- DBライター設定 ---
+#
+# リプレイモードではCSV出力を行うため、データベースへの書き込みは無効化します。
 db_writer:
-  # バッチサイズ
-  # 一度にデータベースへ書き込むレコード数。
-  batch_size: 100
+  # batch_sizeを0に設定することで、DBWriterの初期化をスキップします。
+  batch_size: 0
 
   # 書き込み間隔 (秒)
-  # `make replay` では高速にデータが処理されるため、この値はあまり影響しません。
+  # 使用されません。
   write_interval_seconds: 5
 
 # --- 戦略パラメータ ---
@@ -91,6 +92,8 @@ signal_hold_duration_ms: 300
 replay:
   # バックテストに使用する取引データCSVファイルのパス
   csv_path: "pkg/cvd/test_trades.csv"
+  # バックテスト結果を出力するCSVファイルのパス
+  output_csv_path: "replay_output/replay_result.csv"
 
 # --- ボラティリティ適応設定 ---
 volatility:
