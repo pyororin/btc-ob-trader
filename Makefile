@@ -46,7 +46,7 @@ replay: ## Run a backtest using historical data.
 	@echo "Ensuring monitoring services are running first..."
 	@make monitor
 	@echo "Running replay task..."
-	docker-compose run --rm --entrypoint "./obi-scalp-bot -replay -config /app/config/config-replay.yaml" bot
+	docker-compose run --rm bot -replay -config /app/config/config-replay.yaml
 
 # ==============================================================================
 # GO BUILDS & TESTS
