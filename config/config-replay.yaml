@@ -89,8 +89,13 @@ signal_hold_duration_ms: 300
 
 # --- リプレイ設定 ---
 replay:
-  # バックテストに使用する取引データCSVファイルのパス
-  csv_path: "pkg/cvd/test_trades.csv"
+  # バックテストの開始時刻 (UTC)
+  # 形式: "YYYY-MM-DDTHH:MM:SSZ"
+  start_time: "2024-01-01T00:00:00Z"
+
+  # バックテストの終了時刻 (UTC)
+  # 形式: "YYYY-MM-DDTHH:MM:SSZ"
+  end_time: "2024-01-02T00:00:00Z"
 
 # --- ボラティリティ適応設定 ---
 volatility:

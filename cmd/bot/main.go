@@ -3,10 +3,8 @@ package main
 
 import (
 	"context"
-	"encoding/csv"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,7 +12,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/your-org/obi-scalp-bot/internal/config"
+	"github.com/your-org/obi-scalp-bot/internal/datastore"
 	"github.com/your-org/obi-scalp-bot/internal/dbwriter"
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
 	"github.com/your-org/obi-scalp-bot/internal/http/handler"
@@ -216,75 +216,68 @@ func waitForShutdownSignal(sigs <-chan os.Signal) {
 	logger.Infof("Received signal: %s", sig)
 }
 
-// runReplay reads trade data from a CSV file and simulates the market for backtesting.
+// runReplay runs the backtest simulation using data from the database.
 func runReplay(ctx context.Context, cfg *config.Config, obHandler coincheck.OrderBookHandler, tradeHandler coincheck.TradeHandler, sigs chan<- os.Signal) {
 	logger.Info("Starting replay mode...")
 
-	file, err := os.Open(cfg.Replay.CSVPath)
+	// --- DB Connection ---
+	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+		cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name, cfg.Database.SSLMode)
+	dbpool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
-		logger.Fatalf("Failed to open replay CSV file: %v", err)
+		logger.Fatalf("Unable to connect to database: %v", err)
 	}
-	defer file.Close()
+	defer dbpool.Close()
 
-	reader := csv.NewReader(file)
-	// ヘッダーを読み飛ばす
-	if _, err := reader.Read(); err != nil {
-		logger.Fatalf("Failed to read header from CSV: %v", err)
+	repo := datastore.NewRepository(dbpool)
+
+	// --- Time Range ---
+	startTime, err := time.Parse(time.RFC3339, cfg.Replay.StartTime)
+	if err != nil {
+		logger.Fatalf("Invalid start_time format: %v", err)
 	}
+	endTime, err := time.Parse(time.RFC3339, cfg.Replay.EndTime)
+	if err != nil {
+		logger.Fatalf("Invalid end_time format: %v", err)
+	}
+	logger.Infof("Fetching data from %s to %s for pair %s", startTime, endTime, cfg.Pair)
 
+	// --- Fetch Events ---
+	events, err := repo.FetchMarketEvents(ctx, cfg.Pair, startTime, endTime)
+	if err != nil {
+		logger.Fatalf("Failed to fetch market events: %v", err)
+	}
+	if len(events) == 0 {
+		logger.Infof("No market events found in the specified time range.")
+		sigs <- syscall.SIGTERM
+		return
+	}
+	logger.Infof("Fetched %d market events.", len(events))
+
+	// --- Event Loop ---
 	go func() {
 		defer func() {
 			logger.Info("Replay finished.")
-			sigs <- syscall.SIGTERM // 完了を通知
+			sigs <- syscall.SIGTERM // Notify main thread to exit
 		}()
 
-		for {
-			record, err := reader.Read()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				logger.Errorf("Error reading CSV record: %v", err)
-				continue
-			}
-
-			tradeData, err := parseTradeData(record, cfg.Pair)
-			if err != nil {
-				logger.Errorf("Failed to parse trade data: %v", err)
-				continue
-			}
-
-			tradeHandler(tradeData)
-			logger.Debugf("Processed trade: ID=%s, Rate=%s, Amount=%s", tradeData.TransactionID(), tradeData.Rate(), tradeData.Amount())
-
-			// Simulate some delay
-			time.Sleep(10 * time.Millisecond)
-
+		for i, event := range events {
 			select {
 			case <-ctx.Done():
 				logger.Info("Replay cancelled.")
 				return
 			default:
+				// Process event
+				switch e := event.(type) {
+				case datastore.TradeEvent:
+					tradeHandler(e.Trade)
+					logger.Debugf("Processed Trade: Time=%s, Price=%s, Size=%s", e.GetTime(), e.Trade.Rate(), e.Trade.Amount())
+				case datastore.OrderBookEvent:
+					obHandler(e.OrderBook)
+					logger.Debugf("Processed OrderBook: Time=%s, Bids=%d, Asks=%d", e.GetTime(), len(e.OrderBook.Bids), len(e.OrderBook.Asks))
+				}
+				logger.Infof("Processed event %d/%d", i+1, len(events))
 			}
 		}
 	}()
-}
-
-// parseTradeData converts a CSV record to a coincheck.TradeData object.
-// CSV format: [transaction_id, pair, rate, amount, taker_side]
-// Our sample CSV has: id,order_id,created_at,amount,rate,side
-func parseTradeData(record []string, pair string) (coincheck.TradeData, error) {
-	if len(record) < 6 {
-		return coincheck.TradeData{}, fmt.Errorf("invalid record: %+v", record)
-	}
-	// Mapping: [transaction_id, pair, rate, amount, taker_side]
-	// CSV:       [0:id,         1:pair, 2:rate, 3:amount, 4:taker_side] - simplified mapping
-	// Our CSV:   [0:id,         ...,    4:rate, 3:amount, 5:side]
-	return coincheck.TradeData{
-		record[0], // TransactionID
-		pair,      // Pair
-		record[4], // Rate
-		record[3], // Amount
-		record[5], // TakerSide
-	}, nil
 }
