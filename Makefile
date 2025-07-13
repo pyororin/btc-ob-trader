@@ -48,10 +48,14 @@ replay: ## Run a backtest using historical data.
 # ==============================================================================
 # GO BUILDS & TESTS
 # ==============================================================================
-test: ## Run Go tests.
-	@echo "Running Go tests..."
-	go test ./... -v
+# Define a helper to run commands inside a temporary Go builder container
+DOCKER_RUN_GO = sudo -E docker compose run --rm --service-ports --entrypoint "" bot
 
-build: ## Build the Go application binary locally.
+test: ## Run Go tests inside the container.
+	@echo "Running Go tests..."
+	$(DOCKER_RUN_GO) go test ./... -v
+
+build: ## Build the Go application binary inside the container.
 	@echo "Building Go application binary..."
-	CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-s -w" -o build/obi-scalp-bot cmd/bot/main.go
+	@mkdir -p build
+	$(DOCKER_RUN_GO) go build -a -ldflags="-s -w" -o build/obi-scalp-bot cmd/bot/main.go

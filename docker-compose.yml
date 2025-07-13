@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: obi-scalp-bot
     volumes:
+      - .:/app
       - ./.env:/app/.env:ro
       - ./config:/app/config:ro
     entrypoint: ["./obi-scalp-bot"]
