@@ -19,34 +19,32 @@ help:
 # ==============================================================================
 up: ## Start all services including the bot for live trading.
 	@echo "Starting all services (including trading bot)..."
-	docker-compose up -d --build
+	sudo docker compose up -d --build
 
 monitor: ## Start monitoring services (DB, Grafana) without the bot.
 	@echo "Starting monitoring services (TimescaleDB, Grafana)..."
-	docker-compose up -d timescaledb grafana
+	sudo docker compose up -d timescaledb grafana
 
 down: ## Stop and remove all application stack containers.
 	@echo "Stopping application stack..."
-	docker-compose down
+	sudo docker compose down
 
 logs: ## Follow logs from the bot service.
 	@echo "Following logs for 'bot' service..."
-	docker-compose logs -f bot
+	sudo docker compose logs -f bot
 
 shell: ## Access a shell inside the running bot container.
 	@echo "Accessing shell in 'bot' container..."
-	docker-compose exec bot /bin/sh
+	sudo docker compose exec bot /bin/sh
 
 clean: ## Stop, remove containers, and remove volumes.
 	@echo "Stopping application stack and removing volumes..."
-	docker-compose down -v --remove-orphans
+	sudo docker compose down -v --remove-orphans
 
 replay: ## Run a backtest using historical data.
 	@echo "Starting replay..."
-	@echo "Ensuring monitoring services are running first..."
-	@make monitor
 	@echo "Running replay task..."
-	docker-compose run --rm bot-replay
+	sudo docker compose run --rm bot-replay
 
 # ==============================================================================
 # GO BUILDS & TESTS

@@ -36,7 +36,7 @@ database:
   host: "timescaledb"
 
   # ポート番号
-  port: "5432"
+  port: 5432
 
   # ユーザー名
   # .env ファイルや環境変数での設定を推奨します。
