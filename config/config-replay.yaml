@@ -62,7 +62,7 @@ db_writer:
 
   # 書き込み間隔 (秒)
   # `make replay` では高速にデータが処理されるため、この値はあまり影響しません。
-  batch_interval_seconds: 5
+  write_interval_seconds: 5
 
 # --- 戦略パラメータ ---
 #
