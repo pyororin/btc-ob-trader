@@ -2,6 +2,7 @@
 package logger
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -61,35 +62,37 @@ func NewLogger(logLevel string) Logger {
 }
 
 func (l *defaultLogger) Debug(args ...interface{}) {
-	l.debugLogger.Println(args...)
+	l.debugLogger.Output(2, fmt.Sprintln(args...))
 }
 
 func (l *defaultLogger) Debugf(format string, args ...interface{}) {
-	l.debugLogger.Printf(format, args...)
+	l.debugLogger.Output(2, fmt.Sprintf(format, args...))
 }
 
 func (l *defaultLogger) Info(args ...interface{}) {
-	l.infoLogger.Println(args...)
+	l.infoLogger.Output(2, fmt.Sprintln(args...))
 }
 
 func (l *defaultLogger) Infof(format string, args ...interface{}) {
-	l.infoLogger.Printf(format, args...)
+	l.infoLogger.Output(2, fmt.Sprintf(format, args...))
 }
 
 func (l *defaultLogger) Error(args ...interface{}) {
-	l.errorLogger.Println(args...)
+	l.errorLogger.Output(2, fmt.Sprintln(args...))
 }
 
 func (l *defaultLogger) Errorf(format string, args ...interface{}) {
-	l.errorLogger.Printf(format, args...)
+	l.errorLogger.Output(2, fmt.Sprintf(format, args...))
 }
 
 func (l *defaultLogger) Fatal(args ...interface{}) {
-	l.fatalLogger.Fatalln(args...)
+	l.fatalLogger.Output(2, fmt.Sprintln(args...))
+	os.Exit(1)
 }
 
 func (l *defaultLogger) Fatalf(format string, args ...interface{}) {
-	l.fatalLogger.Fatalf(format, args...)
+	l.fatalLogger.Output(2, fmt.Sprintf(format, args...))
+	os.Exit(1)
 }
 
 // Global std logger instance, initialized directly with default "info" settings.
