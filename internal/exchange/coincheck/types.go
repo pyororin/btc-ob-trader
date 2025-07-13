@@ -22,6 +22,7 @@ func (bl *BookLevel) AmountFloat64() (float64, error) {
 
 // OrderBookData contains the bids and asks arrays.
 type OrderBookData struct {
+	PairStr      string     `json:"pair"`
 	Bids         [][]string `json:"bids"`
 	Asks         [][]string `json:"asks"`
 	LastUpdateAt string     `json:"last_update_at"`
@@ -116,29 +117,35 @@ func (obu OrderBookUpdate) Data() (OrderBookData, bool) {
 
 // TradeData represents a single trade update from the WebSocket API.
 // It's a JSON array: [transaction_id, pair, rate, amount, taker_side]
-type TradeData [5]string
+type TradeData struct {
+	ID        string
+	PairStr   string
+	RateStr   string
+	AmountStr string
+	SideStr   string
+}
 
 // TransactionID returns the transaction ID from the trade data.
 func (td TradeData) TransactionID() string {
-	return td[0]
+	return td.ID
 }
 
 // Pair returns the trading pair from the trade data.
 func (td TradeData) Pair() string {
-	return td[1]
+	return td.PairStr
 }
 
 // Rate returns the rate from the trade data.
 func (td TradeData) Rate() string {
-	return td[2]
+	return td.RateStr
 }
 
 // Amount returns the amount from the trade data.
 func (td TradeData) Amount() string {
-	return td[3]
+	return td.AmountStr
 }
 
 // TakerSide returns the taker side ("buy" or "sell") from the trade data.
 func (td TradeData) TakerSide() string {
-	return td[4]
+	return td.SideStr
 }

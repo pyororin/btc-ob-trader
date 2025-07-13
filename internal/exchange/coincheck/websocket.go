@@ -109,15 +109,19 @@ func (c *WebSocketClient) Connect() error {
 			}
 
 			// Handle trades message (different format)
-			var tradeMsg [4]json.RawMessage
-			if err := json.Unmarshal(message, &tradeMsg); err == nil {
-				var tradeData TradeData
-				if err := json.Unmarshal(message, &tradeData); err == nil {
-					if c.tradeHandler != nil {
-						c.tradeHandler(tradeData)
-					}
-					continue
+			var rawTradeData []string
+			if err := json.Unmarshal(message, &rawTradeData); err == nil && len(rawTradeData) == 5 {
+				tradeData := TradeData{
+					ID:        rawTradeData[0],
+					PairStr:   rawTradeData[1],
+					RateStr:   rawTradeData[2],
+					AmountStr: rawTradeData[3],
+					SideStr:   rawTradeData[4],
 				}
+				if c.tradeHandler != nil {
+					c.tradeHandler(tradeData)
+				}
+				continue
 			}
 
 			// Handle orderbook message

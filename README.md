@@ -92,12 +92,27 @@ make down
 
 ### リプレイ（バックテスト）の実行
 
-`make replay` コマンドで、過去の取引データ（CSV）を使用してバックテストを実行できます。
+`make replay` コマンドで、過去の取引データ（データベースに保存されているデータ）を使用してバックテストを実行できます。
+
+バックテストのパラメータは `config/config-replay.yaml` で設定します。
+
+```yaml
+replay:
+  # バックテストの開始時刻 (UTC)
+  # 形式: "YYYY-MM-DDTHH:MM:SSZ"
+  start_time: "2024-01-01T00:00:00Z"
+
+  # バックテストの終了時刻 (UTC)
+  # 形式: "YYYY-MM-DDTHH:MM:SSZ"
+  end_time: "2024-01-02T00:00:00Z"
+```
+
+以下のコマンドでバックテストを実行します。
 
 ```bash
 make replay
 ```
-リプレイモードでは、`config/config-replay.yaml` が使用されます。デフォルトでは `pkg/cvd/test_trades.csv` のデータを読み込みます。
+リプレイモードでは、指定された期間の取引データと板情報がデータベースから読み込まれ、シミュレーションが実行されます。
 
 **注意**: `docker` コマンドの実行に `sudo` が必要な環境では、`Makefile` が `sudo -E` を使用して環境変数を引き継ぐように設定されています。`sudo` なしで `docker` を実行できるユーザーは、`Makefile` 内の `sudo -E` を削除してください。
 
