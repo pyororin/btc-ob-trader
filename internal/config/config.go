@@ -17,9 +17,15 @@ type Config struct {
 	Volatility  VolConf      `yaml:"volatility"`
 	APIKey      string       `yaml:"-"` // Loaded from env
 	APISecret   string       `yaml:"-"` // Loaded from env
-	LogLevel    string       `yaml:"-"` // Loaded from env or defaults
+	LogLevel    string       `yaml:"log_level"`
 	Database    DatabaseConfig `yaml:"database"`
 	DBWriter    DBWriterConfig `yaml:"db_writer"`
+	Replay      ReplayConfig `yaml:"replay"`
+}
+
+// ReplayConfig holds configuration for the replay mode.
+type ReplayConfig struct {
+	CSVPath string `yaml:"csv_path"`
 }
 
 // DatabaseConfig holds all database connection parameters.

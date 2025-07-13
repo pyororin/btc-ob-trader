@@ -37,11 +37,10 @@ services:
     volumes:
       - ./.env:/app/.env:ro
       - ./config:/app/config:ro
+      - ./pkg:/app/pkg:ro
     command: ["-replay", "-config", "/app/config/config-replay.yaml"]
     env_file:
       - .env
-    environment:
-      - DB_HOST=timescaledb
     networks:
       - bot_network
 
