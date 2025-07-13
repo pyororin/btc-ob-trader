@@ -126,6 +126,8 @@ func setupDBWriter(ctx context.Context, cfg *config.Config) *dbwriter.Writer {
 	// we will rely on the application's main defer to handle process-wide concerns.
 	// A more robust solution might involve a dedicated lifecycle management component.
 
+	logger.Infof("Initializing DBWriter with config: BatchSize=%d, WriteIntervalSeconds=%d", cfg.DBWriter.BatchSize, cfg.DBWriter.WriteIntervalSeconds)
+
 	dbWriter, err := dbwriter.NewWriter(ctx, cfg.Database, cfg.DBWriter, zapLogger)
 	if err != nil {
 		logger.Fatalf("Failed to initialize TimescaleDB writer: %v", err)
