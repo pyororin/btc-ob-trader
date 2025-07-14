@@ -1,10 +1,10 @@
-// Package engine contains the core trading logic components.
 package engine
 
 import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +13,7 @@ import (
 	"github.com/your-org/obi-scalp-bot/internal/pnl"
 	"github.com/your-org/obi-scalp-bot/internal/position"
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
+	"github.com/your-org/obi-scalp-bot/internal/config"
 )
 
 // ExecutionEngine defines the interface for order execution.
@@ -24,16 +25,14 @@ type ExecutionEngine interface {
 // LiveExecutionEngine handles real order placement with the exchange.
 type LiveExecutionEngine struct {
 	exchangeClient *coincheck.Client
-	availableJpy   float64
-	availableBtc   float64
+	cfg            *config.Config
 }
 
 // NewLiveExecutionEngine creates a new LiveExecutionEngine.
-func NewLiveExecutionEngine(client *coincheck.Client, jpy, btc float64) *LiveExecutionEngine {
+func NewLiveExecutionEngine(client *coincheck.Client, cfg *config.Config) *LiveExecutionEngine {
 	return &LiveExecutionEngine{
 		exchangeClient: client,
-		availableJpy:   jpy,
-		availableBtc:   btc,
+		cfg:            cfg,
 	}
 }
 
@@ -43,24 +42,59 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 		return nil, fmt.Errorf("LiveExecutionEngine: exchange client is not initialized")
 	}
 
+	// Get current balance
+	balance, err := e.exchangeClient.GetBalance()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get balance for order placement: %w", err)
+	}
+	currentJpy, _ := strconv.ParseFloat(balance.Jpy, 64)
+	currentBtc, _ := strconv.ParseFloat(balance.Btc, 64)
+
+	// Get open orders to calculate reserved funds
+	openOrders, err := e.exchangeClient.GetOpenOrders()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get open orders for balance adjustment: %w", err)
+	}
+
+	reservedJpy := 0.0
+	reservedBtc := 0.0
+	for _, order := range openOrders.Orders {
+		if order.Pair != pair {
+			continue
+		}
+		orderRate, _ := strconv.ParseFloat(order.Rate, 64)
+		pendingAmount, _ := strconv.ParseFloat(order.PendingAmount, 64)
+		if order.OrderType == "buy" {
+			reservedJpy += orderRate * pendingAmount
+		} else if order.OrderType == "sell" {
+			reservedBtc += pendingAmount
+		}
+	}
+
+	availableJpy := currentJpy - reservedJpy
+	availableBtc := currentBtc - reservedBtc
+
+	logger.Infof("[Live] Balance check: Current JPY=%.2f, Reserved JPY=%.2f, Available JPY=%.2f", currentJpy, reservedJpy, availableJpy)
+	logger.Infof("[Live] Balance check: Current BTC=%.8f, Reserved BTC=%.8f, Available BTC=%.8f", currentBtc, reservedBtc, availableBtc)
+
 	// Round rate to the nearest integer for JPY pairs, as required by Coincheck API.
 	roundedRate := math.Round(rate)
 	adjustedAmount := amount
 
-	// Adjust order size based on available balance
+	// Calculate the maximum amount based on the order ratio
+	var cappedAmount float64
 	if orderType == "buy" {
-		orderValue := roundedRate * amount
-		if orderValue > e.availableJpy {
-			adjustedAmount = e.availableJpy / roundedRate
-			// Round down to 6 decimal places for safety
-			adjustedAmount = math.Floor(adjustedAmount*1e6) / 1e6
-			logger.Warnf("[Live] Buy order amount %.8f exceeds available JPY balance. Adjusting to %.8f.", amount, adjustedAmount)
-		}
-	} else if orderType == "sell" {
-		if amount > e.availableBtc {
-			adjustedAmount = e.availableBtc
-			logger.Warnf("[Live] Sell order amount %.8f exceeds available BTC balance (%.8f). Adjusting to %.8f.", amount, e.availableBtc, adjustedAmount)
-		}
+		cappedAmount = (availableJpy * e.cfg.OrderRatio) / roundedRate
+	} else { // sell
+		cappedAmount = availableBtc * e.cfg.OrderRatio
+	}
+	// Round down to 6 decimal places for safety
+	cappedAmount = math.Floor(cappedAmount*1e6) / 1e6
+
+	// Adjust order size only if the requested amount exceeds the capped amount
+	if amount > cappedAmount {
+		adjustedAmount = cappedAmount
+		logger.Warnf("[Live] Requested %s amount %.8f exceeds the allowable ratio. Adjusting to %.8f.", orderType, amount, adjustedAmount)
 	}
 
 	if adjustedAmount <= 0 {

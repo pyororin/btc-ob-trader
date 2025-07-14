@@ -275,30 +275,7 @@ func runMainLoop(ctx context.Context, f flags, cfg *config.Config, dbWriter *dbw
 	} else {
 		// Live trading setup
 		client := coincheck.NewClient(cfg.APIKey, cfg.APISecret)
-
-		// Fetch initial balance
-		balance, err := client.GetBalance()
-		if err != nil {
-			logger.Fatalf("Failed to get account balance: %v", err)
-		}
-		availableJpy, err := strconv.ParseFloat(balance.Jpy, 64)
-		if err != nil {
-			logger.Fatalf("Failed to parse JPY balance: %v", err)
-		}
-		availableBtc, err := strconv.ParseFloat(balance.Btc, 64)
-		if err != nil {
-			logger.Fatalf("Failed to parse BTC balance: %v", err)
-		}
-		logger.Infof("Initial balance: JPY=%.2f, BTC=%.8f", availableJpy, availableBtc)
-
-		if availableJpy <= 0 {
-			logger.Warnf("Available JPY balance is %.2f. Trading may be limited.", availableJpy)
-		}
-		if availableBtc <= 0 {
-			logger.Warnf("Available BTC balance is %.8f. Selling will not be possible.", availableBtc)
-		}
-
-		execEngine := engine.NewLiveExecutionEngine(client, availableJpy, availableBtc)
+		execEngine := engine.NewLiveExecutionEngine(client, cfg)
 
 		orderBook := indicator.NewOrderBook()
 		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)

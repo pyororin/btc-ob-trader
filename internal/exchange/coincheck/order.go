@@ -211,3 +211,38 @@ func (c *Client) GetBalance() (*BalanceResponse, error) {
 
 	return &balanceResp, nil
 }
+
+// GetOpenOrders retrieves the open orders from Coincheck.
+func (c *Client) GetOpenOrders() (*OpenOrdersResponse, error) {
+	endpoint := "/api/exchange/orders/opens"
+
+	httpReq, err := c.newRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create get open orders request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute get open orders request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read get open orders response body (status: %d): %w", resp.StatusCode, err)
+	}
+
+	var openOrdersResp OpenOrdersResponse
+	if err := json.Unmarshal(bodyBytes, &openOrdersResp); err != nil {
+		return nil, fmt.Errorf("failed to decode get open orders response (status: %d, body: %s): %w", resp.StatusCode, string(bodyBytes), err)
+	}
+
+	if !openOrdersResp.Success {
+		if openOrdersResp.Error != "" {
+			return &openOrdersResp, fmt.Errorf("coincheck API error on get open orders: %s", openOrdersResp.Error)
+		}
+		return &openOrdersResp, fmt.Errorf("coincheck API returned success=false for get open orders, status: %d", resp.StatusCode)
+	}
+
+	return &openOrdersResp, nil
+}

@@ -77,6 +77,23 @@ type BalanceResponse struct {
 	// Other currencies can be added here if needed
 }
 
+// OpenOrder represents a single open order.
+type OpenOrder struct {
+	ID        int64  `json:"id"`
+	OrderType string `json:"order_type"`
+	Rate      string `json:"rate"`
+	Pair      string `json:"pair"`
+	PendingAmount string `json:"pending_amount"`
+	CreatedAt string `json:"created_at"`
+}
+
+// OpenOrdersResponse represents the response for open orders.
+type OpenOrdersResponse struct {
+	Success bool        `json:"success"`
+	Orders  []OpenOrder `json:"orders"`
+	Error   string      `json:"error,omitempty"`
+}
+
 
 // Pair returns the trading pair string.
 func (obu OrderBookUpdate) Pair() string {
