@@ -117,7 +117,7 @@ func (r *Repository) fetchOrderBookUpdates(ctx context.Context, pair string, sta
 	query := `
         SELECT time, side, price, size
         FROM order_book_updates
-        WHERE pair = $1 AND time >= $2 AND time < $3 AND is_snapshot = TRUE
+        WHERE pair = $1 AND time >= $2 AND time < $3
         ORDER BY time ASC;
     `
 	// This query is likely insufficient for a proper backtest.
