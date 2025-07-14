@@ -6,7 +6,7 @@
 # 取引ペア
 pair: "btc_jpy"
 # 許容する最大スプレッド（円）
-spread_limit: 60
+spread_limit: 70
 # 1注文あたりの最大ロット比率（対利用可能残高）
 lot_max_ratio: 0.05
 # 注文比率
@@ -15,20 +15,20 @@ order_ratio: 0.2
 # ロングエントリー戦略
 long:
   # OBIの閾値
-  obi_threshold: 0.40
+  obi_threshold: 0.45
   # 利食い幅（円）
-  tp: 25
+  tp: 35
   # 損切り幅（円）
-  sl: -10
+  sl: -12
 
 # ショートエントリー戦略
 short:
   # OBIの閾値
-  obi_threshold: -0.27
+  obi_threshold: -0.38
   # 利食い幅（円）
-  tp: 25
+  tp: 35
   # 損切り幅（円）
-  sl: -12
+  sl: -15
 
 # ボラティリティ設定
 volatility:
@@ -39,20 +39,20 @@ volatility:
     # 有効化フラグ
     enabled: true
     # ボラティリティ係数
-    volatility_factor: 1.3
+    volatility_factor: 1.6
     # 最小閾値係数
-    min_threshold_factor: 0.7
+    min_threshold_factor: 0.8
     # 最大閾値係数
-    max_threshold_factor: 1.8
+    max_threshold_factor: 1.6
 
 # TWAP（時間加重平均価格）注文設定
 twap:
   # 有効化フラグ
-  enabled: false
+  enabled: true
   # 1注文あたりの最大サイズ（BTC）
-  max_order_size_btc: 0.01
+  max_order_size_btc: 0.005
   # 注文間隔（秒）
-  interval_seconds: 10
+  interval_seconds: 5
 
 # シグナル設定
 signal:
@@ -60,7 +60,7 @@ signal:
   # OBIが閾値を超えても即座にエントリーせず、この時間だけ閾値を超え続けた場合にシグナルが確定します。
   # 値を大きくするとダマシを避けやすくなりますが、エントリーは遅れます。
   # 値を小さくすると素早く反応できますが、ノイズに弱くなります。
-  hold_duration_ms: 300
+  hold_duration_ms: 500
 
 
 # --- アプリケーション設定 ---
@@ -75,7 +75,7 @@ order:
   # 指値注文がこの時間内に約定しない場合、自動的にキャンセルされます。
   # 値を大きくすると約定の機会は増えますが、相場変動リスクも高まります。
   # 値を小さくすると機会損失は減りますが、約定チャンスを逃す可能性もあります。
-  timeout_seconds: 30
+  timeout_seconds: 20
   # 注文状況確認のポーリング間隔（ミリ秒）
   # 注文の約定状況を取引所に確認しにいく頻度です。
   # 売買戦略には直接影響しませんが、APIリクエスト頻度に関わるため、短くしすぎないでください。
