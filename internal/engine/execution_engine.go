@@ -131,6 +131,25 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 			_, cancelErr := e.CancelOrder(context.Background(), orderResp.ID) // Use a new context for cancellation
 			if cancelErr != nil {
 				logger.Errorf("[Live] Failed to cancel order ID %d: %v", orderResp.ID, cancelErr)
+				// Even if cancellation fails, we log the attempt as a cancelled trade
+			}
+
+			// Save the cancelled trade to the database
+			if e.dbWriter != nil {
+				trade := dbwriter.Trade{
+					Time:          time.Now().UTC(),
+					Pair:          pair,
+					Side:          orderType,
+					Price:         rate,
+					Size:          adjustedAmount,
+					TransactionID: orderResp.ID, // Use order ID as a reference
+					IsCancelled:   true,
+				}
+				e.dbWriter.SaveTrade(trade)
+				logger.Infof("[Live] Cancelled trade for Order ID %d saved to DB.", orderResp.ID)
+			}
+
+			if cancelErr != nil {
 				return nil, fmt.Errorf("order timed out and cancellation failed: %w", cancelErr)
 			}
 			logger.Infof("[Live] Order ID %d cancelled successfully.", orderResp.ID)
@@ -161,6 +180,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 							Price:         price,
 							Size:          size,
 							TransactionID: txID,
+							IsCancelled:   false,
 						}
 						e.dbWriter.SaveTrade(trade)
 						logger.Infof("[Live] Confirmed trade for Order ID %d saved to DB.", orderResp.ID)
