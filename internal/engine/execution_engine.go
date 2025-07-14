@@ -95,6 +95,12 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 		return nil, fmt.Errorf("adjusted order amount is zero or negative, skipping order placement")
 	}
 
+	// coincheckの最小注文単位（0.001BTC）を下回っていないか確認
+	if adjustedAmount < 0.001 {
+		logger.Warnf("[Live] Order amount %.8f is below the minimum required amount of 0.001 BTC. Skipping order.", adjustedAmount)
+		return nil, fmt.Errorf("order amount %.8f is below the minimum required amount of 0.001 BTC", adjustedAmount)
+	}
+
 	// Place the order
 	req := coincheck.OrderRequest{
 		Pair:      pair,
