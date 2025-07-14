@@ -64,7 +64,7 @@ export-sim-data: ## Export order book data from the database to a CSV file for s
 	fi
 	@FILENAME="simulation/order_book_updates_$$(date +%Y%m%d-%H%M%S).csv"; \
 	echo "Exporting data to $$FILENAME..."; \
-	sudo -E docker compose run --rm builder go run cmd/export/main.go --start "$(START_TIME)" --end "$(END_TIME)" > $$FILENAME
+	sudo -E docker compose --env-file ./.env run --rm builder go run cmd/export/main.go --start "$(START_TIME)" --end "$(END_TIME)" > $$FILENAME
 	@echo "Export complete. See $$FILENAME";
 
 # ==============================================================================
