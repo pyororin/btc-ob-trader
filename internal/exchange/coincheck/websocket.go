@@ -242,5 +242,5 @@ func (c *WebSocketClient) handleMessage(message []byte, targetPair string) {
 	}
 
 	// If it's neither, log as an unknown message format for debugging
-	logger.Warnf("Unknown message format received: %s", string(message))
+	logger.Errorf("Unknown message format received: %s", string(message))
 }
