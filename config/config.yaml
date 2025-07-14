@@ -105,3 +105,10 @@ replay:
   start_time: "2025-07-13T00:00:00Z"
   # 終了時刻 (RFC3339形式)
   end_time: "2025-07-14T00:00:00Z"
+
+# PnLレポート設定
+pnl_report:
+  # レポート生成間隔（分）
+  interval_minutes: 1
+  # レポートの最大保存期間（時間）
+  max_age_hours: 24
