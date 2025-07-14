@@ -32,7 +32,6 @@ func NewOBICalculator(ob *OrderBook, interval time.Duration) *OBICalculator {
 }
 
 // Start begins the periodic calculation of OBI.
-// It's safe to call Start multiple times; it will only start the calculator once.
 func (c *OBICalculator) Start(ctx context.Context) {
 	c.mu.Lock()
 	if c.started {
@@ -58,19 +57,15 @@ func (c *OBICalculator) Start(ctx context.Context) {
 				close(c.done)
 				return
 			case <-c.ticker.C:
-				// Ensure the book has been initialized before calculating
 				c.orderBook.RLock()
 				isBookReady := !c.orderBook.Time.IsZero()
 				c.orderBook.RUnlock()
 
 				if isBookReady {
 					if obiResult, ok := c.orderBook.CalculateOBI(OBILevels...); ok {
-						// Non-blocking send
 						select {
 						case c.output <- obiResult:
 						default:
-							// If the channel is full, the previous value will be overwritten.
-							// This is often acceptable for real-time indicators where the latest value is most important.
 						}
 					}
 				}
@@ -93,4 +88,9 @@ func (c *OBICalculator) Stop() {
 // Subscribe returns a channel to receive OBI results.
 func (c *OBICalculator) Subscribe() <-chan OBIResult {
 	return c.output
+}
+
+// OrderBook returns the underlying OrderBook instance.
+func (c *OBICalculator) OrderBook() *OrderBook {
+	return c.orderBook
 }

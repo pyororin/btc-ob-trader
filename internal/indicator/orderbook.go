@@ -74,17 +74,74 @@ func (ob *OrderBook) ApplySnapshot(data coincheck.OrderBookData) {
 }
 
 // ApplyUpdate applies a differential update to the order book.
-// For Coincheck, an "update" is a full snapshot, so this is the same as ApplySnapshot.
-// If the exchange provided diffs, this logic would be different.
 func (ob *OrderBook) ApplyUpdate(data coincheck.OrderBookData) {
-	// Coincheck sends full snapshots for updates, so we just re-apply.
 	ob.ApplySnapshot(data)
 }
 
-// PriceLevel represents a price level for heap implementation.
+// priceLevel represents a price level for heap implementation.
 type priceLevel struct {
 	Rate   float64
 	Amount float64
+}
+
+// BestBid returns the highest bid price.
+func (ob *OrderBook) BestBid() float64 {
+	ob.RLock()
+	defer ob.RUnlock()
+
+	var bestBid float64
+	for rate := range ob.Bids {
+		if bestBid == 0 || rate > bestBid {
+			bestBid = rate
+		}
+	}
+	return bestBid
+}
+
+// BestAsk returns the lowest ask price.
+func (ob *OrderBook) BestAsk() float64 {
+	ob.RLock()
+	defer ob.RUnlock()
+
+	var bestAsk float64
+	for rate := range ob.Asks {
+		if bestAsk == 0 || rate < bestAsk {
+			bestAsk = rate
+		}
+	}
+	return bestAsk
+}
+
+// CalculateDepth calculates the total amount of orders within a certain price range from the best price.
+func (ob *OrderBook) CalculateDepth(side string, priceRangeRatio float64) float64 {
+	ob.RLock()
+	defer ob.RUnlock()
+
+	var totalAmount float64
+	if side == "bid" {
+		bestBid := ob.BestBid()
+		if bestBid == 0 {
+			return 0
+		}
+		minPrice := bestBid * (1 - priceRangeRatio)
+		for price, amount := range ob.Bids {
+			if price >= minPrice {
+				totalAmount += amount
+			}
+		}
+	} else if side == "ask" {
+		bestAsk := ob.BestAsk()
+		if bestAsk == 0 {
+			return 0
+		}
+		maxPrice := bestAsk * (1 + priceRangeRatio)
+		for price, amount := range ob.Asks {
+			if price <= maxPrice {
+				totalAmount += amount
+			}
+		}
+	}
+	return totalAmount
 }
 
 // CalculateOBI calculates the Order Book Imbalance from the current state of the book.
@@ -94,14 +151,12 @@ func (ob *OrderBook) CalculateOBI(levels ...int) (OBIResult, bool) {
 
 	result := OBIResult{Timestamp: ob.Time}
 
-	// Create sorted slices of bids and asks
 	bids := make([]priceLevel, 0, len(ob.Bids))
 	for rate, amount := range ob.Bids {
 		if amount > 0 {
 			bids = append(bids, priceLevel{Rate: rate, Amount: amount})
 		}
 	}
-	// Sort bids descending by rate (best bids first)
 	sort.Slice(bids, func(i, j int) bool {
 		return bids[i].Rate > bids[j].Rate
 	})
@@ -112,13 +167,12 @@ func (ob *OrderBook) CalculateOBI(levels ...int) (OBIResult, bool) {
 			asks = append(asks, priceLevel{Rate: rate, Amount: amount})
 		}
 	}
-	// Sort asks ascending by rate (best asks first)
 	sort.Slice(asks, func(i, j int) bool {
 		return asks[i].Rate < asks[j].Rate
 	})
 
 	if len(bids) == 0 || len(asks) == 0 {
-		return OBIResult{}, false
+		return OBIResult{Timestamp: ob.Time}, false
 	}
 
 	result.BestBid = bids[0].Rate

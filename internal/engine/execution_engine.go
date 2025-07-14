@@ -26,23 +26,25 @@ type ExecutionEngine interface {
 type LiveExecutionEngine struct {
 	exchangeClient *coincheck.Client
 	cfg            *config.Config
+	dbWriter       *dbwriter.Writer
 }
 
 // NewLiveExecutionEngine creates a new LiveExecutionEngine.
-func NewLiveExecutionEngine(client *coincheck.Client, cfg *config.Config) *LiveExecutionEngine {
+func NewLiveExecutionEngine(client *coincheck.Client, cfg *config.Config, dbWriter *dbwriter.Writer) *LiveExecutionEngine {
 	return &LiveExecutionEngine{
 		exchangeClient: client,
 		cfg:            cfg,
+		dbWriter:       dbWriter,
 	}
 }
 
-// PlaceOrder places a new order on the exchange.
+// PlaceOrder places a new order on the exchange and monitors for execution.
 func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, orderType string, rate float64, amount float64, postOnly bool) (*coincheck.OrderResponse, error) {
 	if e.exchangeClient == nil {
 		return nil, fmt.Errorf("LiveExecutionEngine: exchange client is not initialized")
 	}
 
-	// Get current balance
+	// Balance check and amount adjustment logic
 	balance, err := e.exchangeClient.GetBalance()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get balance for order placement: %w", err)
@@ -50,7 +52,6 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	currentJpy, _ := strconv.ParseFloat(balance.Jpy, 64)
 	currentBtc, _ := strconv.ParseFloat(balance.Btc, 64)
 
-	// Get open orders to calculate reserved funds
 	openOrders, err := e.exchangeClient.GetOpenOrders()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get open orders for balance adjustment: %w", err)
@@ -74,24 +75,17 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	availableJpy := currentJpy - reservedJpy
 	availableBtc := currentBtc - reservedBtc
 
-	logger.Infof("[Live] Balance check: Current JPY=%.2f, Reserved JPY=%.2f, Available JPY=%.2f", currentJpy, reservedJpy, availableJpy)
-	logger.Infof("[Live] Balance check: Current BTC=%.8f, Reserved BTC=%.8f, Available BTC=%.8f", currentBtc, reservedBtc, availableBtc)
-
-	// Round rate to the nearest integer for JPY pairs, as required by Coincheck API.
 	roundedRate := math.Round(rate)
 	adjustedAmount := amount
 
-	// Calculate the maximum amount based on the order ratio
 	var cappedAmount float64
 	if orderType == "buy" {
 		cappedAmount = (availableJpy * e.cfg.OrderRatio) / roundedRate
 	} else { // sell
 		cappedAmount = availableBtc * e.cfg.OrderRatio
 	}
-	// Round down to 6 decimal places for safety
 	cappedAmount = math.Floor(cappedAmount*1e6) / 1e6
 
-	// Adjust order size only if the requested amount exceeds the capped amount
 	if amount > cappedAmount {
 		adjustedAmount = cappedAmount
 		logger.Warnf("[Live] Requested %s amount %.8f exceeds the allowable ratio. Adjusting to %.8f.", orderType, amount, adjustedAmount)
@@ -101,6 +95,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 		return nil, fmt.Errorf("adjusted order amount is zero or negative, skipping order placement")
 	}
 
+	// Place the order
 	req := coincheck.OrderRequest{
 		Pair:      pair,
 		OrderType: orderType,
@@ -112,13 +107,70 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	}
 
 	logger.Infof("[Live] Placing order: %+v", req)
-	resp, err := e.exchangeClient.NewOrder(req)
+	orderResp, err := e.exchangeClient.NewOrder(req)
 	if err != nil {
-		logger.Errorf("[Live] Error placing order: %v, Response: %+v", err, resp)
-		return resp, err
+		logger.Errorf("[Live] Error placing order: %v, Response: %+v", err, orderResp)
+		return orderResp, err
 	}
-	logger.Infof("[Live] Order placed successfully: %+v", resp)
-	return resp, nil
+	if !orderResp.Success {
+		return orderResp, fmt.Errorf("failed to place order: %s", orderResp.Error)
+	}
+	logger.Infof("[Live] Order placed successfully: ID=%d", orderResp.ID)
+
+	// Monitor for execution
+	const pollInterval = 2 * time.Second
+	const timeout = 30 * time.Second
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			// Timeout reached, cancel the order
+			logger.Warnf("[Live] Order ID %d did not fill within %v. Cancelling.", orderResp.ID, timeout)
+			_, cancelErr := e.CancelOrder(context.Background(), orderResp.ID) // Use a new context for cancellation
+			if cancelErr != nil {
+				logger.Errorf("[Live] Failed to cancel order ID %d: %v", orderResp.ID, cancelErr)
+				return nil, fmt.Errorf("order timed out and cancellation failed: %w", cancelErr)
+			}
+			logger.Infof("[Live] Order ID %d cancelled successfully.", orderResp.ID)
+			return nil, fmt.Errorf("order %d timed out and was cancelled", orderResp.ID)
+
+		case <-time.After(pollInterval):
+			transactions, err := e.exchangeClient.GetTransactions()
+			if err != nil {
+				logger.Errorf("[Live] Failed to get transactions to check order status: %v", err)
+				continue // Retry on the next tick
+			}
+
+			for _, tx := range transactions.Transactions {
+				if tx.OrderID == orderResp.ID {
+					logger.Infof("[Live] Order ID %d confirmed as filled (Transaction ID: %d).", orderResp.ID, tx.ID)
+
+					// Parse transaction details
+					price, _ := strconv.ParseFloat(tx.Rate, 64)
+					size, _ := strconv.ParseFloat(orderResp.Amount, 64)
+					txID, _ := strconv.ParseInt(strconv.FormatInt(tx.ID, 10), 10, 64)
+
+					// Save the confirmed trade to the database
+					if e.dbWriter != nil {
+						trade := dbwriter.Trade{
+							Time:          time.Now().UTC(),
+							Pair:          tx.Pair,
+							Side:          tx.Side,
+							Price:         price,
+							Size:          size,
+							TransactionID: txID,
+						}
+						e.dbWriter.SaveTrade(trade)
+						logger.Infof("[Live] Confirmed trade for Order ID %d saved to DB.", orderResp.ID)
+					}
+					return orderResp, nil // Order filled
+				}
+			}
+			logger.Infof("[Live] Order ID %d not yet filled. Retrying in %v...", orderResp.ID, pollInterval)
+		}
+	}
 }
 
 // CancelOrder cancels an existing order on the exchange.
@@ -173,14 +225,12 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 
 	// Create a trade record for the simulated execution.
 	trade := dbwriter.Trade{
-		// TODO: This should ideally use the event time from the simulation, not time.Now().
-		// This requires passing the event time through the execution flow.
 		Time:          time.Now().UTC(),
 		Pair:          pair,
 		Side:          orderType, // "buy" or "sell"
 		Price:         rate,
 		Size:          amount,
-		TransactionID: int64(fakeTxID.ID()), // This is not ideal, but works for now.
+		TransactionID: int64(fakeTxID.ID()),
 	}
 
 	// Store the executed trade in memory for later analysis.
@@ -200,7 +250,7 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 
 	// Calculate PnL
 	positionSize, avgEntryPrice := e.position.Get()
-	unrealizedPnL := e.pnlCalculator.CalculateUnrealizedPnL(positionSize, avgEntryPrice, rate) // Use current rate for unrealized PnL
+	unrealizedPnL := e.pnlCalculator.CalculateUnrealizedPnL(positionSize, avgEntryPrice, rate)
 	totalRealizedPnL := e.pnlCalculator.GetRealizedPnL()
 	totalPnL := totalRealizedPnL + unrealizedPnL
 
@@ -210,7 +260,7 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 
 		pnlSummary := dbwriter.PnLSummary{
 			Time:          trade.Time,
-			StrategyID:    "default", // Or get from context/config
+			StrategyID:    "default",
 			Pair:          pair,
 			RealizedPnL:   realizedPnL,
 			UnrealizedPnL: unrealizedPnL,
@@ -220,12 +270,10 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 		}
 		if err := e.dbWriter.SavePnLSummary(ctx, pnlSummary); err != nil {
 			logger.Errorf("[%s] Error saving PnL summary: %v", mode, err)
-			// Decide if you should return the error or just log it
 		}
 
 		logger.Infof("[%s] Saved simulated trade and PnL summary to DB.", mode)
 	} else {
-		// Log PnL info for simulation mode
 		logger.Infof("[%s] PnL Update: Realized=%.2f, Unrealized=%.2f, Total=%.2f", mode, realizedPnL, unrealizedPnL, totalPnL)
 	}
 
@@ -239,10 +287,9 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 	}, nil
 }
 
-// CancelOrder simulates cancelling an order. In this simple simulation, we assume it's always successful.
+// CancelOrder simulates cancelling an order.
 func (e *ReplayExecutionEngine) CancelOrder(ctx context.Context, orderID int64) (*coincheck.CancelResponse, error) {
 	logger.Infof("[Replay] Simulating cancellation of order ID: %d", orderID)
-	// In a more complex simulation, we might check if the order exists in a local state.
 	return &coincheck.CancelResponse{
 		Success: true,
 		ID:      orderID,

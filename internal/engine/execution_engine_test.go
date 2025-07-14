@@ -11,18 +11,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/your-org/obi-scalp-bot/internal/config"
 	"github.com/your-org/obi-scalp-bot/internal/engine"
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
-	"github.com/your-org/obi-scalp-bot/internal/config"
 )
 
 // mockCoincheckServer is a helper to create a mock HTTP server for Coincheck API.
-// It allows customizing handlers for different endpoints.
 func mockCoincheckServer(
 	newOrderHandler http.HandlerFunc,
 	cancelOrderHandler http.HandlerFunc,
 	balanceHandler http.HandlerFunc,
 	openOrdersHandler http.HandlerFunc,
+	transactionsHandler http.HandlerFunc,
 ) *httptest.Server {
 	mux := http.NewServeMux()
 
@@ -31,6 +31,9 @@ func mockCoincheckServer(
 	}
 	if openOrdersHandler != nil {
 		mux.HandleFunc("/api/exchange/orders/opens", openOrdersHandler)
+	}
+	if transactionsHandler != nil {
+		mux.HandleFunc("/api/exchange/orders/transactions", transactionsHandler)
 	}
 
 	mux.HandleFunc("/api/exchange/orders", func(w http.ResponseWriter, r *http.Request) {
@@ -99,6 +102,22 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
 		},
+		func(w http.ResponseWriter, r *http.Request) { // Transactions Handler
+			resp := coincheck.TransactionsResponse{
+				Success: true,
+				Transactions: []coincheck.Transaction{
+					{
+						ID:      98765,
+						OrderID: 12345,
+						Pair:    "btc_jpy",
+						Rate:    "5000000.0",
+						Side:    "buy",
+					},
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		},
 	)
 	defer mockServer.Close()
 
@@ -108,9 +127,8 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 	defer coincheck.SetBaseURL(originalBaseURL)
 
 	testCfg := &config.Config{OrderRatio: 0.5}
-	execEngine := engine.NewLiveExecutionEngine(ccClient, testCfg)
+	execEngine := engine.NewLiveExecutionEngine(ccClient, testCfg, nil)
 
-	// Test DoD: Mock 50 注文全成功
 	for i := 0; i < 50; i++ {
 		resp, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, false)
 		if err != nil {
@@ -130,7 +148,6 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 		t.Errorf("Expected 50 requests to new order endpoint, got %d", atomic.LoadInt32(&requestCount))
 	}
 
-	// Test with PostOnly
 	atomic.StoreInt32(&requestCount, 0) // Reset counter
 	respPostOnly, errPostOnly := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, true)
 	if errPostOnly != nil {
@@ -161,7 +178,7 @@ func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
 		},
-		nil, // No cancel handler
+		nil,
 		func(w http.ResponseWriter, r *http.Request) { // Balance Handler
 			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
 			w.Header().Set("Content-Type", "application/json")
@@ -169,6 +186,22 @@ func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 		},
 		func(w http.ResponseWriter, r *http.Request) { // OpenOrders Handler
 			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		},
+		func(w http.ResponseWriter, r *http.Request) { // Transactions Handler
+			resp := coincheck.TransactionsResponse{
+				Success: true,
+				Transactions: []coincheck.Transaction{
+					{
+						ID:      98766,
+						OrderID: 123,
+						Pair:    "btc_jpy",
+						Rate:    "5000000.0",
+						Side:    "buy",
+					},
+				},
+			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
 		},
@@ -181,7 +214,7 @@ func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 	defer coincheck.SetBaseURL(originalBaseURL)
 
 	testCfg := &config.Config{OrderRatio: 0.5}
-	execEngine := engine.NewLiveExecutionEngine(ccClient, testCfg)
+	execEngine := engine.NewLiveExecutionEngine(ccClient, testCfg, nil)
 
 	_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.2, false)
 	if err != nil {
@@ -194,11 +227,10 @@ func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 	}
 }
 
-
 func TestExecutionEngine_CancelOrder_Success(t *testing.T) {
 	var cancelRequestCount int32
 	mockServer := mockCoincheckServer(
-		nil, // No new order handler
+		nil,
 		func(w http.ResponseWriter, r *http.Request) { // CancelOrder Handler
 			atomic.AddInt32(&cancelRequestCount, 1)
 			resp := coincheck.CancelResponse{
@@ -208,8 +240,9 @@ func TestExecutionEngine_CancelOrder_Success(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
 		},
-		nil, // No balance handler
-		nil, // No open orders handler
+		nil,
+		nil,
+		nil,
 	)
 	defer mockServer.Close()
 
@@ -218,7 +251,7 @@ func TestExecutionEngine_CancelOrder_Success(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	execEngine := engine.NewLiveExecutionEngine(ccClient, nil)
+	execEngine := engine.NewLiveExecutionEngine(ccClient, nil, nil)
 
 	resp, err := execEngine.CancelOrder(context.Background(), 56789)
 	if err != nil {
@@ -236,61 +269,48 @@ func TestExecutionEngine_CancelOrder_Success(t *testing.T) {
 }
 
 func TestExecutionEngine_CancelOrder_Failure(t *testing.T) {
-    mockServer := mockCoincheckServer(
-        nil, // No new order handler
-        func(w http.ResponseWriter, r *http.Request) { // CancelOrder Handler for failure
-            resp := coincheck.CancelResponse{
-                Success: false,
-                ID:      11111,
-                Error:   "Order not found or already processed",
-            }
-            w.Header().Set("Content-Type", "application/json")
-            json.NewEncoder(w).Encode(resp)
-        },
-        nil, // No balance handler
-        nil, // No open orders handler
-    )
-    defer mockServer.Close()
+	mockServer := mockCoincheckServer(
+		nil,
+		func(w http.ResponseWriter, r *http.Request) { // CancelOrder Handler for failure
+			resp := coincheck.CancelResponse{
+				Success: false,
+				ID:      11111,
+				Error:   "Order not found or already processed",
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		},
+		nil,
+		nil,
+		nil,
+	)
+	defer mockServer.Close()
 
-    ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
-    originalBaseURL := coincheck.GetBaseURL()
-    coincheck.SetBaseURL(mockServer.URL)
-    defer coincheck.SetBaseURL(originalBaseURL)
+	ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
+	originalBaseURL := coincheck.GetBaseURL()
+	coincheck.SetBaseURL(mockServer.URL)
+	defer coincheck.SetBaseURL(originalBaseURL)
 
-    execEngine := engine.NewLiveExecutionEngine(ccClient, nil)
+	execEngine := engine.NewLiveExecutionEngine(ccClient, nil, nil)
 
-    resp, err := execEngine.CancelOrder(context.Background(), 11111)
-    if err == nil {
-        t.Fatal("CancelOrder was expected to return an error, but it didn't")
-    }
-    if resp == nil {
-        t.Fatal("CancelOrder response should not be nil on API error")
-    }
-    if resp.Success {
-        t.Error("CancelOrder success was true when expecting API error")
-    }
-    if resp.Error != "Order not found or already processed" {
-        t.Errorf("Expected API error 'Order not found or already processed', got '%s'", resp.Error)
-    }
-    if !strings.Contains(err.Error(), "Order not found or already processed") {
-         t.Errorf("Error message does not contain expected API error. Got: %s", err.Error())
-    }
+	resp, err := execEngine.CancelOrder(context.Background(), 11111)
+	if err == nil {
+		t.Fatal("CancelOrder was expected to return an error, but it didn't")
+	}
+	if resp == nil {
+		t.Fatal("CancelOrder response should not be nil on API error")
+	}
+	if resp.Success {
+		t.Error("CancelOrder success was true when expecting API error")
+	}
+	if resp.Error != "Order not found or already processed" {
+		t.Errorf("Expected API error 'Order not found or already processed', got '%s'", resp.Error)
+	}
+	if !strings.Contains(err.Error(), "Order not found or already processed") {
+		t.Errorf("Error message does not contain expected API error. Got: %s", err.Error())
+	}
 }
 
-
-
-// Note: To make SetBaseURL/GetBaseURL work for testing, coincheck/client.go would need:
-// var defaultBaseURL = "https://coincheck.com"
-// func GetBaseURL() string { return defaultBaseURL }
-// func SetBaseURL(url string) { defaultBaseURL = url }
-// And the client's newRequest method should use this defaultBaseURL.
-// This is a common pattern for making HTTP clients testable.
-// For the purpose of this task, I'll assume such utility functions can be added to coincheck package.
-// If not, the http client in coincheck.Client would need to be replaceable, or the URL passed in constructor.
-// For now, I will add these functions to the `coincheck` package.
-
 func TestMain(m *testing.M) {
-	// Setup that might be needed before running tests, e.g. setting up the mock base URL mechanism if needed.
-	// For now, direct calls to SetBaseURL in each test that needs the mock server.
 	m.Run()
 }

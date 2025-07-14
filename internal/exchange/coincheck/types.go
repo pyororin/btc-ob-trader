@@ -36,35 +36,34 @@ type OrderBookUpdate []interface{}
 
 // OrderRequest defines the parameters for placing a new order.
 type OrderRequest struct {
-	Pair          string  `json:"pair"`
-	OrderType     string  `json:"order_type"`
-	Rate          float64 `json:"rate,omitempty"`         // omit if market order
-	Amount        float64 `json:"amount,omitempty"`       // omit if market buy order
+	Pair            string  `json:"pair"`
+	OrderType       string  `json:"order_type"`
+	Rate            float64 `json:"rate,omitempty"`         // omit if market order
+	Amount          float64 `json:"amount,omitempty"`       // omit if market buy order
 	MarketBuyAmount float64 `json:"market_buy_amount,omitempty"` // for market buy orders
-	TimeInForce   string  `json:"time_in_force,omitempty"` // e.g., "post_only"
+	TimeInForce     string  `json:"time_in_force,omitempty"` // e.g., "post_only"
 	// StopLossRate  float64 `json:"stop_loss_rate,omitempty"` // Not used in this task
 }
 
 // OrderResponse defines the structure for the response when a new order is created.
 type OrderResponse struct {
-	Success      bool    `json:"success"`
-	ID           int64   `json:"id"`
-	Rate         string  `json:"rate"` // Rate can be string (e.g., "30010.0") or null for market orders
-	Amount       string  `json:"amount"`
-	OrderType    string  `json:"order_type"`
-	TimeInForce  string  `json:"time_in_force"`
-	StopLossRate *string `json:"stop_loss_rate"` // Use pointer for nullable fields
-	Pair         string  `json:"pair"`
-	CreatedAt    string  `json:"created_at"`
-	Error        string  `json:"error,omitempty"`       // For error responses
-	ErrorDescription string `json:"error_description,omitempty"` // For error responses like {"error": "...", "error_description": "..."}
+	Success          bool    `json:"success"`
+	ID               int64   `json:"id"`
+	Rate             string  `json:"rate"` // Rate can be string (e.g., "30010.0") or null for market orders
+	Amount           string  `json:"amount"`
+	OrderType        string  `json:"order_type"`
+	TimeInForce      string  `json:"time_in_force"`
+	StopLossRate     *string `json:"stop_loss_rate"` // Use pointer for nullable fields
+	Pair             string  `json:"pair"`
+	CreatedAt        string  `json:"created_at"`
+	Error            string  `json:"error,omitempty"`       // For error responses
+	ErrorDescription string  `json:"error_description,omitempty"` // For error responses like {"error": "...", "error_description": "..."}
 }
-
 
 // CancelResponse defines the structure for the response when an order is cancelled.
 type CancelResponse struct {
-	Success bool  `json:"success"`
-	ID      int64 `json:"id"`
+	Success bool   `json:"success"`
+	ID      int64  `json:"id"`
 	Error   string `json:"error,omitempty"` // For error responses
 }
 
@@ -79,12 +78,12 @@ type BalanceResponse struct {
 
 // OpenOrder represents a single open order.
 type OpenOrder struct {
-	ID        int64  `json:"id"`
-	OrderType string `json:"order_type"`
-	Rate      string `json:"rate"`
-	Pair      string `json:"pair"`
+	ID            int64  `json:"id"`
+	OrderType     string `json:"order_type"`
+	Rate          string `json:"rate"`
+	Pair          string `json:"pair"`
 	PendingAmount string `json:"pending_amount"`
-	CreatedAt string `json:"created_at"`
+	CreatedAt     string `json:"created_at"`
 }
 
 // OpenOrdersResponse represents the response for open orders.
@@ -93,7 +92,6 @@ type OpenOrdersResponse struct {
 	Orders  []OpenOrder `json:"orders"`
 	Error   string      `json:"error,omitempty"`
 }
-
 
 // Pair returns the trading pair string.
 func (obu OrderBookUpdate) Pair() string {
@@ -174,4 +172,31 @@ func (td TradeData) Amount() string {
 // TakerSide returns the taker side ("buy" or "sell") from the trade data.
 func (td TradeData) TakerSide() string {
 	return td.SideStr
+}
+
+// Transaction represents a single transaction record from the transactions endpoint.
+type Transaction struct {
+	ID          int64            `json:"id"`
+	OrderID     int64            `json:"order_id"`
+	CreatedAt   string           `json:"created_at"`
+	Funds       TransactionFunds `json:"funds"`
+	Pair        string           `json:"pair"`
+	Rate        string           `json:"rate"`
+	FeeCurrency string           `json:"fee_currency"`
+	Fee         string           `json:"fee"`
+	Liquidity   string           `json:"liquidity"`
+	Side        string           `json:"side"`
+}
+
+// TransactionFunds represents the funds changed in a transaction.
+type TransactionFunds struct {
+	Btc string `json:"btc"`
+	Jpy string `json:"jpy"`
+}
+
+// TransactionsResponse represents the response for the transactions endpoint.
+type TransactionsResponse struct {
+	Success      bool          `json:"success"`
+	Transactions []Transaction `json:"transactions"`
+	Error        string        `json:"error,omitempty"`
 }
