@@ -17,7 +17,7 @@ COPY . .
 # Build the application
 # CGO_ENABLED=0 produces a statically linked binary
 # -ldflags="-s -w" strips debug information, reducing binary size
-RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-s -w" -o obi-scalp-bot cmd/bot/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-s -w" -o /go/bin/obi-scalp-bot cmd/bot/main.go
 
 # Stage 2: Create the final lightweight image
 FROM alpine:latest
@@ -36,7 +36,7 @@ COPY --from=builder /app/.env.sample ./.env.sample
 # COPY .env ./.env
 
 # Copy the built binary from the builder stage
-COPY --from=builder /app/obi-scalp-bot .
+COPY --from=builder /go/bin/obi-scalp-bot /usr/local/bin/obi-scalp-bot
 
 # Create a non-root user and group for security
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
@@ -49,7 +49,7 @@ USER appuser
 
 # Command to run the application
 # The default config path is "config/config.yaml", which will be relative to WORKDIR /app
-ENTRYPOINT ["./obi-scalp-bot"]
+ENTRYPOINT ["/usr/local/bin/obi-scalp-bot"]
 # Optionally, allow overriding the config path via docker run arguments
 # CMD ["-config", "config/config.yaml"]
 # Using ENTRYPOINT makes the container behave like an executable.
