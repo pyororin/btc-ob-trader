@@ -60,7 +60,8 @@ build: ## Build the Go application binary inside the container.
 	@mkdir -p build
 	$(DOCKER_RUN_GO) go build -a -ldflags="-s -w" -o build/obi-scalp-bot cmd/bot/main.go
 
-report: ## Build the report generation script.
-	@echo "Building report generation script..."
-	@mkdir -p build
-	$(DOCKER_RUN_GO) go build -o build/report cmd/report/main.go
+report: ## Generate and display the PnL report.
+	@echo "Generating PnL report..."
+	sudo -E docker compose run --rm report-generator go build -o build/report cmd/report/main.go
+	@echo "Running PnL report..."
+	sudo -E docker compose run --rm report-generator ./build/report
