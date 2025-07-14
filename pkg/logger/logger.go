@@ -26,6 +26,7 @@ type defaultLogger struct {
 	infoLogger  *log.Logger
 	errorLogger *log.Logger
 	fatalLogger *log.Logger
+	prefix      string
 }
 
 // NewLogger creates and configures a new Logger instance, and updates the global `std` logger.
@@ -58,41 +59,51 @@ func NewLogger(logLevel string) Logger {
 		infoLogger:  iLog,
 		errorLogger: eLog,
 		fatalLogger: fLog,
+		prefix:      "",
 	}
 }
 
 func (l *defaultLogger) Debug(args ...interface{}) {
-	l.debugLogger.Output(2, fmt.Sprintln(args...))
+	l.debugLogger.Output(2, l.prefix+fmt.Sprintln(args...))
 }
 
 func (l *defaultLogger) Debugf(format string, args ...interface{}) {
-	l.debugLogger.Output(2, fmt.Sprintf(format, args...))
+	l.debugLogger.Output(2, l.prefix+fmt.Sprintf(format, args...))
 }
 
 func (l *defaultLogger) Info(args ...interface{}) {
-	l.infoLogger.Output(2, fmt.Sprintln(args...))
+	l.infoLogger.Output(2, l.prefix+fmt.Sprintln(args...))
 }
 
 func (l *defaultLogger) Infof(format string, args ...interface{}) {
-	l.infoLogger.Output(2, fmt.Sprintf(format, args...))
+	l.infoLogger.Output(2, l.prefix+fmt.Sprintf(format, args...))
 }
 
 func (l *defaultLogger) Error(args ...interface{}) {
-	l.errorLogger.Output(2, fmt.Sprintln(args...))
+	l.errorLogger.Output(2, l.prefix+fmt.Sprintln(args...))
 }
 
 func (l *defaultLogger) Errorf(format string, args ...interface{}) {
-	l.errorLogger.Output(2, fmt.Sprintf(format, args...))
+	l.errorLogger.Output(2, l.prefix+fmt.Sprintf(format, args...))
 }
 
 func (l *defaultLogger) Fatal(args ...interface{}) {
-	l.fatalLogger.Output(2, fmt.Sprintln(args...))
+	l.fatalLogger.Output(2, l.prefix+fmt.Sprintln(args...))
 	os.Exit(1)
 }
 
 func (l *defaultLogger) Fatalf(format string, args ...interface{}) {
-	l.fatalLogger.Output(2, fmt.Sprintf(format, args...))
+	l.fatalLogger.Output(2, l.prefix+fmt.Sprintf(format, args...))
 	os.Exit(1)
+}
+
+// SetReplayMode configures the global logger to include a replay session ID prefix.
+func SetReplayMode(sessionID string) {
+	if globalStd, ok := std.(*defaultLogger); ok {
+		globalStd.prefix = fmt.Sprintf("[REPLAY-%s] ", sessionID)
+	} else {
+		log.Println("Error: Global logger is not of type *defaultLogger, cannot set replay mode prefix.")
+	}
 }
 
 // Global std logger instance, initialized directly with default "info" settings.

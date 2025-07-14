@@ -59,6 +59,8 @@ func TestOBICalculator(t *testing.T) {
 	expectedFirstResult := indicator.OBIResult{
 		OBI8:      (10.0 - 5.0) / (10.0 + 5.0),
 		OBI16:     (10.0 - 5.0) / (10.0 + 5.0),
+		BestBid:   100,
+		BestAsk:   101,
 		Timestamp: time.Unix(1678886400, 0),
 	}
 
@@ -89,6 +91,8 @@ func TestOBICalculator(t *testing.T) {
 					expectedNextResult := indicator.OBIResult{
 						OBI8:      (20.0 - 15.0) / (20.0 + 15.0),
 						OBI16:     (20.0 - 15.0) / (20.0 + 15.0),
+						BestBid:   200,
+						BestAsk:   201,
 						Timestamp: time.Unix(1678886401, 0),
 					}
 					if !cmp.Equal(expectedNextResult, nextResult, cmpopts.EquateApprox(0.000001, 0)) {

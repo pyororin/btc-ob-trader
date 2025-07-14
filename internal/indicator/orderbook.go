@@ -14,6 +14,8 @@ import (
 type OBIResult struct {
 	OBI8      float64   // Order Book Imbalance for top 8 levels
 	OBI16     float64   // Order Book Imbalance for top 16 levels
+	BestBid   float64   // Best bid price at the time of calculation
+	BestAsk   float64   // Best ask price at the time of calculation
 	Timestamp time.Time // Timestamp of the OBI calculation
 }
 
@@ -114,6 +116,13 @@ func (ob *OrderBook) CalculateOBI(levels ...int) OBIResult {
 	sort.Slice(asks, func(i, j int) bool {
 		return asks[i].Rate < asks[j].Rate
 	})
+
+	if len(bids) > 0 {
+		result.BestBid = bids[0].Rate
+	}
+	if len(asks) > 0 {
+		result.BestAsk = asks[0].Rate
+	}
 
 	maxLevel := 0
 	for _, l := range levels {

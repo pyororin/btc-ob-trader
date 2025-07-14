@@ -24,6 +24,8 @@ func TestOrderBook_ApplySnapshotAndCalculateOBI(t *testing.T) {
 			expected: indicator.OBIResult{
 				OBI8:      0,
 				OBI16:     0,
+				BestBid:   0,
+				BestAsk:   0,
 				Timestamp: time.Unix(1678886400, 0),
 			},
 		},
@@ -38,6 +40,8 @@ func TestOrderBook_ApplySnapshotAndCalculateOBI(t *testing.T) {
 			expected: indicator.OBIResult{
 				OBI8:      1, // (10+5 - 0) / (10+5 + 0) = 1
 				OBI16:     1,
+				BestBid:   100,
+				BestAsk:   0,
 				Timestamp: time.Unix(1678886401, 0),
 			},
 		},
@@ -52,6 +56,8 @@ func TestOrderBook_ApplySnapshotAndCalculateOBI(t *testing.T) {
 			expected: indicator.OBIResult{
 				OBI8:      -1, // (0 - (8+7)) / (0 + (8+7)) = -1
 				OBI16:     -1,
+				BestBid:   0,
+				BestAsk:   101,
 				Timestamp: time.Unix(1678886402, 0),
 			},
 		},
@@ -71,6 +77,8 @@ func TestOrderBook_ApplySnapshotAndCalculateOBI(t *testing.T) {
 			levels: []int{8},
 			expected: indicator.OBIResult{
 				OBI8:      0, // (24 - 24) / (24 + 24) = 0
+				BestBid:   100,
+				BestAsk:   101,
 				Timestamp: time.Unix(1678886403, 0),
 			},
 		},
@@ -94,6 +102,8 @@ func TestOrderBook_ApplySnapshotAndCalculateOBI(t *testing.T) {
 			expected: indicator.OBIResult{
 				OBI8:      14.0 / 34.0,
 				OBI16:     16.0 / 36.0,
+				BestBid:   100,
+				BestAsk:   101,
 				Timestamp: time.Unix(1678886404, 0),
 			},
 		},
@@ -108,6 +118,8 @@ func TestOrderBook_ApplySnapshotAndCalculateOBI(t *testing.T) {
 			expected: indicator.OBIResult{
 				OBI8:      (10.0 - 5.0) / (10.0 + 5.0),
 				OBI16:     (10.0 - 5.0) / (10.0 + 5.0),
+				BestBid:   100,
+				BestAsk:   101,
 				Timestamp: time.Unix(1678886405, 0),
 			},
 		},
@@ -122,6 +134,8 @@ func TestOrderBook_ApplySnapshotAndCalculateOBI(t *testing.T) {
 			expected: indicator.OBIResult{
 				OBI8:      (10.0 - 5.0) / (10.0 + 5.0),
 				OBI16:     (10.0 - 5.0) / (10.0 + 5.0),
+				BestBid:   100,
+				BestAsk:   101,
 				Timestamp: time.Unix(1678886406, 0),
 			},
 		},
@@ -174,6 +188,8 @@ func TestOrderBook_ApplyUpdate(t *testing.T) {
 	expected := indicator.OBIResult{
 		OBI8:      (20.0 - 15.0) / (20.0 + 15.0),
 		OBI16:     (20.0 - 15.0) / (20.0 + 15.0),
+		BestBid:   200,
+		BestAsk:   201,
 		Timestamp: time.Unix(1678886401, 0),
 	}
 	actual := ob.CalculateOBI(8, 16)

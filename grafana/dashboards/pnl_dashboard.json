@@ -103,17 +103,17 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "datasource": "${datasource}",
           "format": "time_series",
           "group": [],
-          "metricColumn": "pnl",
-          "rawSql": "SELECT time, cumulative_pnl FROM pnl_history ORDER BY time ASC",
+          "metricColumn": "total_pnl",
+          "rawSql": "SELECT\n  time, total_pnl\nFROM pnl_summary\nWHERE\n  $__timeFilter(time) AND replay_session_id = '${replay_session_id}'\nORDER BY time ASC",
           "select": [
             [
-              { "type": "column", "params": ["cumulative_pnl"] }
+              { "type": "column", "params": ["total_pnl"] }
             ]
           ],
-          "table": "pnl_history",
+          "table": "pnl_summary",
           "timeColumn": "time",
           "where": []
         }
@@ -122,7 +122,7 @@
     {
       "title": "Total Trades",
       "type": "stat",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "${datasource}",
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 9 },
       "options": {
         "colorMode": "value",
@@ -133,16 +133,16 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
-          "rawSql": "SELECT COUNT(*) FROM trades",
+          "datasource": "${datasource}",
+          "rawSql": "SELECT COUNT(*) FROM trades WHERE replay_session_id = '${replay_session_id}'",
           "format": "table"
         }
       ]
     },
     {
-      "title": "Win Rate",
+      "title": "Win Rate (Placeholder)",
       "type": "stat",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "${datasource}",
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 9 },
       "options": {
         "colorMode": "value",
@@ -154,16 +154,16 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
-          "rawSql": "SELECT (COUNT(CASE WHEN pnl > 0 THEN 1 END) * 100.0) / COUNT(*) FROM trades",
+          "datasource": "${datasource}",
+          "rawSql": "SELECT 0.0 -- Win Rate requires PnL per trade, which is not in the trades table.",
           "format": "table"
         }
       ]
     },
     {
-      "title": "Total PnL",
+      "title": "Total Realized PnL",
       "type": "stat",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "${datasource}",
       "gridPos": { "h": 4, "w": 6, "x": 12, "y": 9 },
       "options": {
         "colorMode": "value",
@@ -174,8 +174,8 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
-          "rawSql": "SELECT SUM(pnl) FROM trades",
+          "datasource": "${datasource}",
+          "rawSql": "SELECT realized_pnl FROM pnl_summary WHERE replay_session_id = '${replay_session_id}' ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -203,13 +203,13 @@
     {
       "title": "Recent Trades",
       "type": "table",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "${datasource}",
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
       "options": { "showHeader": true },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
-          "rawSql": "SELECT * FROM trades ORDER BY created_at DESC LIMIT 20",
+          "datasource": "${datasource}",
+          "rawSql": "SELECT time, side, price, size, transaction_id FROM trades WHERE $__timeFilter(time) AND replay_session_id = '${replay_session_id}' ORDER BY time DESC LIMIT 100",
           "format": "table"
         }
       ]
@@ -223,8 +223,8 @@
       {
         "current": {
           "selected": true,
-          "text": "TimescaleDB (Production)",
-          "value": "${DS_TIMESCALEDB_PRODUCTION}"
+          "text": "TimescaleDB (Replay)",
+          "value": "${DS_TIMESCALEDB_REPLAY}"
         },
         "hide": 0,
         "includeAll": false,
@@ -233,12 +233,12 @@
         "name": "datasource",
         "options": [
           {
-            "selected": true,
+            "selected": false,
             "text": "TimescaleDB (Production)",
             "value": "${DS_TIMESCALEDB_PRODUCTION}"
           },
           {
-            "selected": false,
+            "selected": true,
             "text": "TimescaleDB (Replay)",
             "value": "${DS_TIMESCALEDB_REPLAY}"
           }
@@ -247,6 +247,23 @@
         "queryValue": "",
         "skipUrlSync": false,
         "type": "datasource"
+      },
+      {
+        "allValue": null,
+        "current": {},
+        "datasource": "${datasource}",
+        "definition": "SELECT DISTINCT replay_session_id FROM pnl_summary WHERE replay_session_id IS NOT NULL",
+        "hide": 0,
+        "includeAll": true,
+        "multi": false,
+        "name": "replay_session_id",
+        "options": [],
+        "query": "SELECT DISTINCT replay_session_id FROM pnl_summary WHERE replay_session_id IS NOT NULL",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
       }
     ]
   },
