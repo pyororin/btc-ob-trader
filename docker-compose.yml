@@ -64,7 +64,7 @@ services:
       - bot_network
 
   timescaledb:
-    image: timescale/timescaledb-ha:pg14-latest
+    image: timescale/timescaledb-ha:pg14.9-ts2.11.2
     container_name: timescaledb-obi
     ports:
       - "5432:5432"
