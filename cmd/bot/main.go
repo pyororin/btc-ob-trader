@@ -131,9 +131,44 @@ func setupDBWriter(ctx context.Context, cfg *config.Config) *dbwriter.Writer {
 }
 
 // setupHandlers creates and returns the handlers for order book and trade data.
-func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer) (coincheck.OrderBookHandler, coincheck.TradeHandler) {
+func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pair string) (coincheck.OrderBookHandler, coincheck.TradeHandler) {
 	orderBookHandler := func(data coincheck.OrderBookData) {
 		orderBook.ApplyUpdate(data)
+
+		if dbWriter == nil {
+			return
+		}
+
+		now := time.Now().UTC()
+
+		// Helper function to parse and save levels
+		saveLevels := func(levels [][]string, side string, isSnapshot bool) {
+			for _, level := range levels {
+				price, err := strconv.ParseFloat(level[0], 64)
+				if err != nil {
+					logger.Errorf("Failed to parse order book price: %v", err)
+					continue
+				}
+				size, err := strconv.ParseFloat(level[1], 64)
+				if err != nil {
+					logger.Errorf("Failed to parse order book size: %v", err)
+					continue
+				}
+				update := dbwriter.OrderBookUpdate{
+					Time:       now,
+					Pair:       pair,
+					Side:       side,
+					Price:      price,
+					Size:       size,
+					IsSnapshot: isSnapshot,
+				}
+				dbWriter.SaveOrderBookUpdate(update)
+			}
+		}
+
+		// For Coincheck, each update is a snapshot
+		saveLevels(data.Bids, "bid", true)
+		saveLevels(data.Asks, "ask", true)
 	}
 
 	tradeHandler := func(data coincheck.TradeData) {
@@ -225,7 +260,7 @@ func runMainLoop(ctx context.Context, f flags, cfg *config.Config, dbWriter *dbw
 
 		orderBook := indicator.NewOrderBook()
 		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
-		orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter)
+		orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Pair)
 
 		obiCalculator.Start(ctx)
 		go processSignalsAndExecute(ctx, cfg, obiCalculator, execEngine)
@@ -276,7 +311,7 @@ func runReplay(ctx context.Context, cfg *config.Config, dbWriter *dbwriter.Write
 	// --- Setup Handlers and Indicators ---
 	orderBook := indicator.NewOrderBook()
 	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
-	orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter)
+	orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Pair)
 
 	// --- Start Services ---
 	obiCalculator.Start(ctx)
