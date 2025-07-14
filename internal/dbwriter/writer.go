@@ -25,12 +25,14 @@ type OrderBookUpdate struct {
 
 // Trade はデータベースに保存する約定情報の構造体です。
 type Trade struct {
-	Time          time.Time `db:"time"`
-	Pair          string    `db:"pair"`
-	Side          string    `db:"side"` // "buy" or "sell"
-	Price         float64   `db:"price"`
-	Size          float64   `db:"size"`
-	TransactionID int64     `db:"transaction_id"`
+	Time            time.Time `db:"time"`
+	ReplaySessionID *string   `db:"replay_session_id"` // Use pointer to handle NULL
+	Pair            string    `db:"pair"`
+	Side            string    `db:"side"` // "buy" or "sell"
+	Price           float64   `db:"price"`
+	Size            float64   `db:"size"`
+	TransactionID   int64     `db:"transaction_id"`
+	IsCancelled     bool      `db:"is_cancelled"`
 	RealizedPnL   float64   `db:"realized_pnl"` // Not always stored in DB, but used for simulation summary
 }
 
@@ -231,7 +233,7 @@ func (w *Writer) batchInsertTrades(ctx context.Context, trades []Trade) {
 	_, err := w.pool.CopyFrom(
 		ctx,
 		pgx.Identifier{"trades"},
-		[]string{"time", "pair", "side", "price", "size", "transaction_id"},
+		[]string{"time", "replay_session_id", "pair", "side", "price", "size", "transaction_id", "is_cancelled"},
 		pgx.CopyFromRows(toTradeInterfaces(trades)),
 	)
 	if err != nil {
@@ -250,7 +252,7 @@ func toOrderBookInterfaces(updates []OrderBookUpdate) [][]interface{} {
 func toTradeInterfaces(trades []Trade) [][]interface{} {
 	rows := make([][]interface{}, len(trades))
 	for i, t := range trades {
-		rows[i] = []interface{}{t.Time, t.Pair, t.Side, t.Price, t.Size, t.TransactionID}
+		rows[i] = []interface{}{t.Time, t.ReplaySessionID, t.Pair, t.Side, t.Price, t.Size, t.TransactionID, t.IsCancelled}
 	}
 	return rows
 }

@@ -20,6 +20,7 @@ type Trade struct {
 	Price         decimal.Decimal `json:"price"`
 	Size          decimal.Decimal `json:"size"`
 	TransactionID int64           `json:"transaction_id"`
+	IsCancelled   bool            `json:"is_cancelled"`
 }
 
 func main() {
@@ -90,7 +91,7 @@ func main() {
 // fetchAllTrades はデータベースからすべてのトレードを取得します。
 func fetchAllTrades(ctx context.Context, dbpool *pgxpool.Pool) ([]Trade, error) {
 	query := `
-        SELECT time, pair, side, price, size, transaction_id
+        SELECT time, pair, side, price, size, transaction_id, is_cancelled
         FROM trades
         ORDER BY time ASC;
     `
@@ -103,7 +104,7 @@ func fetchAllTrades(ctx context.Context, dbpool *pgxpool.Pool) ([]Trade, error) 
 	var trades []Trade
 	for rows.Next() {
 		var t Trade
-		if err := rows.Scan(&t.Time, &t.Pair, &t.Side, &t.Price, &t.Size, &t.TransactionID); err != nil {
+		if err := rows.Scan(&t.Time, &t.Pair, &t.Side, &t.Price, &t.Size, &t.TransactionID, &t.IsCancelled); err != nil {
 			return nil, err
 		}
 		trades = append(trades, t)
@@ -116,7 +117,10 @@ func fetchAllTrades(ctx context.Context, dbpool *pgxpool.Pool) ([]Trade, error) 
 type Report struct {
 	StartDate          time.Time       `json:"start_date"`
 	EndDate            time.Time       `json:"end_date"`
-	TotalTrades        int             `json:"total_trades"`
+	TotalAttempts      int             `json:"total_attempts"`      // Total orders placed (including cancelled)
+	TotalTrades        int             `json:"total_trades"`        // Executed trades
+	CancelledTrades    int             `json:"cancelled_trades"`    // Cancelled trades
+	CancellationRate   float64         `json:"cancellation_rate"`   // Cancellation rate
 	WinningTrades      int             `json:"winning_trades"`
 	LosingTrades       int             `json:"losing_trades"`
 	WinRate            float64         `json:"win_rate"`
@@ -138,26 +142,49 @@ func analyzeTrades(trades []Trade) (Report, error) {
 		return Report{}, fmt.Errorf("no trades to analyze")
 	}
 
+	var executedTrades []Trade
+	cancelledCount := 0
+	for _, t := range trades {
+		if t.IsCancelled {
+			cancelledCount++
+		} else {
+			executedTrades = append(executedTrades, t)
+		}
+	}
+
+	totalAttempts := len(trades)
+	cancellationRate := 0.0
+	if totalAttempts > 0 {
+		cancellationRate = float64(cancelledCount) / float64(totalAttempts) * 100
+	}
+
+	if len(executedTrades) == 0 {
+		return Report{
+			StartDate:        trades[0].Time,
+			EndDate:          trades[len(trades)-1].Time,
+			TotalAttempts:    totalAttempts,
+			CancelledTrades:  cancelledCount,
+			CancellationRate: cancellationRate,
+			TotalTrades:      0,
+		}, nil
+	}
+
 	var buys, sells []Trade
 	var totalPnL decimal.Decimal
 	var longWinningTrades, longLosingTrades int
 	var shortWinningTrades, shortLosingTrades int
 	var totalProfit, totalLoss decimal.Decimal
 
-	startDate := trades[0].Time
-	endDate := trades[len(trades)-1].Time
+	startDate := executedTrades[0].Time
+	endDate := executedTrades[len(executedTrades)-1].Time
 
-	for _, trade := range trades {
+	for _, trade := range executedTrades {
 		if trade.Side == "buy" {
-			// ショートポジションの決済
 			for len(sells) > 0 && trade.Size.IsPositive() {
 				sell := sells[0]
 				matchSize := decimal.Min(sell.Size, trade.Size)
-
-				// ショート戦略のPnL: (売り価格 - 買い価格) * サイズ
 				pnl := sell.Price.Sub(trade.Price).Mul(matchSize)
 				totalPnL = totalPnL.Add(pnl)
-
 				if pnl.IsPositive() {
 					shortWinningTrades++
 					totalProfit = totalProfit.Add(pnl)
@@ -165,30 +192,23 @@ func analyzeTrades(trades []Trade) (Report, error) {
 					shortLosingTrades++
 					totalLoss = totalLoss.Add(pnl.Abs())
 				}
-
 				sell.Size = sell.Size.Sub(matchSize)
 				trade.Size = trade.Size.Sub(matchSize)
-
 				if sell.Size.IsZero() {
 					sells = sells[1:]
 				} else {
 					sells[0] = sell
 				}
 			}
-			// 残った買い注文は新しいロングポジション
 			if trade.Size.IsPositive() {
 				buys = append(buys, trade)
 			}
 		} else if trade.Side == "sell" {
-			// ロングポジションの決済
 			for len(buys) > 0 && trade.Size.IsPositive() {
 				buy := buys[0]
 				matchSize := decimal.Min(buy.Size, trade.Size)
-
-				// ロング戦略のPnL: (売り価格 - 買い価格) * サイズ
 				pnl := trade.Price.Sub(buy.Price).Mul(matchSize)
 				totalPnL = totalPnL.Add(pnl)
-
 				if pnl.IsPositive() {
 					longWinningTrades++
 					totalProfit = totalProfit.Add(pnl)
@@ -196,17 +216,14 @@ func analyzeTrades(trades []Trade) (Report, error) {
 					longLosingTrades++
 					totalLoss = totalLoss.Add(pnl.Abs())
 				}
-
 				buy.Size = buy.Size.Sub(matchSize)
 				trade.Size = trade.Size.Sub(matchSize)
-
 				if buy.Size.IsZero() {
 					buys = buys[1:]
 				} else {
 					buys[0] = buy
 				}
 			}
-			// 残った売り注文は新しいショートポジション
 			if trade.Size.IsPositive() {
 				sells = append(sells, trade)
 			}
@@ -215,11 +232,11 @@ func analyzeTrades(trades []Trade) (Report, error) {
 
 	winningTrades := longWinningTrades + shortWinningTrades
 	losingTrades := longLosingTrades + shortLosingTrades
-	totalTrades := winningTrades + losingTrades
+	totalExecutedTrades := winningTrades + losingTrades
 
 	winRate := 0.0
-	if totalTrades > 0 {
-		winRate = float64(winningTrades) / float64(totalTrades) * 100
+	if totalExecutedTrades > 0 {
+		winRate = float64(winningTrades) / float64(totalExecutedTrades) * 100
 	}
 
 	longWinRate := 0.0
@@ -250,7 +267,10 @@ func analyzeTrades(trades []Trade) (Report, error) {
 	return Report{
 		StartDate:          startDate,
 		EndDate:            endDate,
-		TotalTrades:        totalTrades,
+		TotalAttempts:      totalAttempts,
+		TotalTrades:        totalExecutedTrades,
+		CancelledTrades:    cancelledCount,
+		CancellationRate:   cancellationRate,
 		WinningTrades:      winningTrades,
 		LosingTrades:       losingTrades,
 		WinRate:            winRate,
@@ -273,24 +293,33 @@ func printReport(r Report) {
 	fmt.Printf("集計期間: %s から %s\n", r.StartDate.Format(time.RFC3339), r.EndDate.Format(time.RFC3339))
 	fmt.Println()
 	fmt.Println("--- 全体 ---")
-	fmt.Printf("総取引回数: %d\n", r.TotalTrades)
-	fmt.Printf("勝ちトレード数: %d\n", r.WinningTrades)
-	fmt.Printf("負けトレード数: %d\n", r.LosingTrades)
-	fmt.Printf("勝率: %.2f%%\n", r.WinRate)
-	fmt.Printf("合計損益: %s\n", r.TotalPnL.StringFixed(2))
-	fmt.Printf("平均利益: %s\n", r.AverageProfit.StringFixed(2))
-	fmt.Printf("平均損失: %s\n", r.AverageLoss.StringFixed(2))
-	fmt.Printf("リスクリワードレシオ: %.2f\n", r.RiskRewardRatio)
+	fmt.Printf("総試行回数: %d\n", r.TotalAttempts)
+	fmt.Printf("約定済み取引数: %d\n", r.TotalTrades)
+	fmt.Printf("キャンセル済み取引数: %d\n", r.CancelledTrades)
+	fmt.Printf("キャンセル率: %.2f%%\n", r.CancellationRate)
 	fmt.Println()
-	fmt.Println("--- ロング戦略 ---")
-	fmt.Printf("勝ちトレード数: %d\n", r.LongWinningTrades)
-	fmt.Printf("負けトレード数: %d\n", r.LongLosingTrades)
-	fmt.Printf("勝率: %.2f%%\n", r.LongWinRate)
-	fmt.Println()
-	fmt.Println("--- ショート戦略 ---")
-	fmt.Printf("勝ちトレード数: %d\n", r.ShortWinningTrades)
-	fmt.Printf("負けトレード数: %d\n", r.ShortLosingTrades)
-	fmt.Printf("勝率: %.2f%%\n", r.ShortWinRate)
+	fmt.Println("--- 約定済み取引の分析 ---")
+	if r.TotalTrades > 0 {
+		fmt.Printf("勝ちトレード数: %d\n", r.WinningTrades)
+		fmt.Printf("負けトレード数: %d\n", r.LosingTrades)
+		fmt.Printf("勝率: %.2f%%\n", r.WinRate)
+		fmt.Printf("合計損益: %s\n", r.TotalPnL.StringFixed(2))
+		fmt.Printf("平均利益: %s\n", r.AverageProfit.StringFixed(2))
+		fmt.Printf("平均損失: %s\n", r.AverageLoss.StringFixed(2))
+		fmt.Printf("リスクリワードレシオ: %.2f\n", r.RiskRewardRatio)
+		fmt.Println()
+		fmt.Println("--- ロング戦略 ---")
+		fmt.Printf("勝ちトレード数: %d\n", r.LongWinningTrades)
+		fmt.Printf("負けトレード数: %d\n", r.LongLosingTrades)
+		fmt.Printf("勝率: %.2f%%\n", r.LongWinRate)
+		fmt.Println()
+		fmt.Println("--- ショート戦略 ---")
+		fmt.Printf("勝ちトレード数: %d\n", r.ShortWinningTrades)
+		fmt.Printf("負けトレード数: %d\n", r.ShortLosingTrades)
+		fmt.Printf("勝率: %.2f%%\n", r.ShortWinRate)
+	} else {
+		fmt.Println("約定済みの取引はありません。")
+	}
 	fmt.Println("----------------------")
 }
 
