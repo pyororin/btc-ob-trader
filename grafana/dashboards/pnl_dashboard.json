@@ -45,7 +45,10 @@
     "list": [
       {
         "builtIn": 1,
-        "datasource": "-- Grafana --",
+        "datasource": {
+          "type": "datasource",
+          "uid": "grafana"
+        },
         "enable": true,
         "hide": true,
         "iconColor": "rgba(0, 211, 255, 1)",
@@ -55,97 +58,253 @@
     ]
   },
   "editable": true,
-  "gnetId": null,
+  "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
   "id": 1,
   "links": [],
   "panels": [
     {
-      "title": "約定済みトレード",
-      "type": "stat",
-      "datasource": "TimescaleDB (Production)",
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": "TimescaleDB (Production)",
-          "rawSql": "SELECT total_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
-        }
-      ]
-    },
-    {
-      "title": "キャンセル済みトレード",
-      "type": "stat",
-      "datasource": "TimescaleDB (Production)",
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": "TimescaleDB (Production)",
-          "rawSql": "SELECT cancelled_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
-        }
-      ]
-    },
-    {
-      "title": "キャンセル率",
-      "type": "stat",
       "datasource": "TimescaleDB (Production)",
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
+          "fieldMinMax": false,
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 5
+                "color": "green"
               }
             ]
-          },
-          "unit": "percent"
+          }
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto"
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "12.0.2",
       "targets": [
         {
-          "datasource": "TimescaleDB (Production)",
-          "rawSql": "SELECT cancellation_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
+          "datasource": {
+            "0": "T",
+            "1": "i",
+            "2": "m",
+            "3": "e",
+            "4": "s",
+            "5": "c",
+            "6": "a",
+            "7": "l",
+            "8": "e",
+            "9": "D",
+            "10": "B",
+            "11": " ",
+            "12": "(",
+            "13": "P",
+            "14": "r",
+            "15": "o",
+            "16": "d",
+            "17": "u",
+            "18": "c",
+            "19": "t",
+            "20": "i",
+            "21": "o",
+            "22": "n",
+            "23": ")"
+          },
+          "format": "table",
+          "rawSql": "SELECT total_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "約定済みトレード",
+      "type": "stat"
     },
     {
-      "title": "合計損益",
-      "type": "stat",
+      "datasource": "TimescaleDB (Production)",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "0": "T",
+            "1": "i",
+            "2": "m",
+            "3": "e",
+            "4": "s",
+            "5": "c",
+            "6": "a",
+            "7": "l",
+            "8": "e",
+            "9": "D",
+            "10": "B",
+            "11": " ",
+            "12": "(",
+            "13": "P",
+            "14": "r",
+            "15": "o",
+            "16": "d",
+            "17": "u",
+            "18": "c",
+            "19": "t",
+            "20": "i",
+            "21": "o",
+            "22": "n",
+            "23": ")"
+          },
+          "format": "table",
+          "rawSql": "SELECT cancelled_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "refId": "A"
+        }
+      ],
+      "title": "キャンセル済みトレード",
+      "type": "stat"
+    },
+    {
+      "datasource": "TimescaleDB (Production)",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "unit": "percent",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "0": "T",
+            "1": "i",
+            "2": "m",
+            "3": "e",
+            "4": "s",
+            "5": "c",
+            "6": "a",
+            "7": "l",
+            "8": "e",
+            "9": "D",
+            "10": "B",
+            "11": " ",
+            "12": "(",
+            "13": "P",
+            "14": "r",
+            "15": "o",
+            "16": "d",
+            "17": "u",
+            "18": "c",
+            "19": "t",
+            "20": "i",
+            "21": "o",
+            "22": "n",
+            "23": ")"
+          },
+          "format": "table",
+          "rawSql": "SELECT cancellation_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "refId": "A"
+        }
+      ],
+      "title": "キャンセル率",
+      "type": "stat"
+    },
+    {
       "datasource": "TimescaleDB (Production)",
       "fieldConfig": {
         "defaults": {
@@ -157,8 +316,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
-                "value": null
+                "color": "red"
               },
               {
                 "color": "green",
@@ -170,65 +328,223 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 4,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto"
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "unit": "円",
+        "wideLayout": true
       },
+      "pluginVersion": "12.0.2",
       "targets": [
         {
-          "datasource": "TimescaleDB (Production)",
+          "datasource": {
+            "0": "T",
+            "1": "i",
+            "2": "m",
+            "3": "e",
+            "4": "s",
+            "5": "c",
+            "6": "a",
+            "7": "l",
+            "8": "e",
+            "9": "D",
+            "10": "B",
+            "11": " ",
+            "12": "(",
+            "13": "P",
+            "14": "r",
+            "15": "o",
+            "16": "d",
+            "17": "u",
+            "18": "c",
+            "19": "t",
+            "20": "i",
+            "21": "o",
+            "22": "n",
+            "23": ")"
+          },
+          "format": "table",
           "rawSql": "SELECT total_pnl FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "合計損益",
+      "type": "stat"
     },
     {
-      "title": "勝ちトレード",
-      "type": "stat",
       "datasource": "TimescaleDB (Production)",
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 4 },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 4
+      },
+      "id": 5,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto"
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "12.0.2",
       "targets": [
         {
-          "datasource": "TimescaleDB (Production)",
+          "datasource": {
+            "0": "T",
+            "1": "i",
+            "2": "m",
+            "3": "e",
+            "4": "s",
+            "5": "c",
+            "6": "a",
+            "7": "l",
+            "8": "e",
+            "9": "D",
+            "10": "B",
+            "11": " ",
+            "12": "(",
+            "13": "P",
+            "14": "r",
+            "15": "o",
+            "16": "d",
+            "17": "u",
+            "18": "c",
+            "19": "t",
+            "20": "i",
+            "21": "o",
+            "22": "n",
+            "23": ")"
+          },
+          "format": "table",
           "rawSql": "SELECT winning_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "勝ちトレード",
+      "type": "stat"
     },
     {
-      "title": "負けトレード",
-      "type": "stat",
       "datasource": "TimescaleDB (Production)",
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 4 },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 4
+      },
+      "id": 6,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto"
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "12.0.2",
       "targets": [
         {
-          "datasource": "TimescaleDB (Production)",
+          "datasource": {
+            "0": "T",
+            "1": "i",
+            "2": "m",
+            "3": "e",
+            "4": "s",
+            "5": "c",
+            "6": "a",
+            "7": "l",
+            "8": "e",
+            "9": "D",
+            "10": "B",
+            "11": " ",
+            "12": "(",
+            "13": "P",
+            "14": "r",
+            "15": "o",
+            "16": "d",
+            "17": "u",
+            "18": "c",
+            "19": "t",
+            "20": "i",
+            "21": "o",
+            "22": "n",
+            "23": ")"
+          },
+          "format": "table",
           "rawSql": "SELECT losing_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "負けトレード",
+      "type": "stat"
     },
     {
-      "title": "勝率",
-      "type": "stat",
       "datasource": "TimescaleDB (Production)",
       "fieldConfig": {
         "defaults": {
@@ -236,12 +552,13 @@
             "mode": "thresholds"
           },
           "mappings": [],
+          "max": 100,
+          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
-                "value": null
+                "color": "red"
               },
               {
                 "color": "green",
@@ -253,103 +570,313 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 4 },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto"
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 4
       },
-      "targets": [
-        {
-          "datasource": "TimescaleDB (Production)",
-          "rawSql": "SELECT win_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
-        }
-      ]
-    },
-    {
-      "title": "リスクリワード比率",
-      "type": "stat",
-      "datasource": "TimescaleDB (Production)",
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 4 },
+      "id": 7,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": "TimescaleDB (Production)",
-          "rawSql": "SELECT risk_reward_ratio FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
-        }
-      ]
-    },
-    {
-      "title": "平均利益",
-      "type": "stat",
-      "datasource": "TimescaleDB (Production)",
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 4 },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
         "textMode": "auto",
-        "unit": "Yen"
+        "wideLayout": true
       },
+      "pluginVersion": "12.0.2",
       "targets": [
         {
-          "datasource": "TimescaleDB (Production)",
-          "rawSql": "SELECT average_profit FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
+          "datasource": {
+            "0": "T",
+            "1": "i",
+            "2": "m",
+            "3": "e",
+            "4": "s",
+            "5": "c",
+            "6": "a",
+            "7": "l",
+            "8": "e",
+            "9": "D",
+            "10": "B",
+            "11": " ",
+            "12": "(",
+            "13": "P",
+            "14": "r",
+            "15": "o",
+            "16": "d",
+            "17": "u",
+            "18": "c",
+            "19": "t",
+            "20": "i",
+            "21": "o",
+            "22": "n",
+            "23": ")"
+          },
+          "format": "table",
+          "rawSql": "SELECT win_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "勝率",
+      "type": "stat"
     },
     {
-      "title": "平均損失",
-      "type": "stat",
       "datasource": "TimescaleDB (Production)",
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "fixedColor": "red",
-            "mode": "fixed"
-          },
-          "custom": {
-            "prefix": "-"
-          },
-          "unit": "Yen"
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red"
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 4 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 4
+      },
+      "id": 10,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto"
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "unit": "Yen",
+        "wideLayout": true
       },
+      "pluginVersion": "12.0.2",
       "targets": [
         {
-          "datasource": "TimescaleDB (Production)",
+          "datasource": {
+            "0": "T",
+            "1": "i",
+            "2": "m",
+            "3": "e",
+            "4": "s",
+            "5": "c",
+            "6": "a",
+            "7": "l",
+            "8": "e",
+            "9": "D",
+            "10": "B",
+            "11": " ",
+            "12": "(",
+            "13": "P",
+            "14": "r",
+            "15": "o",
+            "16": "d",
+            "17": "u",
+            "18": "c",
+            "19": "t",
+            "20": "i",
+            "21": "o",
+            "22": "n",
+            "23": ")"
+          },
+          "format": "table",
           "rawSql": "SELECT average_loss FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "平均損失",
+      "type": "stat"
     },
     {
-      "title": "ロング戦略",
-      "type": "stat",
       "datasource": "TimescaleDB (Production)",
       "fieldConfig": {
         "defaults": {
-          "mappings": []
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 4
+      },
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "unit": "Yen",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "0": "T",
+            "1": "i",
+            "2": "m",
+            "3": "e",
+            "4": "s",
+            "5": "c",
+            "6": "a",
+            "7": "l",
+            "8": "e",
+            "9": "D",
+            "10": "B",
+            "11": " ",
+            "12": "(",
+            "13": "P",
+            "14": "r",
+            "15": "o",
+            "16": "d",
+            "17": "u",
+            "18": "c",
+            "19": "t",
+            "20": "i",
+            "21": "o",
+            "22": "n",
+            "23": ")"
+          },
+          "format": "table",
+          "rawSql": "SELECT average_profit FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "refId": "A"
+        }
+      ],
+      "title": "平均利益",
+      "type": "stat"
+    },
+    {
+      "datasource": "TimescaleDB (Production)",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 4
+      },
+      "id": 8,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "0": "T",
+            "1": "i",
+            "2": "m",
+            "3": "e",
+            "4": "s",
+            "5": "c",
+            "6": "a",
+            "7": "l",
+            "8": "e",
+            "9": "D",
+            "10": "B",
+            "11": " ",
+            "12": "(",
+            "13": "P",
+            "14": "r",
+            "15": "o",
+            "16": "d",
+            "17": "u",
+            "18": "c",
+            "19": "t",
+            "20": "i",
+            "21": "o",
+            "22": "n",
+            "23": ")"
+          },
+          "format": "table",
+          "rawSql": "SELECT risk_reward_ratio FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "refId": "A"
+        }
+      ],
+      "title": "リスクリワード比率",
+      "type": "stat"
+    },
+    {
+      "datasource": "TimescaleDB (Production)",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          }
         },
         "overrides": [
           {
@@ -394,29 +921,80 @@
           }
         ]
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 11,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto"
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "12.0.2",
       "targets": [
         {
-          "datasource": "TimescaleDB (Production)",
+          "datasource": {
+            "0": "T",
+            "1": "i",
+            "2": "m",
+            "3": "e",
+            "4": "s",
+            "5": "c",
+            "6": "a",
+            "7": "l",
+            "8": "e",
+            "9": "D",
+            "10": "B",
+            "11": " ",
+            "12": "(",
+            "13": "P",
+            "14": "r",
+            "15": "o",
+            "16": "d",
+            "17": "u",
+            "18": "c",
+            "19": "t",
+            "20": "i",
+            "21": "o",
+            "22": "n",
+            "23": ")"
+          },
+          "format": "table",
           "rawSql": "SELECT long_winning_trades, long_losing_trades, long_win_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "ロング戦略",
+      "type": "stat"
     },
     {
-      "title": "ショート戦略",
-      "type": "stat",
       "datasource": "TimescaleDB (Production)",
       "fieldConfig": {
         "defaults": {
-          "mappings": []
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          }
         },
         "overrides": [
           {
@@ -461,33 +1039,81 @@
           }
         ]
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 12,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto"
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "12.0.2",
       "targets": [
         {
-          "datasource": "TimescaleDB (Production)",
+          "datasource": {
+            "0": "T",
+            "1": "i",
+            "2": "m",
+            "3": "e",
+            "4": "s",
+            "5": "c",
+            "6": "a",
+            "7": "l",
+            "8": "e",
+            "9": "D",
+            "10": "B",
+            "11": " ",
+            "12": "(",
+            "13": "P",
+            "14": "r",
+            "15": "o",
+            "16": "d",
+            "17": "u",
+            "18": "c",
+            "19": "t",
+            "20": "i",
+            "21": "o",
+            "22": "n",
+            "23": ")"
+          },
+          "format": "table",
           "rawSql": "SELECT short_winning_trades, short_losing_trades, short_win_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "ショート戦略",
+      "type": "stat"
     }
   ],
-  "schemaVersion": 35,
-  "style": "dark",
+  "preload": false,
+  "schemaVersion": 41,
   "tags": [],
   "templating": {
     "list": []
   },
-  "time": { "from": "now-6h", "to": "now" },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "browser",
   "title": "損益レポート",
   "uid": "unique-pnl-dashboard-uid",
-  "version": 2
+  "version": 10
 }
