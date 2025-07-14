@@ -24,12 +24,16 @@ type ExecutionEngine interface {
 // LiveExecutionEngine handles real order placement with the exchange.
 type LiveExecutionEngine struct {
 	exchangeClient *coincheck.Client
+	availableJpy   float64
+	availableBtc   float64
 }
 
 // NewLiveExecutionEngine creates a new LiveExecutionEngine.
-func NewLiveExecutionEngine(client *coincheck.Client) *LiveExecutionEngine {
+func NewLiveExecutionEngine(client *coincheck.Client, jpy, btc float64) *LiveExecutionEngine {
 	return &LiveExecutionEngine{
 		exchangeClient: client,
+		availableJpy:   jpy,
+		availableBtc:   btc,
 	}
 }
 
@@ -41,12 +45,33 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 
 	// Round rate to the nearest integer for JPY pairs, as required by Coincheck API.
 	roundedRate := math.Round(rate)
+	adjustedAmount := amount
+
+	// Adjust order size based on available balance
+	if orderType == "buy" {
+		orderValue := roundedRate * amount
+		if orderValue > e.availableJpy {
+			adjustedAmount = e.availableJpy / roundedRate
+			// Round down to 6 decimal places for safety
+			adjustedAmount = math.Floor(adjustedAmount*1e6) / 1e6
+			logger.Warnf("[Live] Buy order amount %.8f exceeds available JPY balance. Adjusting to %.8f.", amount, adjustedAmount)
+		}
+	} else if orderType == "sell" {
+		if amount > e.availableBtc {
+			adjustedAmount = e.availableBtc
+			logger.Warnf("[Live] Sell order amount %.8f exceeds available BTC balance. Adjusting to %.8f.", amount, adjustedAmount)
+		}
+	}
+
+	if adjustedAmount <= 0 {
+		return nil, fmt.Errorf("adjusted order amount is zero or negative, skipping order placement")
+	}
 
 	req := coincheck.OrderRequest{
 		Pair:      pair,
 		OrderType: orderType,
 		Rate:      roundedRate,
-		Amount:    amount,
+		Amount:    adjustedAmount,
 	}
 	if postOnly {
 		req.TimeInForce = "post_only"
