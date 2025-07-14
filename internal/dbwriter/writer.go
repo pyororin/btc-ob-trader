@@ -153,14 +153,11 @@ func (w *Writer) run() {
 	if w.pool == nil {
 		return // Do not run for dummy writer
 	}
-	w.logger.Debug("DB writer run loop started")
 	for {
 		select {
 		case <-w.flushTicker.C:
-			w.logger.Debug("DB writer ticker triggered")
 			w.flushBuffers()
 		case <-w.shutdownChan:
-			w.logger.Debug("DB writer run loop shutting down")
 			return
 		}
 	}
@@ -171,13 +168,13 @@ func (w *Writer) SaveOrderBookUpdate(obu OrderBookUpdate) {
 	if w.pool == nil {
 		return
 	}
-	w.bufferMutex.Lock()
-	defer w.bufferMutex.Unlock()
 
+	w.bufferMutex.Lock()
 	w.orderBookBuffer = append(w.orderBookBuffer, obu)
-	w.logger.Debug("Added order book update to buffer", zap.Int("new_size", len(w.orderBookBuffer)))
-	if len(w.orderBookBuffer) >= w.config.BatchSize {
-		w.logger.Info("Order book buffer reached batch size, flushing...")
+	shouldFlush := len(w.orderBookBuffer) >= w.config.BatchSize
+	w.bufferMutex.Unlock()
+
+	if shouldFlush {
 		w.flushBuffers()
 	}
 }
@@ -187,14 +184,14 @@ func (w *Writer) SaveTrade(trade Trade) {
 	if w.pool == nil {
 		return
 	}
-	w.bufferMutex.Lock()
-	defer w.bufferMutex.Unlock()
 
+	w.bufferMutex.Lock()
 	trade.ReplaySessionID = w.replaySessionID
 	w.tradeBuffer = append(w.tradeBuffer, trade)
-	w.logger.Debug("Added trade to buffer", zap.Int("new_size", len(w.tradeBuffer)))
-	if len(w.tradeBuffer) >= w.config.BatchSize {
-		w.logger.Info("Trade buffer reached batch size, flushing...")
+	shouldFlush := len(w.tradeBuffer) >= w.config.BatchSize
+	w.bufferMutex.Unlock()
+
+	if shouldFlush {
 		w.flushBuffers()
 	}
 }
@@ -206,8 +203,6 @@ func (w *Writer) flushBuffers() {
 	w.bufferMutex.Lock()
 	defer w.bufferMutex.Unlock()
 
-	w.logger.Debug("Flushing buffers...", zap.Int("ob_count", len(w.orderBookBuffer)), zap.Int("trade_count", len(w.tradeBuffer)))
-
 	if len(w.orderBookBuffer) > 0 {
 		w.batchInsertOrderBookUpdates(context.Background(), w.orderBookBuffer)
 		w.orderBookBuffer = w.orderBookBuffer[:0]
@@ -217,7 +212,6 @@ func (w *Writer) flushBuffers() {
 		w.batchInsertTrades(context.Background(), w.tradeBuffer)
 		w.tradeBuffer = w.tradeBuffer[:0]
 	}
-	w.logger.Debug("Finished flushing buffers.")
 }
 
 func (w *Writer) batchInsertOrderBookUpdates(ctx context.Context, updates []OrderBookUpdate) {
