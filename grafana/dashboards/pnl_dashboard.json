@@ -104,14 +104,36 @@
       "title": "キャンセル率",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto",
-        "unit": "percent"
+        "textMode": "auto"
       },
       "targets": [
         {
@@ -148,14 +170,13 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 0 },
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 0 },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto",
-        "unit": "円"
+        "textMode": "auto"
       },
       "targets": [
         {
@@ -252,7 +273,7 @@
       "title": "リスクリワード比率",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 4 },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -293,14 +314,26 @@
       "title": "平均損失",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "red",
+            "mode": "fixed"
+          },
+          "custom": {
+            "prefix": "-"
+          },
+          "unit": "Yen"
+        },
+        "overrides": []
+      },
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 4 },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto",
-        "unit": "Yen"
+        "textMode": "auto"
       },
       "targets": [
         {
