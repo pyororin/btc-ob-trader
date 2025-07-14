@@ -24,7 +24,6 @@ type Config struct {
 	Order       OrderConfig    `yaml:"order"`
 	Database    DatabaseConfig `yaml:"database"`
 	DBWriter    DBWriterConfig `yaml:"db_writer"`
-	Replay      ReplayConfig   `yaml:"replay"`
 }
 
 // SignalConfig holds configuration for signal generation.
@@ -43,12 +42,6 @@ type TwapConfig struct {
 	Enabled         bool    `yaml:"enabled"`
 	MaxOrderSizeBtc float64 `yaml:"max_order_size_btc"`
 	IntervalSeconds int     `yaml:"interval_seconds"`
-}
-
-// ReplayConfig holds configuration for the replay mode.
-type ReplayConfig struct {
-	StartTime string `yaml:"start_time"`
-	EndTime   string `yaml:"end_time"`
 }
 
 // DatabaseConfig holds all database connection parameters.

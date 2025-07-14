@@ -25,45 +25,37 @@ type OrderBookUpdate struct {
 
 // Trade はデータベースに保存する約定情報の構造体です。
 type Trade struct {
-	Time            time.Time `db:"time"`
-	ReplaySessionID *string   `db:"replay_session_id"` // Use pointer to handle NULL
-	Pair            string    `db:"pair"`
-	Side            string    `db:"side"` // "buy" or "sell"
-	Price           float64   `db:"price"`
-	Size            float64   `db:"size"`
-	TransactionID   int64     `db:"transaction_id"`
+	Time          time.Time `db:"time"`
+	Pair          string    `db:"pair"`
+	Side          string    `db:"side"` // "buy" or "sell"
+	Price         float64   `db:"price"`
+	Size          float64   `db:"size"`
+	TransactionID int64     `db:"transaction_id"`
 	RealizedPnL   float64   `db:"realized_pnl"` // Not always stored in DB, but used for simulation summary
 }
 
 // PnLSummary はデータベースに保存するPnL情報の構造体です。
 type PnLSummary struct {
-	Time            time.Time `db:"time"`
-	ReplaySessionID *string   `db:"replay_session_id"` // Use pointer to handle NULL
-	StrategyID      string    `db:"strategy_id"`
-	Pair            string    `db:"pair"`
-	RealizedPnL     float64   `db:"realized_pnl"`
-	UnrealizedPnL   float64   `db:"unrealized_pnl"`
-	TotalPnL        float64   `db:"total_pnl"`
-	PositionSize    float64   `db:"position_size"`
-	AvgEntryPrice   float64   `db:"avg_entry_price"`
+	Time          time.Time `db:"time"`
+	StrategyID    string    `db:"strategy_id"`
+	Pair          string    `db:"pair"`
+	RealizedPnL   float64   `db:"realized_pnl"`
+	UnrealizedPnL float64   `db:"unrealized_pnl"`
+	TotalPnL      float64   `db:"total_pnl"`
+	PositionSize  float64   `db:"position_size"`
+	AvgEntryPrice float64   `db:"avg_entry_price"`
 }
 
 // Writer はTimescaleDBへのデータ書き込みを担当します。
 type Writer struct {
-	pool             *pgxpool.Pool
-	logger           *zap.Logger
-	config           config.DBWriterConfig
-	replaySessionID  *string // Use pointer to handle NULL
-	orderBookBuffer  []OrderBookUpdate
-	tradeBuffer      []Trade
-	bufferMutex      sync.Mutex
-	flushTicker      *time.Ticker
-	shutdownChan     chan struct{}
-}
-
-// SetReplaySessionID sets the replay session ID for the writer.
-func (w *Writer) SetReplaySessionID(sessionID string) {
-	w.replaySessionID = &sessionID
+	pool            *pgxpool.Pool
+	logger          *zap.Logger
+	config          config.DBWriterConfig
+	orderBookBuffer []OrderBookUpdate
+	tradeBuffer     []Trade
+	bufferMutex     sync.Mutex
+	flushTicker     *time.Ticker
+	shutdownChan    chan struct{}
 }
 
 // NewWriter は新しいWriterインスタンスを作成します。
@@ -187,7 +179,6 @@ func (w *Writer) SaveTrade(trade Trade) {
 	}
 
 	w.bufferMutex.Lock()
-	trade.ReplaySessionID = w.replaySessionID
 	w.tradeBuffer = append(w.tradeBuffer, trade)
 	shouldFlush := len(w.tradeBuffer) >= w.config.BatchSize
 	w.bufferMutex.Unlock()
@@ -240,7 +231,7 @@ func (w *Writer) batchInsertTrades(ctx context.Context, trades []Trade) {
 	_, err := w.pool.CopyFrom(
 		ctx,
 		pgx.Identifier{"trades"},
-		[]string{"time", "replay_session_id", "pair", "side", "price", "size", "transaction_id"},
+		[]string{"time", "pair", "side", "price", "size", "transaction_id"},
 		pgx.CopyFromRows(toTradeInterfaces(trades)),
 	)
 	if err != nil {
@@ -259,7 +250,7 @@ func toOrderBookInterfaces(updates []OrderBookUpdate) [][]interface{} {
 func toTradeInterfaces(trades []Trade) [][]interface{} {
 	rows := make([][]interface{}, len(trades))
 	for i, t := range trades {
-		rows[i] = []interface{}{t.Time, t.ReplaySessionID, t.Pair, t.Side, t.Price, t.Size, t.TransactionID}
+		rows[i] = []interface{}{t.Time, t.Pair, t.Side, t.Price, t.Size, t.TransactionID}
 	}
 	return rows
 }
@@ -271,12 +262,10 @@ func (w *Writer) SavePnLSummary(ctx context.Context, pnl PnLSummary) error {
 		return nil
 	}
 
-	pnl.ReplaySessionID = w.replaySessionID
-
-	query := `INSERT INTO pnl_summary (time, replay_session_id, strategy_id, pair, realized_pnl, unrealized_pnl, total_pnl, position_size, avg_entry_price)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+	query := `INSERT INTO pnl_summary (time, strategy_id, pair, realized_pnl, unrealized_pnl, total_pnl, position_size, avg_entry_price)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 	_, err := w.pool.Exec(ctx, query,
-		pnl.Time, pnl.ReplaySessionID, pnl.StrategyID, pnl.Pair,
+		pnl.Time, pnl.StrategyID, pnl.Pair,
 		pnl.RealizedPnL, pnl.UnrealizedPnL, pnl.TotalPnL,
 		pnl.PositionSize, pnl.AvgEntryPrice,
 	)

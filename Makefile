@@ -1,7 +1,7 @@
 -include .env
 export
 
-.PHONY: help up down logs shell clean test build replay monitor report
+.PHONY: help up down logs shell clean test build report
 
 # ==============================================================================
 # HELP
@@ -13,9 +13,6 @@ help:
 	@echo "Available commands:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 	@echo ""
-	@echo "Grafana Dashboard:"
-	@echo "  After running 'make monitor' or 'make up', access the PnL dashboard at:"
-	@echo "  \033[32mhttp://localhost:3000\033[0m (login: admin/admin)"
 
 # ==============================================================================
 # DOCKER COMPOSE
@@ -23,10 +20,6 @@ help:
 up: ## Start all services including the bot for live trading.
 	@echo "Starting all services (including trading bot)..."
 	sudo -E docker compose up -d --build
-
-monitor: ## Start monitoring services (DB, Grafana) without the bot.
-	@echo "Starting monitoring services (TimescaleDB, Grafana)..."
-	sudo -E docker compose up -d timescaledb grafana
 
 down: ## Stop and remove all application stack containers.
 	@echo "Stopping application stack..."
@@ -43,10 +36,6 @@ shell: ## Access a shell inside the running bot container.
 clean: ## Stop, remove containers, and remove volumes.
 	@echo "Stopping application stack and removing volumes..."
 	sudo -E docker compose down -v --remove-orphans
-
-replay: ## Run a backtest using historical data from the database.
-	@echo "Running replay task..."
-	sudo -E docker compose run --build --rm bot-replay
 
 simulate: ## Run a backtest using trade data from a local CSV file.
 	@echo "Running simulation task..."
@@ -82,7 +71,7 @@ DOCKER_RUN_GO = sudo -E docker compose run --rm --service-ports --entrypoint "" 
 
 test: ## Run Go tests inside the container.
 	@echo "Running Go tests..."
-	$(DOCKER_RUN_GO) go test ./... -v
+	sudo -E docker compose run --rm --service-ports --entrypoint "" -v $(shell pwd)/.env:/app/.env builder go test ./... -v
 
 build: ## Build the Go application binary inside the container.
 	@echo "Building Go application binary..."

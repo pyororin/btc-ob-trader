@@ -6,6 +6,7 @@ services:
       target: builder
     volumes:
       - .:/app
+      - ./.env:/app/.env:ro
     working_dir: /app
     env_file:
       - .env
@@ -38,27 +39,6 @@ services:
       retries: 3
       start_period: 30s
     restart: unless-stopped
-    depends_on:
-      timescaledb:
-        condition: service_healthy
-    networks:
-      - bot_network
-
-  bot-replay:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: obi-scalp-bot-replay
-    entrypoint: ["/usr/local/bin/obi-scalp-bot"]
-    volumes:
-      - ./.env:/app/.env:ro
-      - ./config:/app/config:ro
-      - ./pkg:/app/pkg:ro
-    command: ["-replay", "-config", "/app/config/config-replay.yaml"]
-    env_file:
-      - .env
-    environment:
-      - DB_HOST=timescaledb
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -118,30 +98,9 @@ services:
       - timescaledb
     command: ["sleep", "infinity"]
 
-  grafana:
-    image: grafana/grafana-oss:latest
-    container_name: grafana-obi
-    ports:
-      - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
-      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
-    volumes:
-      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
-      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - grafana_data:/var/lib/grafana
-    depends_on:
-      - timescaledb
-    restart: unless-stopped
-    networks:
-      - bot_network
-
 networks:
   bot_network:
     driver: bridge
 
 volumes:
   timescaledb_data:
-  grafana_data:
