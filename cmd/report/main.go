@@ -114,16 +114,22 @@ func fetchAllTrades(ctx context.Context, dbpool *pgxpool.Pool) ([]Trade, error) 
 
 // Report は損益分析の結果を保持します。
 type Report struct {
-	StartDate       time.Time       `json:"start_date"`
-	EndDate         time.Time       `json:"end_date"`
-	TotalTrades     int             `json:"total_trades"`
-	WinningTrades   int             `json:"winning_trades"`
-	LosingTrades    int             `json:"losing_trades"`
-	WinRate         float64         `json:"win_rate"`
-	TotalPnL        decimal.Decimal `json:"total_pnl"`
-	AverageProfit   decimal.Decimal `json:"average_profit"`
-	AverageLoss     decimal.Decimal `json:"average_loss"`
-	RiskRewardRatio float64         `json:"risk_reward_ratio"`
+	StartDate          time.Time       `json:"start_date"`
+	EndDate            time.Time       `json:"end_date"`
+	TotalTrades        int             `json:"total_trades"`
+	WinningTrades      int             `json:"winning_trades"`
+	LosingTrades       int             `json:"losing_trades"`
+	WinRate            float64         `json:"win_rate"`
+	LongWinningTrades  int             `json:"long_winning_trades"`
+	LongLosingTrades   int             `json:"long_losing_trades"`
+	LongWinRate        float64         `json:"long_win_rate"`
+	ShortWinningTrades int             `json:"short_winning_trades"`
+	ShortLosingTrades  int             `json:"short_losing_trades"`
+	ShortWinRate       float64         `json:"short_win_rate"`
+	TotalPnL           decimal.Decimal `json:"total_pnl"`
+	AverageProfit      decimal.Decimal `json:"average_profit"`
+	AverageLoss        decimal.Decimal `json:"average_loss"`
+	RiskRewardRatio    float64         `json:"risk_reward_ratio"`
 }
 
 // analyzeTrades はトレードリストを分析してレポートを作成します。
@@ -132,9 +138,10 @@ func analyzeTrades(trades []Trade) (Report, error) {
 		return Report{}, fmt.Errorf("no trades to analyze")
 	}
 
-	var buys []Trade
+	var buys, sells []Trade
 	var totalPnL decimal.Decimal
-	var winningTrades, losingTrades int
+	var longWinningTrades, longLosingTrades int
+	var shortWinningTrades, shortLosingTrades int
 	var totalProfit, totalLoss decimal.Decimal
 
 	startDate := trades[0].Time
@@ -142,26 +149,56 @@ func analyzeTrades(trades []Trade) (Report, error) {
 
 	for _, trade := range trades {
 		if trade.Side == "buy" {
-			buys = append(buys, trade)
-		} else if trade.Side == "sell" {
-			sellSize := trade.Size
-			for len(buys) > 0 && sellSize.IsPositive() {
-				buy := buys[0]
-				matchSize := decimal.Min(buy.Size, sellSize)
+			// ショートポジションの決済
+			for len(sells) > 0 && trade.Size.IsPositive() {
+				sell := sells[0]
+				matchSize := decimal.Min(sell.Size, trade.Size)
 
+				// ショート戦略のPnL: (売り価格 - 買い価格) * サイズ
+				pnl := sell.Price.Sub(trade.Price).Mul(matchSize)
+				totalPnL = totalPnL.Add(pnl)
+
+				if pnl.IsPositive() {
+					shortWinningTrades++
+					totalProfit = totalProfit.Add(pnl)
+				} else {
+					shortLosingTrades++
+					totalLoss = totalLoss.Add(pnl.Abs())
+				}
+
+				sell.Size = sell.Size.Sub(matchSize)
+				trade.Size = trade.Size.Sub(matchSize)
+
+				if sell.Size.IsZero() {
+					sells = sells[1:]
+				} else {
+					sells[0] = sell
+				}
+			}
+			// 残った買い注文は新しいロングポジション
+			if trade.Size.IsPositive() {
+				buys = append(buys, trade)
+			}
+		} else if trade.Side == "sell" {
+			// ロングポジションの決済
+			for len(buys) > 0 && trade.Size.IsPositive() {
+				buy := buys[0]
+				matchSize := decimal.Min(buy.Size, trade.Size)
+
+				// ロング戦略のPnL: (売り価格 - 買い価格) * サイズ
 				pnl := trade.Price.Sub(buy.Price).Mul(matchSize)
 				totalPnL = totalPnL.Add(pnl)
 
 				if pnl.IsPositive() {
-					winningTrades++
+					longWinningTrades++
 					totalProfit = totalProfit.Add(pnl)
 				} else {
-					losingTrades++
+					longLosingTrades++
 					totalLoss = totalLoss.Add(pnl.Abs())
 				}
 
 				buy.Size = buy.Size.Sub(matchSize)
-				sellSize = sellSize.Sub(matchSize)
+				trade.Size = trade.Size.Sub(matchSize)
 
 				if buy.Size.IsZero() {
 					buys = buys[1:]
@@ -169,13 +206,30 @@ func analyzeTrades(trades []Trade) (Report, error) {
 					buys[0] = buy
 				}
 			}
+			// 残った売り注文は新しいショートポジション
+			if trade.Size.IsPositive() {
+				sells = append(sells, trade)
+			}
 		}
 	}
 
+	winningTrades := longWinningTrades + shortWinningTrades
+	losingTrades := longLosingTrades + shortLosingTrades
 	totalTrades := winningTrades + losingTrades
+
 	winRate := 0.0
 	if totalTrades > 0 {
 		winRate = float64(winningTrades) / float64(totalTrades) * 100
+	}
+
+	longWinRate := 0.0
+	if longWinningTrades+longLosingTrades > 0 {
+		longWinRate = float64(longWinningTrades) / float64(longWinningTrades+longLosingTrades) * 100
+	}
+
+	shortWinRate := 0.0
+	if shortWinningTrades+shortLosingTrades > 0 {
+		shortWinRate = float64(shortWinningTrades) / float64(shortWinningTrades+shortLosingTrades) * 100
 	}
 
 	avgProfit := decimal.Zero
@@ -194,16 +248,22 @@ func analyzeTrades(trades []Trade) (Report, error) {
 	}
 
 	return Report{
-		StartDate:       startDate,
-		EndDate:         endDate,
-		TotalTrades:     totalTrades,
-		WinningTrades:   winningTrades,
-		LosingTrades:    losingTrades,
-		WinRate:         winRate,
-		TotalPnL:        totalPnL,
-		AverageProfit:   avgProfit,
-		AverageLoss:     avgLoss,
-		RiskRewardRatio: riskRewardRatio,
+		StartDate:          startDate,
+		EndDate:            endDate,
+		TotalTrades:        totalTrades,
+		WinningTrades:      winningTrades,
+		LosingTrades:       losingTrades,
+		WinRate:            winRate,
+		LongWinningTrades:  longWinningTrades,
+		LongLosingTrades:   longLosingTrades,
+		LongWinRate:        longWinRate,
+		ShortWinningTrades: shortWinningTrades,
+		ShortLosingTrades:  shortLosingTrades,
+		ShortWinRate:       shortWinRate,
+		TotalPnL:           totalPnL,
+		AverageProfit:      avgProfit,
+		AverageLoss:        avgLoss,
+		RiskRewardRatio:    riskRewardRatio,
 	}, nil
 }
 
@@ -211,6 +271,8 @@ func analyzeTrades(trades []Trade) (Report, error) {
 func printReport(r Report) {
 	fmt.Println("--- 損益分析レポート ---")
 	fmt.Printf("集計期間: %s から %s\n", r.StartDate.Format(time.RFC3339), r.EndDate.Format(time.RFC3339))
+	fmt.Println()
+	fmt.Println("--- 全体 ---")
 	fmt.Printf("総取引回数: %d\n", r.TotalTrades)
 	fmt.Printf("勝ちトレード数: %d\n", r.WinningTrades)
 	fmt.Printf("負けトレード数: %d\n", r.LosingTrades)
@@ -219,6 +281,16 @@ func printReport(r Report) {
 	fmt.Printf("平均利益: %s\n", r.AverageProfit.StringFixed(2))
 	fmt.Printf("平均損失: %s\n", r.AverageLoss.StringFixed(2))
 	fmt.Printf("リスクリワードレシオ: %.2f\n", r.RiskRewardRatio)
+	fmt.Println()
+	fmt.Println("--- ロング戦略 ---")
+	fmt.Printf("勝ちトレード数: %d\n", r.LongWinningTrades)
+	fmt.Printf("負けトレード数: %d\n", r.LongLosingTrades)
+	fmt.Printf("勝率: %.2f%%\n", r.LongWinRate)
+	fmt.Println()
+	fmt.Println("--- ショート戦略 ---")
+	fmt.Printf("勝ちトレード数: %d\n", r.ShortWinningTrades)
+	fmt.Printf("負けトレード数: %d\n", r.ShortLosingTrades)
+	fmt.Printf("勝率: %.2f%%\n", r.ShortWinRate)
 	fmt.Println("----------------------")
 }
 
