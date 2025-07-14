@@ -112,12 +112,12 @@ database:
   port: 5432
 
   # ユーザー名
-  # .env ファイルや環境変数 `DB_USER` で設定することを推奨します。
-  user: "postgres"
+  # .env ファイルや環境変数 `DB_USER` で設定必須です。
+  user: ""
 
   # パスワード
-  # .env ファイルや環境変数 `DB_PASSWORD` で設定することを強く推奨します。
-  password: "password"
+  # .env ファイルや環境変数 `DB_PASSWORD` で設定必須です。
+  password: ""
 
   # データベース名
   name: "obi_scalp_bot_db"
