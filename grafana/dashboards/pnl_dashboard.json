@@ -63,7 +63,7 @@
     {
       "title": "Executed Trades",
       "type": "stat",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
       "options": {
         "colorMode": "value",
@@ -74,7 +74,7 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "datasource": "TimescaleDB (Production)",
           "rawSql": "SELECT total_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
@@ -83,7 +83,7 @@
     {
       "title": "Cancelled Trades",
       "type": "stat",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
       "options": {
         "colorMode": "value",
@@ -94,7 +94,7 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "datasource": "TimescaleDB (Production)",
           "rawSql": "SELECT cancelled_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
@@ -103,7 +103,7 @@
     {
       "title": "Cancellation Rate",
       "type": "stat",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
       "options": {
         "colorMode": "value",
@@ -115,7 +115,7 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "datasource": "TimescaleDB (Production)",
           "rawSql": "SELECT cancellation_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
@@ -124,7 +124,7 @@
     {
       "title": "Total PnL",
       "type": "stat",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 8, "x": 16, "y": 0 },
       "options": {
         "colorMode": "value",
@@ -135,7 +135,7 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "datasource": "TimescaleDB (Production)",
           "rawSql": "SELECT total_pnl FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
@@ -144,7 +144,7 @@
     {
       "title": "Winning Trades",
       "type": "stat",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 0, "y": 4 },
       "options": {
         "colorMode": "value",
@@ -155,7 +155,7 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "datasource": "TimescaleDB (Production)",
           "rawSql": "SELECT winning_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
@@ -164,7 +164,7 @@
     {
       "title": "Losing Trades",
       "type": "stat",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 4, "y": 4 },
       "options": {
         "colorMode": "value",
@@ -175,7 +175,7 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "datasource": "TimescaleDB (Production)",
           "rawSql": "SELECT losing_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
@@ -184,7 +184,7 @@
     {
       "title": "Win Rate",
       "type": "stat",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 4 },
       "options": {
         "colorMode": "value",
@@ -196,7 +196,7 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "datasource": "TimescaleDB (Production)",
           "rawSql": "SELECT win_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
@@ -205,7 +205,7 @@
     {
       "title": "Risk Reward Ratio",
       "type": "stat",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
       "options": {
         "colorMode": "value",
@@ -216,7 +216,7 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "datasource": "TimescaleDB (Production)",
           "rawSql": "SELECT risk_reward_ratio FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
@@ -225,7 +225,7 @@
     {
       "title": "Average Profit",
       "type": "stat",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 12, "y": 4 },
       "options": {
         "colorMode": "value",
@@ -236,7 +236,7 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "datasource": "TimescaleDB (Production)",
           "rawSql": "SELECT average_profit FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
@@ -245,7 +245,7 @@
     {
       "title": "Average Loss",
       "type": "stat",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 4 },
       "options": {
         "colorMode": "value",
@@ -256,7 +256,7 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "datasource": "TimescaleDB (Production)",
           "rawSql": "SELECT average_loss FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
@@ -265,7 +265,7 @@
     {
       "title": "Long Strategy",
       "type": "stat",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "options": {
         "colorMode": "value",
@@ -276,7 +276,7 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "datasource": "TimescaleDB (Production)",
           "rawSql": "SELECT long_winning_trades, long_losing_trades, long_win_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
@@ -285,7 +285,7 @@
     {
       "title": "Short Strategy",
       "type": "stat",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "options": {
         "colorMode": "value",
@@ -296,7 +296,7 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "datasource": "TimescaleDB (Production)",
           "rawSql": "SELECT short_winning_trades, short_losing_trades, short_win_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
