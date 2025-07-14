@@ -71,7 +71,6 @@ func (c *Client) newRequest(method, endpoint string, body io.Reader) (*http.Requ
 		req.Body = io.NopCloser(buf)
 	}
 
-
 	mac := hmac.New(sha256.New, []byte(c.secretKey))
 	_, err = mac.Write([]byte(message))
 	if err != nil {
@@ -87,7 +86,6 @@ func (c *Client) newRequest(method, endpoint string, body io.Reader) (*http.Requ
 	return req, nil
 }
 
-
 // NewOrder sends a new order request to Coincheck.
 func (c *Client) NewOrder(reqBody OrderRequest) (*OrderResponse, error) {
 	endpoint := "/api/exchange/orders"
@@ -102,12 +100,10 @@ func (c *Client) NewOrder(reqBody OrderRequest) (*OrderResponse, error) {
 		return nil, fmt.Errorf("failed to create new order request: %w", err)
 	}
 	// After newRequest, the body of httpReq is already set with bytes.NewBuffer(jsonBody)
-    // If newRequest consumes the body for signature generation, it should also reset it.
-    // Let's ensure the body is correctly set here if it was consumed and not reset.
-    // Based on the newRequest implementation, it seems to handle the body by reading and potentially needing a reset.
-    // For POST, we definitely need the body.
-    httpReq.Body = io.NopCloser(bytes.NewBuffer(jsonBody))
-
+	// If newRequest consumes the body for signature generation, it should also reset it.
+	// Let's ensure the body is correctly set here if it was consumed and not reset.
+	// For POST, we definitely need the body.
+	httpReq.Body = io.NopCloser(bytes.NewBuffer(jsonBody))
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -125,20 +121,19 @@ func (c *Client) NewOrder(reqBody OrderRequest) (*OrderResponse, error) {
 		return nil, fmt.Errorf("failed to decode new order response (status: %d, body: %s): %w. Raw request body for POST: %s", resp.StatusCode, string(bodyBytes), err, string(jsonBody))
 	}
 
-    // Check for API-level errors if success is false
+	// Check for API-level errors if success is false
 	if !orderResp.Success {
-        // If the response includes an error field, use it.
-        if orderResp.Error != "" {
-             // Handle cases where error_description might be available
-            if orderResp.ErrorDescription != "" {
-                return &orderResp, fmt.Errorf("coincheck API error on new order: %s - %s", orderResp.Error, orderResp.ErrorDescription)
-            }
-            return &orderResp, fmt.Errorf("coincheck API error on new order: %s", orderResp.Error)
-        }
+		// If the response includes an error field, use it.
+		if orderResp.Error != "" {
+			// Handle cases where error_description might be available
+			if orderResp.ErrorDescription != "" {
+				return &orderResp, fmt.Errorf("coincheck API error on new order: %s - %s", orderResp.Error, orderResp.ErrorDescription)
+			}
+			return &orderResp, fmt.Errorf("coincheck API error on new order: %s", orderResp.Error)
+		}
 		// Fallback error message if no specific error field is populated
 		return &orderResp, fmt.Errorf("coincheck API returned success=false for new order, status: %d, ID: %d", resp.StatusCode, orderResp.ID)
 	}
-
 
 	return &orderResp, nil
 }
@@ -163,12 +158,12 @@ func (c *Client) CancelOrder(orderID int64) (*CancelResponse, error) {
 		return nil, fmt.Errorf("failed to decode cancel order response (status: %d): %w", resp.StatusCode, err)
 	}
 
-    if !cancelResp.Success {
-        if cancelResp.Error != "" {
-            return &cancelResp, fmt.Errorf("coincheck API error on cancel order: %s", cancelResp.Error)
-        }
-        return &cancelResp, fmt.Errorf("coincheck API returned success=false for cancel order, status: %d, ID: %d", resp.StatusCode, cancelResp.ID)
-    }
+	if !cancelResp.Success {
+		if cancelResp.Error != "" {
+			return &cancelResp, fmt.Errorf("coincheck API error on cancel order: %s", cancelResp.Error)
+		}
+		return &cancelResp, fmt.Errorf("coincheck API returned success=false for cancel order, status: %d, ID: %d", resp.StatusCode, cancelResp.ID)
+	}
 
 	return &cancelResp, nil
 }
@@ -245,4 +240,39 @@ func (c *Client) GetOpenOrders() (*OpenOrdersResponse, error) {
 	}
 
 	return &openOrdersResp, nil
+}
+
+// GetTransactions retrieves the transaction history from Coincheck.
+func (c *Client) GetTransactions() (*TransactionsResponse, error) {
+	endpoint := "/api/exchange/orders/transactions"
+
+	httpReq, err := c.newRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create get transactions request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute get transactions request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read get transactions response body (status: %d): %w", resp.StatusCode, err)
+	}
+
+	var transactionsResp TransactionsResponse
+	if err := json.Unmarshal(bodyBytes, &transactionsResp); err != nil {
+		return nil, fmt.Errorf("failed to decode get transactions response (status: %d, body: %s): %w", resp.StatusCode, string(bodyBytes), err)
+	}
+
+	if !transactionsResp.Success {
+		if transactionsResp.Error != "" {
+			return &transactionsResp, fmt.Errorf("coincheck API error on get transactions: %s", transactionsResp.Error)
+		}
+		return &transactionsResp, fmt.Errorf("coincheck API returned success=false for get transactions, status: %d", resp.StatusCode)
+	}
+
+	return &transactionsResp, nil
 }

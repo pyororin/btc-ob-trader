@@ -22,6 +22,14 @@ type Config struct {
 	Database    DatabaseConfig `yaml:"database"`
 	DBWriter    DBWriterConfig `yaml:"db_writer"`
 	Replay      ReplayConfig `yaml:"replay"`
+	Twap        TwapConfig   `yaml:"twap"`
+}
+
+// TwapConfig holds configuration for the TWAP execution strategy.
+type TwapConfig struct {
+	Enabled         bool    `yaml:"enabled"`
+	MaxOrderSizeBtc float64 `yaml:"max_order_size_btc"`
+	IntervalSeconds int     `yaml:"interval_seconds"`
 }
 
 // ReplayConfig holds configuration for the replay mode.
@@ -35,9 +43,9 @@ type DatabaseConfig struct {
 	Host     string `yaml:"host"`
 	Port     int    `yaml:"port"`
 	User     string `yaml:"user"`
-	Password string `yaml:"password"` // Loaded from env or yaml for non-sensitive
+	Password string `yaml:"password"`
 	Name     string `yaml:"name"`
-	SSLMode  string `yaml:"sslmode"` // e.g., "disable", "require", "verify-full"
+	SSLMode  string `yaml:"sslmode"`
 }
 
 // DBWriterConfig holds configuration for the TimescaleDB writer service.
@@ -56,31 +64,25 @@ type StrategyConf struct {
 
 // VolConf holds configuration for volatility calculation and dynamic adjustments.
 type VolConf struct {
-	EWMALambda         float64        `yaml:"ewma_lambda"`
-	DynamicOBI         DynamicOBIConf `yaml:"dynamic_obi"`
+	EWMALambda   float64      `yaml:"ewma_lambda"`
+	DynamicOBI   DynamicOBIConf `yaml:"dynamic_obi"`
 }
 
 // DynamicOBIConf holds configuration for dynamic OBI threshold adjustments.
 type DynamicOBIConf struct {
-	Enabled            bool    `yaml:"enabled"`
-	VolatilityFactor   float64 `yaml:"volatility_factor"`
+	Enabled          bool    `yaml:"enabled"`
+	VolatilityFactor float64 `yaml:"volatility_factor"`
 	MinThresholdFactor float64 `yaml:"min_threshold_factor"`
 	MaxThresholdFactor float64 `yaml:"max_threshold_factor"`
 }
-
-// Lambda is a type alias for float64 for clarity in config.
-// This type alias is not used anymore, float64 is used directly.
-// type Lambda float64
 
 // LoadConfig loads configuration from the specified YAML file path
 // and environment variables.
 func LoadConfig(configPath string) (*Config, error) {
 	cfg := &Config{
-		// Default values
 		LogLevel: "info",
 	}
 
-	// Read YAML file
 	file, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, err
@@ -90,7 +92,6 @@ func LoadConfig(configPath string) (*Config, error) {
 		return nil, err
 	}
 
-	// Load sensitive data and overrides from environment variables
 	if apiKey := os.Getenv("COINCHECK_API_KEY"); apiKey != "" {
 		cfg.APIKey = apiKey
 	}
@@ -100,14 +101,9 @@ func LoadConfig(configPath string) (*Config, error) {
 	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
 		cfg.LogLevel = logLevel
 	}
-
-	// Load DatabaseConfig from environment variables, overriding YAML if set
 	if dbHost := os.Getenv("DB_HOST"); dbHost != "" {
 		cfg.Database.Host = dbHost
 	}
-	// Note: os.Getenv returns string, so Port needs conversion if loaded from env
-	// For simplicity, assuming Port is primarily set via YAML or has a sensible default.
-	// If direct env var for port is needed, add string parsing to int.
 	if dbUser := os.Getenv("DB_USER"); dbUser != "" {
 		cfg.Database.User = dbUser
 	}
@@ -120,19 +116,6 @@ func LoadConfig(configPath string) (*Config, error) {
 	if dbSSLMode := os.Getenv("DB_SSLMODE"); dbSSLMode != "" {
 		cfg.Database.SSLMode = dbSSLMode
 	}
-	// DBPort from environment variable requires string to int conversion.
-	// Example:
-	// if dbPortStr := os.Getenv("DB_PORT"); dbPortStr != "" {
-	// 	if port, err := strconv.Atoi(dbPortStr); err == nil {
-	// 		cfg.Database.Port = port
-	// 	} else {
-	// 		// Handle error: log it or return an error
-	// 	}
-	// }
 
-
-	// TODO: Add validation for critical config values, especially for DatabaseConfig
-	// e.g., ensure Host, User, Name are not empty if DB is enabled.
-	// Ensure DBWriterConfig values are sensible (e.g. BatchSize > 0)
 	return cfg, nil
 }

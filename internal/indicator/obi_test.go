@@ -8,20 +8,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
 	"github.com/your-org/obi-scalp-bot/internal/indicator"
 )
-
-// newOrderBookData is a helper function from orderbook_test.go.
-// To avoid import cycles or making it public, we redefine it here for testing purposes.
-// In a real-world scenario, this might be part of a shared test utility package.
-func newOrderBookData(bids, asks [][]string, lastUpdateAt string) coincheck.OrderBookData {
-	return coincheck.OrderBookData{
-		Bids:         bids,
-		Asks:         asks,
-		LastUpdateAt: lastUpdateAt,
-	}
-}
 
 func TestOBICalculator(t *testing.T) {
 	// 1. Setup

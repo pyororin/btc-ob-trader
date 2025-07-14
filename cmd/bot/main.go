@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -132,9 +133,6 @@ func setupDBWriter(ctx context.Context, cfg *config.Config) *dbwriter.Writer {
 	if zapErr != nil {
 		logger.Fatalf("Failed to initialize Zap logger for DBWriter: %v", zapErr)
 	}
-	// It's idiomatic to handle the sync in main's defer, but since we are encapsulating,
-	// we will rely on the application's main defer to handle process-wide concerns.
-	// A more robust solution might involve a dedicated lifecycle management component.
 
 	logger.Infof("Initializing DBWriter with config: BatchSize=%d, WriteIntervalSeconds=%d", cfg.DBWriter.BatchSize, cfg.DBWriter.WriteIntervalSeconds)
 
@@ -157,7 +155,6 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pa
 
 		now := time.Now().UTC()
 
-		// Helper function to parse and save levels
 		saveLevels := func(levels [][]string, side string, isSnapshot bool) {
 			for _, level := range levels {
 				price, err := strconv.ParseFloat(level[0], 64)
@@ -182,7 +179,6 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pa
 			}
 		}
 
-		// For Coincheck, each update is a snapshot
 		saveLevels(data.Bids, "bid", true)
 		saveLevels(data.Asks, "ask", true)
 	}
@@ -242,13 +238,10 @@ func processSignalsAndExecute(ctx context.Context, cfg *config.Config, obiCalcul
 					logger.Warnf("Skipping signal evaluation due to invalid best bid/ask: BestBid=%.2f, BestAsk=%.2f", result.BestBid, result.BestAsk)
 					continue
 				}
-				// TODO: This is a simplified view. We need more data for a robust signal.
-				// For now, we use a placeholder for mid-price and other data points.
-				// A proper implementation would get this from the order book.
 				midPrice := (result.BestAsk + result.BestBid) / 2
-				signalEngine.UpdateMarketData(result.Timestamp, midPrice, result.BestBid, result.BestAsk, 1.0, 1.0) // Placeholder sizes
+				signalEngine.UpdateMarketData(result.Timestamp, midPrice, result.BestBid, result.BestAsk, 1.0, 1.0)
 
-				tradingSignal := signalEngine.Evaluate(result.Timestamp, result.OBI8) // Using OBI8 for signals
+				tradingSignal := signalEngine.Evaluate(result.Timestamp, result.OBI8)
 				if tradingSignal != nil {
 					orderType := ""
 					if tradingSignal.Type == tradingsignal.SignalLong {
@@ -258,16 +251,95 @@ func processSignalsAndExecute(ctx context.Context, cfg *config.Config, obiCalcul
 					}
 
 					if orderType != "" {
-						logger.Infof("Executing trade for signal: %s", tradingSignal.Type.String())
-						_, err := execEngine.PlaceOrder(ctx, cfg.Pair, orderType, tradingSignal.EntryPrice, 0.01, false) // Placeholder amount
-						if err != nil {
-							logger.Errorf("Failed to place order for signal: %v", err)
+						orderBook := obiCalculator.OrderBook()
+						const liquidityCheckPriceRange = 0.001
+						const liquidityThresholdBtc = 0.1
+
+						var depth float64
+						if orderType == "buy" {
+							depth = orderBook.CalculateDepth("ask", liquidityCheckPriceRange)
+						} else {
+							depth = orderBook.CalculateDepth("bid", liquidityCheckPriceRange)
+						}
+
+						finalPrice := tradingSignal.EntryPrice
+						orderLogMsg := "Placing standard limit order."
+
+						if depth >= liquidityThresholdBtc {
+							if orderType == "buy" {
+								finalPrice = result.BestAsk
+								orderLogMsg = fmt.Sprintf("Sufficient liquidity (%.4f BTC). Placing aggressive buy order at ask price.", depth)
+							} else {
+								finalPrice = result.BestBid
+								orderLogMsg = fmt.Sprintf("Sufficient liquidity (%.4f BTC). Placing aggressive sell order at bid price.", depth)
+							}
+						} else {
+							orderLogMsg = fmt.Sprintf("Insufficient liquidity (%.4f BTC). Placing standard limit order.", depth)
+						}
+
+						logger.Infof("Executing trade for signal: %s. %s", tradingSignal.Type.String(), orderLogMsg)
+						orderAmount := 0.01
+
+						if cfg.Twap.Enabled && orderAmount > cfg.Twap.MaxOrderSizeBtc {
+							logger.Infof("Order amount %.8f exceeds max size %.8f. Executing with TWAP.", orderAmount, cfg.Twap.MaxOrderSizeBtc)
+							go executeTwapOrder(ctx, execEngine, cfg, cfg.Pair, orderType, finalPrice, orderAmount)
+						} else {
+							_, err := execEngine.PlaceOrder(ctx, cfg.Pair, orderType, finalPrice, orderAmount, false)
+							if err != nil {
+								logger.Errorf("Failed to place order for signal: %v", err)
+							}
 						}
 					}
 				}
 			}
 		}
 	}()
+}
+
+// executeTwapOrder executes a large order by splitting it into smaller chunks over time.
+func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, cfg *config.Config, pair, orderType string, price, totalAmount float64) {
+	numOrders := int(math.Floor(totalAmount / cfg.Twap.MaxOrderSizeBtc))
+	lastOrderSize := totalAmount - float64(numOrders)*cfg.Twap.MaxOrderSizeBtc
+	chunkSize := cfg.Twap.MaxOrderSizeBtc
+	interval := time.Duration(cfg.Twap.IntervalSeconds) * time.Second
+
+	logger.Infof("TWAP execution started: Total=%.8f, Chunks=%d, ChunkSize=%.8f, LastChunk=%.8f, Interval=%v",
+		totalAmount, numOrders, chunkSize, lastOrderSize, interval)
+
+	for i := 0; i < numOrders; i++ {
+		select {
+		case <-ctx.Done():
+			logger.Warnf("TWAP execution cancelled for order type %s.", orderType)
+			return
+		default:
+			logger.Infof("TWAP chunk %d/%d: Placing order for %.8f BTC.", i+1, numOrders, chunkSize)
+			_, err := execEngine.PlaceOrder(ctx, pair, orderType, price, chunkSize, false)
+			if err != nil {
+				logger.Errorf("Error in TWAP chunk %d: %v. Aborting.", i+1, err)
+				return
+			}
+			logger.Infof("TWAP chunk %d/%d placed. Waiting for %v.", i+1, numOrders, interval)
+			time.Sleep(interval)
+		}
+	}
+
+	if lastOrderSize > 1e-8 { // Avoid placing virtually zero-sized orders
+		select {
+		case <-ctx.Done():
+			logger.Warnf("TWAP execution cancelled before placing the last chunk for order type %s.", orderType)
+			return
+		default:
+			logger.Infof("TWAP last chunk: Placing order for %.8f BTC.", lastOrderSize)
+			_, err := execEngine.PlaceOrder(ctx, pair, orderType, price, lastOrderSize, false)
+			if err != nil {
+				logger.Errorf("Error in TWAP last chunk: %v. Aborting.", err)
+			} else {
+				logger.Info("TWAP execution finished successfully.")
+			}
+		}
+	} else {
+		logger.Info("TWAP execution finished successfully.")
+	}
 }
 
 // runMainLoop starts either the live trading, replay, or simulation mode.
@@ -279,7 +351,7 @@ func runMainLoop(ctx context.Context, f flags, cfg *config.Config, dbWriter *dbw
 	} else {
 		// Live trading setup
 		client := coincheck.NewClient(cfg.APIKey, cfg.APISecret)
-		execEngine := engine.NewLiveExecutionEngine(client, cfg)
+		execEngine := engine.NewLiveExecutionEngine(client, cfg, dbWriter)
 
 		orderBook := indicator.NewOrderBook()
 		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
@@ -287,13 +359,14 @@ func runMainLoop(ctx context.Context, f flags, cfg *config.Config, dbWriter *dbw
 
 		obiCalculator.Start(ctx)
 		go processSignalsAndExecute(ctx, cfg, obiCalculator, execEngine)
+		go orderMonitor(ctx, cfg, execEngine, client, orderBook)
 
 		wsClient := coincheck.NewWebSocketClient(orderBookHandler, tradeHandler)
 		go func() {
 			logger.Info("Connecting to Coincheck WebSocket API...")
 			if err := wsClient.Connect(); err != nil {
 				logger.Errorf("WebSocket client exited with error: %v", err)
-				sigs <- syscall.SIGTERM // Trigger shutdown on connection error
+				sigs <- syscall.SIGTERM
 			}
 		}()
 	}
@@ -353,14 +426,12 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine) {
 	fmt.Printf("取引回数     : %d回\n", totalTrades)
 	fmt.Printf("勝率         : %.2f%% (%d勝/%d敗)\n", winRate, wins, losses)
 	fmt.Printf("平均利益/損失: %.2f JPY / %.2f JPY\n", avgWin, avgLoss)
-	// NOTE: Max Drawdown calculation is complex and requires tracking equity curve, omitted for now.
 	fmt.Println("最大ドローダウン: N/A")
 	fmt.Println("==========================")
 }
 
 // runSimulation runs a backtest using data from a CSV file.
 func runSimulation(ctx context.Context, f flags, cfg *config.Config, sigs chan<- os.Signal) {
-	// --- Log Simulation Configuration ---
 	logger.Info("--- SIMULATION MODE ---")
 	logger.Infof("CSV File: %s", f.csvPath)
 	logger.Infof("Pair: %s", cfg.Pair)
@@ -368,22 +439,16 @@ func runSimulation(ctx context.Context, f flags, cfg *config.Config, sigs chan<-
 	logger.Infof("Short Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Short.OBIThreshold, cfg.Short.TP, cfg.Short.SL)
 	logger.Info("--------------------")
 
-	// --- Execution Engine ---
-	// In simulation mode, we don't write to the DB, so we pass nil for the writer.
 	replayEngine := engine.NewReplayExecutionEngine(nil)
 	var execEngine engine.ExecutionEngine = replayEngine
 
-	// --- Setup Handlers and Indicators ---
 	orderBook := indicator.NewOrderBook()
 	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
-	// In simulation mode, we don't have a dbWriter.
 	orderBookHandler, _ := setupHandlers(orderBook, nil, cfg.Pair)
 
-	// --- Start Services ---
 	obiCalculator.Start(ctx)
 	go processSignalsAndExecute(ctx, cfg, obiCalculator, execEngine)
 
-	// --- Fetch Events from CSV ---
 	logger.Infof("Fetching market events from %s", f.csvPath)
 	events, err := datastore.FetchMarketEventsFromCSV(ctx, f.csvPath)
 	if err != nil {
@@ -396,12 +461,11 @@ func runSimulation(ctx context.Context, f flags, cfg *config.Config, sigs chan<-
 	}
 	logger.Infof("Fetched %d market snapshots.", len(events))
 
-	// --- Event Loop ---
 	go func() {
 		defer func() {
 			logger.Info("Simulation finished.")
 			printSimulationSummary(replayEngine)
-			sigs <- syscall.SIGTERM // Notify main thread to exit
+			sigs <- syscall.SIGTERM
 		}()
 
 		for i, event := range events {
@@ -410,11 +474,10 @@ func runSimulation(ctx context.Context, f flags, cfg *config.Config, sigs chan<-
 				logger.Info("Simulation cancelled.")
 				return
 			default:
-				// In this mode, we only have OrderBookEvents.
 				if e, ok := event.(datastore.OrderBookEvent); ok {
 					orderBookHandler(e.OrderBook)
 				}
-				if (i+1)%100 == 0 { // Log progress every 100 events (snapshots are less frequent)
+				if (i+1)%100 == 0 {
 					logger.Infof("Processed snapshot %d/%d", i+1, len(events))
 				}
 			}
@@ -423,21 +486,104 @@ func runSimulation(ctx context.Context, f flags, cfg *config.Config, sigs chan<-
 	}()
 }
 
+// orderMonitor periodically checks open orders and adjusts them if necessary.
+func orderMonitor(ctx context.Context, cfg *config.Config, execEngine engine.ExecutionEngine, client *coincheck.Client, orderBook *indicator.OrderBook) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	logger.Info("Starting order monitor.")
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("Stopping order monitor.")
+			return
+		case <-ticker.C:
+			openOrders, err := client.GetOpenOrders()
+			if err != nil {
+				logger.Errorf("Order monitor failed to get open orders: %v", err)
+				continue
+			}
+
+			if len(openOrders.Orders) == 0 {
+				continue
+			}
+
+			logger.Infof("Order monitor found %d open orders.", len(openOrders.Orders))
+
+			bestBid, bestAsk := orderBook.BestBid(), orderBook.BestAsk()
+			if bestBid == 0 || bestAsk == 0 {
+				logger.Warn("Order monitor: Invalid best bid/ask, skipping adjustment check.")
+				continue
+			}
+
+			for _, order := range openOrders.Orders {
+				orderRate, err := strconv.ParseFloat(order.Rate, 64)
+				if err != nil {
+					logger.Errorf("Failed to parse order rate '%s' for order ID %d", order.Rate, order.ID)
+					continue
+				}
+
+				const priceAdjustmentThresholdRatio = 0.001
+
+				var needsAdjustment bool
+				var newRate float64
+
+				if order.OrderType == "buy" {
+					if orderRate < bestBid*(1-priceAdjustmentThresholdRatio) {
+						needsAdjustment = true
+						newRate = bestBid
+						logger.Infof("Buy order %d (%.2f) is not competitive (Best Bid: %.2f). Adjusting price.", order.ID, orderRate, bestBid)
+					}
+				} else if order.OrderType == "sell" {
+					if orderRate > bestAsk*(1+priceAdjustmentThresholdRatio) {
+						needsAdjustment = true
+						newRate = bestAsk
+						logger.Infof("Sell order %d (%.2f) is not competitive (Best Ask: %.2f). Adjusting price.", order.ID, orderRate, bestAsk)
+					}
+				}
+
+				if needsAdjustment {
+					logger.Infof("Adjusting order %d. Cancelling...", order.ID)
+					_, err := execEngine.CancelOrder(ctx, order.ID)
+					if err != nil {
+						logger.Errorf("Failed to cancel order %d for adjustment: %v", order.ID, err)
+						continue
+					}
+
+					time.Sleep(500 * time.Millisecond)
+
+					pendingAmount, err := strconv.ParseFloat(order.PendingAmount, 64)
+					if err != nil {
+						logger.Errorf("Failed to parse pending amount for order %d: %v", order.ID, err)
+						continue
+					}
+
+					logger.Infof("Re-placing order for pair %s, type %s, new rate %.2f, amount %.8f", order.Pair, order.OrderType, newRate, pendingAmount)
+					_, err = execEngine.PlaceOrder(ctx, order.Pair, order.OrderType, newRate, pendingAmount, false)
+					if err != nil {
+						logger.Errorf("Failed to re-place order after adjustment for original ID %d: %v", order.ID, err)
+					} else {
+						logger.Infof("Successfully re-placed order for original ID %d with new rate.", order.ID)
+					}
+				}
+			}
+		}
+	}
+}
+
 // runReplay runs the backtest simulation using data from the database.
 func runReplay(ctx context.Context, cfg *config.Config, dbWriter *dbwriter.Writer, sigs chan<- os.Signal) {
-	// --- Replay Session ID & Logger ---
 	replaySessionID, err := uuid.NewRandom()
 	if err != nil {
 		logger.Fatalf("Failed to generate replay session ID: %v", err)
 	}
 	logger.SetReplayMode(replaySessionID.String())
 
-	// --- DB Writer ---
 	if dbWriter != nil {
 		dbWriter.SetReplaySessionID(replaySessionID.String())
 	}
 
-	// --- Log Replay Configuration ---
 	logger.Info("--- REPLAY MODE ---")
 	logger.Infof("Session ID: %s", replaySessionID.String())
 	logger.Infof("Pair: %s", cfg.Pair)
@@ -446,19 +592,15 @@ func runReplay(ctx context.Context, cfg *config.Config, dbWriter *dbwriter.Write
 	logger.Infof("Short Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Short.OBIThreshold, cfg.Short.TP, cfg.Short.SL)
 	logger.Info("--------------------")
 
-	// --- Execution Engine ---
 	execEngine := engine.NewReplayExecutionEngine(dbWriter)
 
-	// --- Setup Handlers and Indicators ---
 	orderBook := indicator.NewOrderBook()
 	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
 	orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Pair)
 
-	// --- Start Services ---
 	obiCalculator.Start(ctx)
 	go processSignalsAndExecute(ctx, cfg, obiCalculator, execEngine)
 
-	// --- DB Connection for Data Fetching ---
 	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
 		cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name, cfg.Database.SSLMode)
 	dbpool, err := pgxpool.New(ctx, dbURL)
@@ -469,7 +611,6 @@ func runReplay(ctx context.Context, cfg *config.Config, dbWriter *dbwriter.Write
 
 	repo := datastore.NewRepository(dbpool)
 
-	// --- Time Range ---
 	startTime, err := time.Parse(time.RFC3339, cfg.Replay.StartTime)
 	if err != nil {
 		logger.Fatalf("Invalid start_time format: %v", err)
@@ -479,7 +620,6 @@ func runReplay(ctx context.Context, cfg *config.Config, dbWriter *dbwriter.Write
 		logger.Fatalf("Invalid end_time format: %v", err)
 	}
 
-	// --- Fetch Events ---
 	logger.Infof("Fetching market events from %s to %s", startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
 	events, err := repo.FetchMarketEvents(ctx, cfg.Pair, startTime, endTime)
 	if err != nil {
@@ -492,11 +632,10 @@ func runReplay(ctx context.Context, cfg *config.Config, dbWriter *dbwriter.Write
 	}
 	logger.Infof("Fetched %d market events.", len(events))
 
-	// --- Event Loop ---
 	go func() {
 		defer func() {
 			logger.Info("Replay finished.")
-			sigs <- syscall.SIGTERM // Notify main thread to exit
+			sigs <- syscall.SIGTERM
 		}()
 
 		for i, event := range events {
@@ -505,14 +644,13 @@ func runReplay(ctx context.Context, cfg *config.Config, dbWriter *dbwriter.Write
 				logger.Info("Replay cancelled.")
 				return
 			default:
-				// Process event
 				switch e := event.(type) {
 				case datastore.TradeEvent:
 					tradeHandler(e.Trade)
 				case datastore.OrderBookEvent:
 					orderBookHandler(e.OrderBook)
 				}
-				if (i+1)%1000 == 0 { // Log progress every 1000 events
+				if (i+1)%1000 == 0 {
 					logger.Infof("Processed event %d/%d", i+1, len(events))
 				}
 			}
