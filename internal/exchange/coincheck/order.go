@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/your-org/obi-scalp-bot/pkg/logger"
 	// "github.com/google/uuid" // No longer used after removing newNonce
 )
 
@@ -190,6 +192,10 @@ func (c *Client) GetBalance() (*BalanceResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read get balance response body (status: %d): %w", resp.StatusCode, err)
 	}
+
+	// Log the raw response body for debugging purposes.
+	// This helps verify the structure and content of the data received from Coincheck.
+	logger.Debugf("GetBalance response body: %s", string(bodyBytes))
 
 	var balanceResp BalanceResponse
 	if err := json.Unmarshal(bodyBytes, &balanceResp); err != nil {

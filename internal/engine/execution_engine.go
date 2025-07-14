@@ -59,7 +59,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	} else if orderType == "sell" {
 		if amount > e.availableBtc {
 			adjustedAmount = e.availableBtc
-			logger.Warnf("[Live] Sell order amount %.8f exceeds available BTC balance. Adjusting to %.8f.", amount, adjustedAmount)
+			logger.Warnf("[Live] Sell order amount %.8f exceeds available BTC balance (%.8f). Adjusting to %.8f.", amount, e.availableBtc, adjustedAmount)
 		}
 	}
 
