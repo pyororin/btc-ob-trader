@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -84,6 +85,30 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 		return resp, err
 	}
 	logger.Infof("[Live] Order placed successfully: %+v", resp)
+
+	// 注文成功後、残高を更新
+	if resp.Success {
+		rate, err := strconv.ParseFloat(resp.Rate, 64)
+		if err != nil {
+			logger.Errorf("[Live] Error parsing rate from response: %v", err)
+			return resp, nil // エラーはログに出力するが、取引は成功しているのでnilを返す
+		}
+		amount, err := strconv.ParseFloat(resp.Amount, 64)
+		if err != nil {
+			logger.Errorf("[Live] Error parsing amount from response: %v", err)
+			return resp, nil // 同上
+		}
+
+		if orderType == "buy" {
+			e.availableJpy -= rate * amount
+			e.availableBtc += amount
+		} else if orderType == "sell" {
+			e.availableBtc -= amount
+			e.availableJpy += rate * amount
+		}
+		logger.Infof("[Live] Balance updated: JPY=%.2f, BTC=%.8f", e.availableJpy, e.availableBtc)
+	}
+
 	return resp, nil
 }
 
