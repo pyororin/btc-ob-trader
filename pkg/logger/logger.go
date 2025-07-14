@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sync"
 )
 
 // Logger defines a simple interface for logging.
@@ -106,78 +107,75 @@ func SetReplayMode(sessionID string) {
 	}
 }
 
-// Global std logger instance, initialized directly with default "info" settings.
-var std Logger = &defaultLogger{
-	debugLogger: log.New(io.Discard, "", 0), // Debug is off by default
-	infoLogger:  log.New(os.Stdout, "INFO:  ", log.Ldate|log.Ltime|log.Lshortfile),
-	errorLogger: log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile),
-	fatalLogger: log.New(os.Stderr, "FATAL: ", log.Ldate|log.Ltime|log.Lshortfile),
+var (
+	std      Logger
+	logMutex sync.Mutex
+)
+
+// init initializes the global logger with a default info level.
+func init() {
+	std = NewLogger("info")
 }
 
-// SetGlobalLogLevel reconfigures the global std logger's level.
+// SetGlobalLogLevel reconfigures the global std logger's level safely.
 func SetGlobalLogLevel(logLevel string) {
-	var debugHandle io.Writer = io.Discard
-	var infoHandle io.Writer = os.Stdout
-	var errorHandle io.Writer = os.Stderr
-
-	switch logLevel {
-	case "debug":
-		debugHandle = os.Stdout
-	case "info":
-		// infoHandle is already os.Stdout
-	case "error", "fatal":
-		infoHandle = io.Discard
-	}
-
-	if logLevel == "fatal" {
-		errorHandle = io.Discard
-	}
-
-	if globalStd, ok := std.(*defaultLogger); ok {
-		globalStd.debugLogger = log.New(debugHandle, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile)
-		globalStd.infoLogger = log.New(infoHandle, "INFO:  ", log.Ldate|log.Ltime|log.Lshortfile)
-		globalStd.errorLogger = log.New(errorHandle, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
-	} else {
-		log.Println("Error: Global logger is not of type *defaultLogger, cannot set level.")
-	}
+	logMutex.Lock()
+	defer logMutex.Unlock()
+	std = NewLogger(logLevel)
 }
 
 // Debug logs a debug message using the global std logger.
 func Debug(args ...interface{}) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
 	std.Debug(args...)
 }
 
 // Debugf logs a debug message with formatting.
 func Debugf(format string, args ...interface{}) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
 	std.Debugf(format, args...)
 }
 
 // Info logs an informational message using the global std logger.
 func Info(args ...interface{}) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
 	std.Info(args...)
 }
 
 // Infof logs an informational message with formatting.
 func Infof(format string, args ...interface{}) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
 	std.Infof(format, args...)
 }
 
 // Error logs an error message.
 func Error(args ...interface{}) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
 	std.Error(args...)
 }
 
 // Errorf logs an error message with formatting.
 func Errorf(format string, args ...interface{}) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
 	std.Errorf(format, args...)
 }
 
 // Fatal logs a fatal error message and exits.
 func Fatal(args ...interface{}) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
 	std.Fatal(args...)
 }
 
 // Fatalf logs a fatal error message with formatting and exits.
 func Fatalf(format string, args ...interface{}) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
 	std.Fatalf(format, args...)
 }
