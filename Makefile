@@ -93,6 +93,6 @@ report: ## Generate and display the PnL report.
 	@echo "Starting report generator service..."
 	sudo -E docker compose up -d --build report-generator
 	@echo "Generating PnL report..."
-	sudo -E docker compose exec $(shell awk 'NF > 0 && !/^\s*#/ {print "-e " $$0}' .env | sed 's/"//g') report-generator go build -o build/report cmd/report/main.go
+	sudo -E docker compose exec report-generator go build -o build/report cmd/report/main.go
 	@echo "Running PnL report..."
-	sudo -E docker compose exec $(shell awk 'NF > 0 && !/^\s*#/ {print "-e " $$0}' .env | sed 's/"//g') report-generator ./build/report
+	sudo -E docker compose exec report-generator ./build/report
