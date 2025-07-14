@@ -49,7 +49,7 @@ replay: ## Run a backtest using historical data.
 # GO BUILDS & TESTS
 # ==============================================================================
 # Define a helper to run commands inside a temporary Go builder container
-DOCKER_RUN_GO = sudo -E docker compose run --rm --service-ports --entrypoint "" bot
+DOCKER_RUN_GO = sudo -E docker compose run --rm --service-ports --entrypoint "" builder
 
 test: ## Run Go tests inside the container.
 	@echo "Running Go tests..."

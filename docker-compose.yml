@@ -1,4 +1,13 @@
 services:
+  builder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    volumes:
+      - .:/app
+    working_dir: /app
+
   bot:
     build:
       context: .
