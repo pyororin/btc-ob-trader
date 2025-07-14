@@ -189,58 +189,38 @@ func (c *WebSocketClient) Close() error {
 
 // handleMessage decodes the incoming message and routes it to the appropriate handler.
 func (c *WebSocketClient) handleMessage(message []byte, targetPair string) {
-	// First, try to unmarshal into a trades message format (array of strings)
-	var rawTradeData []interface{}
-	if err := json.Unmarshal(message, &rawTradeData); err == nil {
-		// [transaction_id, pair, rate, amount, taker_side]
-		if len(rawTradeData) == 5 {
-			// Type assertion to ensure all elements are strings as expected for trades
-			id, idOk := rawTradeData[0].(string)
-			pair, pairOk := rawTradeData[1].(string)
-			rate, rateOk := rawTradeData[2].(string)
-			amount, amountOk := rawTradeData[3].(string)
-			side, sideOk := rawTradeData[4].(string)
-
-			if idOk && pairOk && rateOk && amountOk && sideOk {
-				if pair == targetPair {
-					tradeData := TradeData{
-						ID:        id,
-						PairStr:   pair,
-						RateStr:   rate,
-						AmountStr: amount,
-						SideStr:   side,
-					}
-					if c.tradeHandler != nil {
-						c.tradeHandler(tradeData)
-					}
+	// Try to parse as an order book message: ["btc_jpy", { ... }]
+	var orderBookMsg []json.RawMessage
+	if err := json.Unmarshal(message, &orderBookMsg); err == nil && len(orderBookMsg) == 2 {
+		var channelName string
+		if json.Unmarshal(orderBookMsg[0], &channelName) == nil && channelName == targetPair {
+			var obData OrderBookData
+			if json.Unmarshal(orderBookMsg[1], &obData) == nil {
+				if c.orderBookHandler != nil {
+					c.orderBookHandler(obData)
 				}
 				return
 			}
 		}
 	}
 
-	// If not a trade, try to unmarshal into an orderbook message format
-	// [channel, { "bids": [[price, size], ...], "asks": [[price, size], ...] }]
-	var msgArray []json.RawMessage
-	if err := json.Unmarshal(message, &msgArray); err == nil {
-		if len(msgArray) == 2 {
-			var channelName string
-			if err := json.Unmarshal(msgArray[0], &channelName); err == nil {
-				if channelName == targetPair+orderbookChannelSuffix {
-					var obData OrderBookData
-					if err := json.Unmarshal(msgArray[1], &obData); err == nil {
-						if c.orderBookHandler != nil {
-							c.orderBookHandler(obData)
-						}
-					} else {
-						logger.Errorf("Error unmarshalling OrderBookData: %v. JSON: %s", err, msgArray[1])
-					}
-					return
-				}
+	// Try to parse as a trades message: [id, pair, rate, amount, side]
+	var tradeMsg []string
+	if err := json.Unmarshal(message, &tradeMsg); err == nil && len(tradeMsg) == 5 {
+		if tradeMsg[1] == targetPair {
+			tradeData := TradeData{
+				ID:        tradeMsg[0],
+				PairStr:   tradeMsg[1],
+				RateStr:   tradeMsg[2],
+				AmountStr: tradeMsg[3],
+				SideStr:   tradeMsg[4],
 			}
+			if c.tradeHandler != nil {
+				c.tradeHandler(tradeData)
+			}
+			return
 		}
 	}
 
-	// If it's neither, log as an unknown message format for debugging
 	logger.Errorf("Unknown message format received: %s", string(message))
 }
