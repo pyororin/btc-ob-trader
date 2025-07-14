@@ -113,7 +113,7 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)      // Need a setter for this.
 	defer coincheck.SetBaseURL(originalBaseURL) // Reset after test
 
-	execEngine := engine.NewLiveExecutionEngine(ccClient)
+	execEngine := engine.NewLiveExecutionEngine(ccClient, 1000000, 1.0)
 
 	// Test DoD: Mock 50 注文全成功
 	for i := 0; i < 50; i++ {
@@ -176,7 +176,7 @@ func TestExecutionEngine_PlaceOrder_Failure(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	execEngine := engine.NewLiveExecutionEngine(ccClient)
+	execEngine := engine.NewLiveExecutionEngine(ccClient, 1000000, 1.0)
 
 	resp, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "sell", 4000000, 0.1, false)
 	if err == nil {
@@ -227,7 +227,7 @@ func TestExecutionEngine_CancelOrder_Success(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	execEngine := engine.NewLiveExecutionEngine(ccClient)
+	execEngine := engine.NewLiveExecutionEngine(ccClient, 1000000, 1.0)
 
 	resp, err := execEngine.CancelOrder(context.Background(), 56789)
 	if err != nil {
@@ -273,7 +273,7 @@ func TestExecutionEngine_CancelOrder_Failure(t *testing.T) {
     coincheck.SetBaseURL(mockServer.URL)
     defer coincheck.SetBaseURL(originalBaseURL)
 
-    execEngine := engine.NewLiveExecutionEngine(ccClient)
+    execEngine := engine.NewLiveExecutionEngine(ccClient, 1000000, 1.0)
 
     resp, err := execEngine.CancelOrder(context.Background(), 11111)
     if err == nil {

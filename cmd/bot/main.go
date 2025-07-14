@@ -256,7 +256,24 @@ func runMainLoop(ctx context.Context, f flags, cfg *config.Config, dbWriter *dbw
 		go runReplay(ctx, cfg, dbWriter, sigs)
 	} else {
 		// Live trading setup
-		execEngine := engine.NewLiveExecutionEngine(coincheck.NewClient(cfg.APIKey, cfg.APISecret))
+		client := coincheck.NewClient(cfg.APIKey, cfg.APISecret)
+
+		// Fetch initial balance
+		balance, err := client.GetBalance()
+		if err != nil {
+			logger.Fatalf("Failed to get account balance: %v", err)
+		}
+		availableJpy, err := strconv.ParseFloat(balance.Jpy, 64)
+		if err != nil {
+			logger.Fatalf("Failed to parse JPY balance: %v", err)
+		}
+		availableBtc, err := strconv.ParseFloat(balance.Btc, 64)
+		if err != nil {
+			logger.Fatalf("Failed to parse BTC balance: %v", err)
+		}
+		logger.Infof("Initial balance: JPY=%.2f, BTC=%.8f", availableJpy, availableBtc)
+
+		execEngine := engine.NewLiveExecutionEngine(client, availableJpy, availableBtc)
 
 		orderBook := indicator.NewOrderBook()
 		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)

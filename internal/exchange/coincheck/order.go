@@ -170,3 +170,38 @@ func (c *Client) CancelOrder(orderID int64) (*CancelResponse, error) {
 
 	return &cancelResp, nil
 }
+
+// GetBalance retrieves the account balance from Coincheck.
+func (c *Client) GetBalance() (*BalanceResponse, error) {
+	endpoint := "/api/accounts/balance"
+
+	httpReq, err := c.newRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create get balance request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute get balance request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read get balance response body (status: %d): %w", resp.StatusCode, err)
+	}
+
+	var balanceResp BalanceResponse
+	if err := json.Unmarshal(bodyBytes, &balanceResp); err != nil {
+		return nil, fmt.Errorf("failed to decode get balance response (status: %d, body: %s): %w", resp.StatusCode, string(bodyBytes), err)
+	}
+
+	if !balanceResp.Success {
+		if balanceResp.Error != "" {
+			return &balanceResp, fmt.Errorf("coincheck API error on get balance: %s", balanceResp.Error)
+		}
+		return &balanceResp, fmt.Errorf("coincheck API returned success=false for get balance, status: %d", resp.StatusCode)
+	}
+
+	return &balanceResp, nil
+}

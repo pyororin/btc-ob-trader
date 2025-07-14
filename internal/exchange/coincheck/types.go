@@ -68,6 +68,15 @@ type CancelResponse struct {
 	Error   string `json:"error,omitempty"` // For error responses
 }
 
+// BalanceResponse represents the structure of the account balance response from Coincheck.
+type BalanceResponse struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+	Jpy     string `json:"jpy"`
+	Btc     string `json:"btc"`
+	// Other currencies can be added here if needed
+}
+
 
 // Pair returns the trading pair string.
 func (obu OrderBookUpdate) Pair() string {

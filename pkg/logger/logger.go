@@ -15,6 +15,8 @@ type Logger interface {
 	Debugf(format string, args ...interface{})
 	Info(args ...interface{})
 	Infof(format string, args ...interface{})
+	Warn(args ...interface{})
+	Warnf(format string, args ...interface{})
 	Error(args ...interface{})
 	Errorf(format string, args ...interface{})
 	Fatal(args ...interface{})
@@ -25,31 +27,37 @@ type Logger interface {
 type defaultLogger struct {
 	debugLogger *log.Logger
 	infoLogger  *log.Logger
+	warnLogger  *log.Logger
 	errorLogger *log.Logger
 	fatalLogger *log.Logger
 	prefix      string
 }
 
-// NewLogger creates and configures a new Logger instance, and updates the global `std` logger.
+// NewLogger creates and new Logger instance, and updates the global `std` logger.
 // loglevel could be "debug", "info", "warn", "error", "fatal"
 func NewLogger(logLevel string) Logger {
 	infoHandle := os.Stdout
+	warnHandle := os.Stdout
 	errorHandle := os.Stderr
 	fatalHandle := os.Stderr // Typically fatal also goes to stderr
 	debugHandle := os.Stdout
 
-	var dLog, iLog, eLog, fLog *log.Logger
+	var dLog, iLog, wLog, eLog, fLog *log.Logger
 
 	dLog = log.New(debugHandle, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile)
 	iLog = log.New(infoHandle, "INFO:  ", log.Ldate|log.Ltime|log.Lshortfile)
+	wLog = log.New(warnHandle, "WARN:  ", log.Ldate|log.Ltime|log.Lshortfile)
 	eLog = log.New(errorHandle, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
 	fLog = log.New(fatalHandle, "FATAL: ", log.Ldate|log.Ltime|log.Lshortfile)
 
 	if logLevel != "debug" {
 		dLog = log.New(io.Discard, "", 0)
 	}
-	if logLevel == "error" || logLevel == "fatal" {
+	if logLevel == "warn" || logLevel == "error" || logLevel == "fatal" {
 		iLog = log.New(io.Discard, "", 0)
+	}
+	if logLevel == "error" || logLevel == "fatal" {
+		wLog = log.New(io.Discard, "", 0)
 	}
 	if logLevel == "fatal" {
 		eLog = log.New(io.Discard, "", 0)
@@ -58,6 +66,7 @@ func NewLogger(logLevel string) Logger {
 	return &defaultLogger{
 		debugLogger: dLog,
 		infoLogger:  iLog,
+		warnLogger:  wLog,
 		errorLogger: eLog,
 		fatalLogger: fLog,
 		prefix:      "",
@@ -78,6 +87,14 @@ func (l *defaultLogger) Info(args ...interface{}) {
 
 func (l *defaultLogger) Infof(format string, args ...interface{}) {
 	l.infoLogger.Output(2, l.prefix+fmt.Sprintf(format, args...))
+}
+
+func (l *defaultLogger) Warn(args ...interface{}) {
+	l.warnLogger.Output(2, l.prefix+fmt.Sprintln(args...))
+}
+
+func (l *defaultLogger) Warnf(format string, args ...interface{}) {
+	l.warnLogger.Output(2, l.prefix+fmt.Sprintf(format, args...))
 }
 
 func (l *defaultLogger) Error(args ...interface{}) {
@@ -150,6 +167,20 @@ func Infof(format string, args ...interface{}) {
 	logMutex.Lock()
 	defer logMutex.Unlock()
 	std.Infof(format, args...)
+}
+
+// Warn logs a warning message.
+func Warn(args ...interface{}) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
+	std.Warn(args...)
+}
+
+// Warnf logs a warning message with formatting.
+func Warnf(format string, args ...interface{}) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
+	std.Warnf(format, args...)
 }
 
 // Error logs an error message.
