@@ -291,6 +291,13 @@ func runMainLoop(ctx context.Context, f flags, cfg *config.Config, dbWriter *dbw
 		}
 		logger.Infof("Initial balance: JPY=%.2f, BTC=%.8f", availableJpy, availableBtc)
 
+		if availableJpy <= 0 {
+			logger.Warnf("Available JPY balance is %.2f. Trading may be limited.", availableJpy)
+		}
+		if availableBtc <= 0 {
+			logger.Warnf("Available BTC balance is %.8f. Selling will not be possible.", availableBtc)
+		}
+
 		execEngine := engine.NewLiveExecutionEngine(client, availableJpy, availableBtc)
 
 		orderBook := indicator.NewOrderBook()
