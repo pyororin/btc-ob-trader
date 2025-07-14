@@ -2,235 +2,151 @@
 
 このドキュメントは、`obi-scalp-bot` を本番環境 (Google Cloud Run および Cloud SQL for PostgreSQL + TimescaleDB) で運用するための手順、監視、基本的なSOP (Standard Operating Procedure) を記述します。
 
-## 1. 前提条件
+## 1. アーキテクチャ概要
 
-- Google Cloud Platform (GCP) プロジェクトがセットアップ済みであること。
-- `gcloud` CLI がインストールされ、認証済みであること。
-- Docker イメージが Google Container Registry (GCR) または Artifact Registry にプッシュ済みであること。
-- Cloud SQL for PostgreSQL インスタンス (TimescaleDB拡張機能付き) が作成済みであること。
-- 本番用の `.env` ファイルまたは Secret Manager に本番環境設定 (APIキー、DB接続情報など) が安全に保存されていること。
+-   **アプリケーション**: Go言語で実装されたBot本体。Cloud Runサービスとしてコンテナ化され、常に1インスタンスで稼働。
+-   **データベース**: Cloud SQL for PostgreSQL に TimescaleDB 拡張を追加したもの。市場データ、取引履歴、PnLなどを保存。
+-   **監視**: Cloud Logging, Cloud Monitoring, そしてパフォーマンス可視化のためのGrafanaで構成。
 
 ## 2. デプロイ手順
 
 ### 2.1. Cloud Run へのデプロイ
 
-1.  **サービス定義ファイル (例: `service.yaml`) の準備 (推奨)**
-    ```yaml
-    # service.yaml (例)
-    apiVersion: serving.knative.dev/v1
-    kind: Service
+デプロイにはサービス定義ファイル (`service.yaml`) の利用を推奨します。
+
+```yaml
+# service.yaml
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: obi-scalp-bot-prod
+spec:
+  template:
     metadata:
-      name: obi-scalp-bot-prod # サービス名
       annotations:
-        run.googleapis.com/launch-stage: BETA
+        autoscaling.knative.dev/maxScale: '1' # 常に1インスタンスで実行
     spec:
-      template:
-        metadata:
-          annotations:
-            autoscaling.knative.dev/maxScale: '1' # スキャルピングBotは通常1インスタンスで実行
-        spec:
-          containerConcurrency: 80 # デフォルト値、必要に応じて調整
-          timeoutSeconds: 300    # デフォルト値、必要に応じて調整
-          containers:
-          - image: gcr.io/YOUR_PROJECT_ID/obi-scalp-bot:latest # イメージのパスを適宜変更
-            ports:
-            - name: http1
-              containerPort: 8080 # DockerfileでEXPOSEするポート (ヘルスチェック用など)
-            env:
-            - name: GIN_MODE
-              value: "release"
-            - name: GOOGLE_CLOUD_PROJECT
-              value: "YOUR_PROJECT_ID" # プロジェクトID
-            # - name: DB_USER
-            #   valueFrom:
-            #     secretKeyRef:
-            #       name: obi-scalp-bot-secrets # Secret Manager のシークレット名
-            #       key: latest # または特定のバージョン
-            # (他の環境変数も同様にSecret Managerから読み込むことを推奨)
-            resources:
-              limits:
-                memory: 512Mi
-                cpu: "1"
-            startupProbe: # ヘルスチェック (起動プローブ)
-              timeoutSeconds: 240
-              periodSeconds: 240
-              failureThreshold: 1
-              tcpSocket:
-                port: 8080 # ヘルスチェック用ポート
-    ```
-    **注意:** 上記は一例です。実際の要件に合わせてメモリ、CPU、環境変数、シークレットの取り扱いなどを調整してください。特にAPIキーやDBパスワードはSecret Managerの使用を強く推奨します。
-
-2.  **Cloud Run サービスのデプロイ**
-    `service.yaml` を使用する場合:
-    ```bash
-    gcloud run services replace service.yaml --region YOUR_REGION --platform managed
-    ```
-    直接デプロイする場合:
-    ```bash
-    gcloud run deploy obi-scalp-bot-prod \
-      --image gcr.io/YOUR_PROJECT_ID/obi-scalp-bot:latest \
-      --platform managed \
-      --region YOUR_REGION \
-      --allow-unauthenticated \ # 必要に応じて変更 (例: Pub/Subトリガーの場合は認証が必要)
-      --max-instances=1 \
-      --concurrency=80 \
-      --timeout=300 \
-      --set-env-vars="GIN_MODE=release,GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID" \
-      # --update-secrets=DB_USER=obi-scalp-bot-secrets:latest,DB_PASSWORD=...
-      # ... 他の環境変数やリソース設定
-    ```
-
-### 2.2. Cloud SQL Proxy (推奨)
-
-Cloud Run から Cloud SQL へ安全に接続するために、Cloud SQL Proxy をサイドカーとしてデプロイするか、アプリケーション内でGoのCloud SQLコネクタライブラリを使用します。後者がよりモダンなアプローチです。
-
-Goアプリケーション内で `cloud.google.com/go/cloudsqlconn` パッケージを使用する場合、特別な設定は不要で、DB接続文字列にインスタンス接続名を含めるだけです。
-
-```go
-// 例: internal/config/config.go や main.go でのDB接続設定
-// dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
-//    cfg.DB.Host, cfg.DB.User, cfg.DB.Password, cfg.DB.Name, cfg.DB.Port)
-// の代わりに、インスタンス接続名を使用
-// dsn := fmt.Sprintf("user=%s password=%s database=%s host=/cloudsql/%s",
-//    cfg.DB.User, cfg.DB.Password, cfg.DB.Name, "YOUR_PROJECT:YOUR_REGION:YOUR_INSTANCE")
+      containerConcurrency: 80
+      timeoutSeconds: 300
+      containers:
+      - image: gcr.io/YOUR_PROJECT_ID/obi-scalp-bot:latest
+        ports:
+        - name: http1
+          containerPort: 8080
+        env:
+        - name: GIN_MODE
+          value: "release"
+        # APIキーやDBパスワードはSecret Manager経由でのマウントを強く推奨
+        # - name: COINCHECK_API_KEY
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: bot-secrets
+        #       key: coincheck-api-key
+        resources:
+          limits:
+            memory: 512Mi
+            cpu: "1"
+        startupProbe:
+          timeoutSeconds: 300
+          periodSeconds: 60
+          failureThreshold: 5
+          httpGet:
+            path: "/health" # ヘルスチェックエンドポイントを指定
+            port: 8080
 ```
 
-### 2.3. データベーススキーマの適用
+**デプロイコマンド:**
+```bash
+gcloud run services replace service.yaml --region YOUR_REGION --platform managed
+```
 
-Cloud SQLインスタンスに初めて接続する際、またはスキーマの更新が必要な場合は、手動で `db/schema/*.sql` を実行するか、マイグレーションツール (例: `golang-migrate/migrate`) を導入して適用します。
+### 2.2. データベース接続
+
+Goアプリケーション内で `cloud.google.com/go/cloudsqlconn` パッケージを利用し、Cloud SQL Auth Proxyクライアントとして機能させることを推奨します。これにより、IPホワイトリストやSSL証明書の管理が不要になります。
 
 ## 3. 監視
 
-### 3.1. Cloud Logging & Monitoring
+効果的な運用には、システムの健全性とBotのパフォーマンスの両面からの監視が不可欠です。
 
-- **ログ**: Cloud Run は標準出力/標準エラーに出力されたログを自動的に Cloud Logging に収集します。Botのログレベルやフォーマットを適切に設定し、重要なイベント (エラー、取引実行、ポジション変更など) が記録されるようにします。
-- **メトリクス**: Cloud Run はリクエスト数、レイテンシ、コンテナCPU/メモリ使用率などの標準メトリクスを提供します。これらをCloud Monitoringで監視し、アラートを設定します。
-- **カスタムメトリクス**: Botの運用状況 (例: PnL、アクティブオーダー数、エラーレート) を示すカスタムメトリクスを OpenCensus や OpenTelemetry などで収集し、Cloud Monitoring に送信することを検討します。
+### 3.1. 主要な監視対象とログ
 
-### 3.2. アラート設定
+Cloud Logging で以下のキーワードに注目し、必要に応じてログベースのアラートを設定します。
 
-Cloud Monitoring で以下のような状況に対するアラートを設定します。
+-   `"Health check server starting"`: Botの正常起動を示す。
+-   `"Connecting to Coincheck WebSocket API"`: WebSocketへの接続開始。
+-   `"Order monitor starting"`: **未約定注文の監視機能**の起動。この機能は、不利な価格に置かれた指値注文を自動でキャンセル・再発注します。
+    -   `"Adjusting order"`: このログは、注文調整が実行されたことを示します。頻発する場合は、市場の急変動やパラメータの問題を示唆している可能性があります。
+-   `"Starting PnL reporter"`: **PnLレポートの定期生成機能**の起動。
+    -   `"Successfully generated and saved PnL report"`: 定期的なレポートが正常に作成されていることを示します。
+-   `"Failed to ..."` / `"Error ..."`: 想定外のエラー。特に `PlaceOrder`, `CancelOrder`, `GetOpenOrders` に関連するエラーは取引機会の損失やリスクに直結するため、即時通知アラートを設定します。
+-   `"WebSocket client exited with error"`: WebSocketが切断されたことを示す重大なエラー。Botは自動で停止します。
 
-- **Botインスタンスの異常終了/ヘルスチェック失敗**
-- **エラーログの急増**
-- **DB接続エラー**
-- **取引APIエラーの頻発**
-- **大きな損失の発生 (カスタムメトリクスベース)**
-- **Cloud SQLインスタンスの高負荷、ディスク容量逼迫**
+### 3.2. アラート設定 (Cloud Monitoring)
 
-### 3.3. ダッシュボード
+以下の事象に対してアラートを設定します。
 
-Cloud Monitoring で、リソース使用率などのインフラ関連メトリクスを表示するダッシュボードを作成します。
+-   **ヘルスチェック失敗**: `startupProbe` の失敗はコンテナの起動失敗を意味し、即時対応が必要です。
+-   **エラーログの急増**: 上記 3.1 でリストしたエラーログの発生頻度に基づきアラートを設定します。
+-   **DB接続エラー**: データベースへの接続失敗を示すログに対するアラート。
+-   **取引APIエラー**: Coincheck APIからのエラーレスポンス（4xx, 5xx系）を示すログに対するアラート。
+-   **Cloud SQL のリソース逼迫**: ディスク容量、CPU使用率、メモリ使用率が閾値を超えた場合に通知します。
 
-加えて、本プロジェクトでは **Grafana** を用いて、よりビジネスロジックに近いパフォーマンス指標（損益、取引統計など）を可視化します。
+### 3.3. パフォーマンス監視 (Grafana)
 
-#### Grafana ダッシュボードの利用
+本番環境のGrafanaダッシュボード (`http://<your-prod-ip>:3000` など、アクセス制御されたURL) は、Botの経済的パフォーマンスを評価する上で最も重要なツールです。
 
-本番環境の `docker-compose.yml` (または相当するCloud Runのデプロイ定義) に `grafana` サービスが含まれていることを前提とします。
-
-1.  **アクセス**:
-    - 本番環境のGrafana URLにアクセスします (例: `http://<your-prod-ip>:3000`)。アクセス制御が適切に設定されていることを確認してください。
-    - ログイン後、「OBI Scalp Bot PnL」ダッシュボードを開きます。
-
-2.  **監視ポイント**:
-    - **累積損益 (Cumulative PnL)**: Botの全体的なパフォーマンスを把握します。予期せぬ下降トレンドが発生していないか監視します。
-    - **勝率 (Win Rate) と合計損益 (Total PnL)**: 戦略の有効性を評価します。これらの指標が著しく悪化した場合、ロジックの見直しや市場適応性の調査が必要です。
-    - **取引履歴 (Recent Trades)**: 個別の取引が想定通りに行われているか（価格、サイズ、方向）を確認します。エラーや異常な取引がないかスポットチェックします。
-
-3.  **データソース**:
-    - ダッシュボードは本番用のデータベース (`TimescaleDB (Production)`) をデータソースとしています。
-    - リプレイ結果を確認したい場合は、データソースを `TimescaleDB (Replay)` に切り替えることで、同じダッシュボードでバックテスト結果を分析できます（ローカル環境での利用が主）。
+-   **累積損益 (Cumulative PnL)**: 最も重要な指標。予期せぬ下降トレンドが発生していないか、常に監視します。
+-   **勝率 (Win Rate) とプロフィットファクター**: 戦略の有効性を示します。これらの指標が市場の変化によって悪化していないか確認します。
+-   **取引履歴 (Recent Trades)**: Botが想定通りのロジックで取引しているか（価格、量、タイミング）をスポットチェックします。
 
 ## 4. 標準運用手順 (SOP)
 
 ### 4.1. 定期チェック
 
-- **毎日**:
-    - ダッシュボードで主要メトリクスを確認。
-    - エラーログを確認し、異常がないか調査。
-    - 取引履歴と残高を取引所の画面と照合 (可能な範囲で)。
-- **毎週**:
-    - より詳細なログ分析。
-    - パフォーマンスレビュー (レイテンシ、リソース使用率)。
-    - 証拠金維持率や資金状況の確認。
+-   **毎日**:
+    -   Grafanaダッシュボードで累積損益、勝率、ドローダウンを確認。
+    -   Cloud Loggingで前日分のエラーログを確認。
+    -   取引所の口座残高とBotが認識している残高に大きな乖離がないか確認。
+-   **毎週**:
+    -   PnLレポートの結果を確認し、週次のパフォーマンスを評価。
+    -   Cloud SQLのディスク使用量やリソース使用率のトレンドを確認。
 
 ### 4.2. 緊急対応
 
-#### 4.2.1. Botが停止した場合
+#### シナリオ1: Botインスタンスがクラッシュ・再起動を繰り返す
 
-1.  **Cloud Run のログとステータス確認**:
-    - `gcloud run services describe obi-scalp-bot-prod --region YOUR_REGION`
-    - Cloud Logging でエラーメッセージを確認。
-2.  **原因調査**:
-    - 設定ミス (環境変数、APIキーなど)
-    - コードのバグ
-    - 外部API (取引所、DB) の障害
-    - リソース不足 (メモリ、CPU)
+1.  **Cloud Runのログ確認**: Cloud Loggingでコンテナの終了直前のログを確認し、`panic` や `fatal` エラーの原因を特定します。
+2.  **原因調査**: 設定ミス（環境変数）、外部APIの障害、コードのバグなどが考えられます。
 3.  **対応**:
-    - 設定ミスであれば修正して再デプロイ。
-    - コードのバグであれば、修正版をデプロイするか、問題のある機能を無効化して一時的にロールバック。
-    - 外部要因であれば、要因の解消を待つか、Botを一時停止。
-4.  **再起動**:
-    - Cloud Run は通常自動で再起動を試みますが、手動で新しいリビジョンをデプロイすることで強制的に再起動も可能です。
+    -   設定ミスなら、修正して再デプロイ。
+    -   コードのバグなら、安全なリビジョンにロールバックし、修正後に再度デプロイ。
 
-#### 4.2.2. 過大な損失が発生している場合
+#### シナリオ2: 過大な損失が発生している
 
-1.  **即時Bot停止**:
-    - Cloud Run のインスタンス数を0にスケールダウン (コンソールまたは `gcloud` コマンド)。
-    `gcloud run services update obi-scalp-bot-prod --update-annotations autoscaling.knative.dev/maxScale=0 --region YOUR_REGION`
+1.  **即時Bot停止**: Cloud Runコンソールまたはgcloudコマンドで、インスタンス数を0にスケールダウンします。
+    ```bash
+    gcloud run services update obi-scalp-bot-prod --update-annotations autoscaling.knative.dev/maxScale=0 --region YOUR_REGION
+    ```
+2.  **ポジションの手動クローズ**: 取引所のWebサイト等で、残っている危険なポジションを手動で解消します。
+3.  **原因分析**: Grafanaの取引履歴と市場チャートを照らし合わせ、ロジックの欠陥か、予期せぬ市場の急変動かを分析します。
+4.  **修正とバックテスト**: 原因を特定し、修正後に十分なバックテスト（DBリプレイ）を行ってから再稼働させます。
+
+#### シナリオ3: 注文が約定せず、一方的に溜まり続ける
+
+1.  **ログ確認**: Cloud Loggingで `"Adjusting order"` ログが頻発していないか確認します。
 2.  **原因調査**:
-    - ログ、取引履歴、市場状況の分析。
-    - ロジックの欠陥か、予期せぬ市場の動きか。
-3.  **ポジションの手動クローズ (必要な場合)**:
-    - 取引所のウェブサイトまたはAPI経由で、Botが保有する危険なポジションを手動で解消。
-4.  **修正とテスト**:
-    - 原因を特定し、コードや設定を修正。
-    - 十分なテスト (バックテスト、ペーパーテスト) を経てから再稼働。
-
-#### 4.2.3. 取引所APIエラーが多発する場合
-
-1.  **取引所のステータスページ確認**:
-    - 取引所側で障害が発生していないか確認。
-2.  **Botのログ確認**:
-    - APIキーの権限、IP制限、リクエストレート制限などを確認。
+    -   ログが頻発している場合: `orderMonitor` が機能しているが、市場の流動性が極端に低いか、価格変動が激しすぎて追いつけていない可能性があります。
+    -   ログが出ていない場合: `orderMonitor` 自体が機能していないか、閾値の設定が緩すぎる可能性があります。
 3.  **対応**:
-    - 取引所側の問題であれば、復旧を待つ。
-    - Bot側の設定やロジックの問題であれば修正。
-    - 必要であれば一時的にBotを停止。
-
-### 4.3. 設定変更とアップデート
-
-1.  **開発環境/ステージング環境でのテスト**:
-    - 新しいコードや設定変更は、必ずローカルやステージング環境で十分にテストします。
-2.  **段階的ロールアウト (可能な場合)**:
-    - Cloud Run はリビジョン管理とトラフィックスプリット機能を提供しており、新しいバージョンを一部のトラフィックにのみ公開して様子を見ることができます。 (スキャルピングBotでは難しい場合もある)
-3.  **デプロイ**:
-    - 上記「2.1. Cloud Run へのデプロイ」の手順に従って新しいリビジョンをデプロイ。
-4.  **監視**:
-    - デプロイ後、ログやメトリクスを注意深く監視し、問題が発生した場合は速やかにロールバック (`gcloud run services update-traffic` で旧リビジョンに100%戻すなど)。
+    -   一時的にBotを停止し、`config.yaml` の注文調整に関するパラメータを見直します。
+    -   市場が落ち着くのを待ってから再開するか、ロジックを修正してデプロイします。
 
 ## 5. セキュリティ
 
-- **APIキーの管理**:
-    - 必要最小限の権限を付与。
-    - Secret Manager に保存し、Cloud Run から安全にアクセス。
-    - 定期的なローテーションを検討。
-- **DBアクセス**:
-    - 強力なパスワードを使用し、Secret Manager に保存。
-    - Cloud SQL Proxy や Goコネクタライブラリ経由で安全に接続。
-    - データベースユーザーの権限を最小限に。
-- **Cloud Run サービスの保護**:
-    - `allow-unauthenticated` は慎重に使用。Botが外部からのHTTPリクエストを受け付ける必要がない場合は、IAM認証を有効にするか、内部トラフィックのみ許可。
-- **依存関係の脆弱性スキャン**:
-    - 定期的にGoモジュールの脆弱性をスキャン (例: `govulncheck`)。
-
-## 6. バックアップとリストア (Cloud SQL)
-
-- Cloud SQL は自動バックアップとポイントインタイムリカバリ (PITR) を提供します。
-- バックアップ設定を確認し、リストア手順を把握しておきます。
-- 定期的にリストアテストを実施することを推奨します。
+-   **APIキー**: 必要最小限の権限（取引、残高確認など）を付与し、Secret Managerで管理します。出金権限は絶対に付与しないでください。
+-   **DBアクセス**: 強力なパスワードを使用し、Secret Managerで管理します。
+-   **サービスアクセス**: Cloud Runサービスは、原則として外部からのリクエストを受け付けないように設定します (`--no-allow-unauthenticated`)。ヘルスチェックはVPC内部からのみ行われるように構成します。
+-   **脆弱性スキャン**: `govulncheck` をCI/CDパイプラインに組み込み、依存関係の脆弱性を定期的にスキャンします。
 
 ---
-*このドキュメントは一般的なガイドラインです。実際の運用に合わせて詳細を追記・修正してください。*
-*特に、具体的な監視クエリ、アラート閾値、障害復旧コマンドなどはプロジェクト固有のものを整備する必要があります。*
-*DoD: Staging healthcheck PASS (このドキュメントの記述完了後、ステージング環境でのヘルスチェック成功を確認)*
+*このドキュメントは一般的なガイドラインです。実際の運用に合わせて、具体的な監視クエリ、アラート閾値、障害復旧コマンドなどを整備・追記してください。*
