@@ -32,6 +32,7 @@ SELECT add_compression_policy('order_book_updates', INTERVAL '7 days', if_not_ex
 -- 定期的なPnLのスナップショットや重要なイベント発生時のPnLを記録
 CREATE TABLE IF NOT EXISTS pnl_summary (
     time TIMESTAMPTZ NOT NULL,
+    replay_session_id TEXT,                      -- リプレイセッションID (リプレイ時のみ使用)
     strategy_id TEXT NOT NULL DEFAULT 'default', -- 戦略識別子
     pair TEXT NOT NULL,                          -- 通貨ペア
     realized_pnl DECIMAL NOT NULL DEFAULT 0.0,   -- 実現損益
@@ -48,7 +49,7 @@ SELECT create_hypertable('pnl_summary', 'time', if_not_exists => TRUE);
 -- 30日経過したチャンクを圧縮
 ALTER TABLE pnl_summary SET (
     timescaledb.compress,
-    timescaledb.compress_segmentby = 'strategy_id, pair',
+    timescaledb.compress_segmentby = 'replay_session_id, strategy_id, pair',
     timescaledb.compress_orderby = 'time DESC'
 );
 -- 圧縮ポリシーの追加 (例: 30日後に圧縮ジョブを実行)
@@ -58,6 +59,7 @@ SELECT add_compression_policy('pnl_summary', INTERVAL '30 days', if_not_exists =
 CREATE INDEX IF NOT EXISTS idx_order_book_updates_pair_time ON order_book_updates (pair, time DESC);
 CREATE INDEX IF NOT EXISTS idx_order_book_updates_side_time ON order_book_updates (side, time DESC);
 
+CREATE INDEX IF NOT EXISTS idx_pnl_summary_replay_id_time ON pnl_summary (replay_session_id, time DESC);
 CREATE INDEX IF NOT EXISTS idx_pnl_summary_strategy_pair_time ON pnl_summary (strategy_id, pair, time DESC);
 
 -- Botが受信した約定履歴テーブル (trades)
@@ -81,13 +83,14 @@ SELECT create_hypertable('trades', 'time', if_not_exists => TRUE);
 -- 7日経過したチャンクを圧縮
 ALTER TABLE trades SET (
     timescaledb.compress,
-    timescaledb.compress_segmentby = 'pair, side',
+    timescaledb.compress_segmentby = 'replay_session_id, pair, side',
     timescaledb.compress_orderby = 'time DESC, transaction_id DESC'
 );
 
 -- 圧縮ポリシーの追加 (例: 7日後に圧縮ジョブを実行)
 SELECT add_compression_policy('trades', INTERVAL '7 days', if_not_exists => TRUE);
 
+CREATE INDEX IF NOT EXISTS idx_trades_replay_id_time ON trades (replay_session_id, time DESC);
 CREATE INDEX IF NOT EXISTS idx_trades_pair_time ON trades (pair, time DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_transaction_id ON trades (transaction_id, time);
 

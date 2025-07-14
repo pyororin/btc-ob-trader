@@ -115,6 +115,15 @@ func (l *defaultLogger) Fatalf(format string, args ...interface{}) {
 	os.Exit(1)
 }
 
+// SetReplayMode configures the global logger to include a replay session ID prefix.
+func SetReplayMode(sessionID string) {
+	if globalStd, ok := std.(*defaultLogger); ok {
+		globalStd.prefix = fmt.Sprintf("[REPLAY-%s] ", sessionID)
+	} else {
+		log.Println("Error: Global logger is not of type *defaultLogger, cannot set replay mode prefix.")
+	}
+}
+
 var (
 	std      Logger
 	logMutex sync.Mutex
