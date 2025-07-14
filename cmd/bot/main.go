@@ -238,6 +238,10 @@ func processSignalsAndExecute(ctx context.Context, cfg *config.Config, obiCalcul
 				logger.Info("Signal processing and execution goroutine shutting down.")
 				return
 			case result := <-resultsCh:
+				if result.BestBid <= 0 || result.BestAsk <= 0 {
+					logger.Warnf("Skipping signal evaluation due to invalid best bid/ask: BestBid=%.2f, BestAsk=%.2f", result.BestBid, result.BestAsk)
+					continue
+				}
 				// TODO: This is a simplified view. We need more data for a robust signal.
 				// For now, we use a placeholder for mid-price and other data points.
 				// A proper implementation would get this from the order book.

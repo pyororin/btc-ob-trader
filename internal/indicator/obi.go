@@ -64,13 +64,14 @@ func (c *OBICalculator) Start(ctx context.Context) {
 				c.orderBook.RUnlock()
 
 				if isBookReady {
-					obiResult := c.orderBook.CalculateOBI(OBILevels...)
-					// Non-blocking send
-					select {
-					case c.output <- obiResult:
-					default:
-						// If the channel is full, the previous value will be overwritten.
-						// This is often acceptable for real-time indicators where the latest value is most important.
+					if obiResult, ok := c.orderBook.CalculateOBI(OBILevels...); ok {
+						// Non-blocking send
+						select {
+						case c.output <- obiResult:
+						default:
+							// If the channel is full, the previous value will be overwritten.
+							// This is often acceptable for real-time indicators where the latest value is most important.
+						}
 					}
 				}
 			case <-c.done:
