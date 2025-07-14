@@ -48,7 +48,12 @@ func main() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
-	runMainLoop(ctx, f, cfg, sigs)
+	dbWriter := setupDBWriter(ctx, cfg)
+	if dbWriter != nil {
+		defer dbWriter.Close()
+	}
+
+	runMainLoop(ctx, f, cfg, dbWriter, sigs)
 
 	// --- Graceful Shutdown ---
 	waitForShutdownSignal(sigs)
@@ -211,16 +216,11 @@ func processSignalsAndExecute(ctx context.Context, cfg *config.Config, obiCalcul
 }
 
 // runMainLoop starts either the live trading or replay mode.
-func runMainLoop(ctx context.Context, f flags, cfg *config.Config, sigs chan<- os.Signal) {
+func runMainLoop(ctx context.Context, f flags, cfg *config.Config, dbWriter *dbwriter.Writer, sigs chan<- os.Signal) {
 	if f.replayMode {
-		go runReplay(ctx, cfg, sigs)
+		go runReplay(ctx, cfg, dbWriter, sigs)
 	} else {
 		// Live trading setup
-		dbWriter := setupDBWriter(ctx, cfg)
-		if dbWriter != nil {
-			defer dbWriter.Close()
-		}
-
 		execEngine := engine.NewLiveExecutionEngine(coincheck.NewClient(cfg.APIKey, cfg.APISecret))
 
 		orderBook := indicator.NewOrderBook()
@@ -248,7 +248,7 @@ func waitForShutdownSignal(sigs <-chan os.Signal) {
 }
 
 // runReplay runs the backtest simulation using data from the database.
-func runReplay(ctx context.Context, cfg *config.Config, sigs chan<- os.Signal) {
+func runReplay(ctx context.Context, cfg *config.Config, dbWriter *dbwriter.Writer, sigs chan<- os.Signal) {
 	// --- Replay Session ID & Logger ---
 	replaySessionID, err := uuid.NewRandom()
 	if err != nil {
@@ -257,9 +257,7 @@ func runReplay(ctx context.Context, cfg *config.Config, sigs chan<- os.Signal) {
 	logger.SetReplayMode(replaySessionID.String())
 
 	// --- DB Writer ---
-	dbWriter := setupDBWriter(ctx, cfg)
 	if dbWriter != nil {
-		defer dbWriter.Close()
 		dbWriter.SetReplaySessionID(replaySessionID.String())
 	}
 
