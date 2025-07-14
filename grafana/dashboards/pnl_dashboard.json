@@ -7,14 +7,6 @@
       "type": "datasource",
       "pluginId": "postgres",
       "pluginName": "PostgreSQL"
-    },
-    {
-      "name": "DS_TIMESCALEDB_REPLAY",
-      "label": "TimescaleDB (Replay)",
-      "description": "",
-      "type": "datasource",
-      "pluginId": "postgres",
-      "pluginName": "PostgreSQL"
     }
   ],
   "__requires": [
@@ -69,61 +61,10 @@
   "links": [],
   "panels": [
     {
-      "title": "Cumulative PnL Over Time",
-      "type": "timeseries",
-      "datasource": "${datasource}",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisPlacement": "right",
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "gradientMode": "opacity"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": 0 },
-              { "color": "red", "value": null }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
-      "options": {
-        "legend": { "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
-      },
-      "targets": [
-        {
-          "datasource": "${datasource}",
-          "format": "time_series",
-          "group": [],
-          "metricColumn": "total_pnl",
-          "rawSql": "SELECT\n  time, total_pnl\nFROM pnl_summary\nWHERE\n  $__timeFilter(time) AND \n  (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL))\nORDER BY time ASC",
-          "select": [
-            [
-              { "type": "column", "params": ["total_pnl"] }
-            ]
-          ],
-          "table": "pnl_summary",
-          "timeColumn": "time",
-          "where": []
-        }
-      ]
-    },
-    {
       "title": "Executed Trades",
       "type": "stat",
       "datasource": "${datasource}",
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 9 },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -134,7 +75,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT total_trades FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT total_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -143,7 +84,7 @@
       "title": "Cancelled Trades",
       "type": "stat",
       "datasource": "${datasource}",
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 9 },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -154,7 +95,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT cancelled_trades FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT cancelled_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -163,7 +104,7 @@
       "title": "Cancellation Rate",
       "type": "stat",
       "datasource": "${datasource}",
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 9 },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -175,7 +116,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT cancellation_rate FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT cancellation_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -184,7 +125,7 @@
       "title": "Total PnL",
       "type": "stat",
       "datasource": "${datasource}",
-      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 9 },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 0 },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -195,7 +136,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT total_pnl FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT total_pnl FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -204,7 +145,7 @@
       "title": "Winning Trades",
       "type": "stat",
       "datasource": "${datasource}",
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 13 },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 4 },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -215,7 +156,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT winning_trades FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT winning_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -224,7 +165,7 @@
       "title": "Losing Trades",
       "type": "stat",
       "datasource": "${datasource}",
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 13 },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 4 },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -235,7 +176,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT losing_trades FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT losing_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -244,7 +185,7 @@
       "title": "Win Rate",
       "type": "stat",
       "datasource": "${datasource}",
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 13 },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 4 },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -256,7 +197,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT win_rate FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT win_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -265,7 +206,7 @@
       "title": "Risk Reward Ratio",
       "type": "stat",
       "datasource": "${datasource}",
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 9 },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -276,7 +217,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT risk_reward_ratio FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT risk_reward_ratio FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -285,7 +226,7 @@
       "title": "Average Profit",
       "type": "stat",
       "datasource": "${datasource}",
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 13 },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 4 },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -296,7 +237,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT average_profit FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT average_profit FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -305,7 +246,7 @@
       "title": "Average Loss",
       "type": "stat",
       "datasource": "${datasource}",
-      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 13 },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 4 },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -316,7 +257,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT average_loss FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT average_loss FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -325,7 +266,7 @@
       "title": "Long Strategy",
       "type": "stat",
       "datasource": "${datasource}",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "options": {
         "colorMode": "value",
         "graphMode": "none",
@@ -336,7 +277,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT long_winning_trades, long_losing_trades, long_win_rate FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT long_winning_trades, long_losing_trades, long_win_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -345,7 +286,7 @@
       "title": "Short Strategy",
       "type": "stat",
       "datasource": "${datasource}",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "options": {
         "colorMode": "value",
         "graphMode": "none",
@@ -356,7 +297,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT short_winning_trades, short_losing_trades, short_win_rate FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT short_winning_trades, short_losing_trades, short_win_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -366,58 +307,12 @@
   "style": "dark",
   "tags": [],
   "templating": {
-    "list": [
-      {
-        "current": {
-          "selected": false,
-          "text": "TimescaleDB (Production)",
-          "value": "${DS_TIMESCALEDB_PRODUCTION}"
-        },
-        "hide": 0,
-        "includeAll": false,
-        "label": "Datasource",
-        "multi": false,
-        "name": "datasource",
-        "options": [
-          {
-            "selected": true,
-            "text": "TimescaleDB (Production)",
-            "value": "${DS_TIMESCALEDB_PRODUCTION}"
-          },
-          {
-            "selected": false,
-            "text": "TimescaleDB (Replay)",
-            "value": "${DS_TIMESCALEDB_REPLAY}"
-          }
-        ],
-        "query": "postgres",
-        "queryValue": "",
-        "skipUrlSync": false,
-        "type": "datasource"
-      },
-      {
-        "allValue": null,
-        "current": { "text": "All", "value": "" },
-        "datasource": "${datasource}",
-        "definition": "SELECT DISTINCT replay_session_id FROM pnl_reports WHERE replay_session_id IS NOT NULL",
-        "hide": 0,
-        "includeAll": true,
-        "multi": false,
-        "name": "replay_session_id",
-        "options": [],
-        "query": "SELECT DISTINCT replay_session_id FROM pnl_reports WHERE replay_session_id IS NOT NULL",
-        "refresh": 1,
-        "regex": "",
-        "skipUrlSync": false,
-        "sort": 1,
-        "type": "query"
-      }
-    ]
+    "list": []
   },
   "time": { "from": "now-6h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
-  "title": "OBI Scalp Bot PnL",
+  "title": "PnL Report",
   "uid": "unique-pnl-dashboard-uid",
   "version": 2
 }
