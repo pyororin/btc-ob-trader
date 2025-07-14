@@ -361,6 +361,7 @@ func runMainLoop(ctx context.Context, f flags, cfg *config.Config, dbWriter *dbw
 		obiCalculator.Start(ctx)
 		go processSignalsAndExecute(ctx, cfg, obiCalculator, execEngine)
 		go orderMonitor(ctx, cfg, execEngine, client, orderBook)
+		go startPnlReporter(ctx, cfg)
 
 		wsClient := coincheck.NewWebSocketClient(orderBookHandler, tradeHandler)
 		go func() {
@@ -370,6 +371,88 @@ func runMainLoop(ctx context.Context, f flags, cfg *config.Config, dbWriter *dbw
 				sigs <- syscall.SIGTERM
 			}
 		}()
+	}
+}
+
+// startPnlReporter は定期的にPnLレポートを生成し、古いレポートを削除します。
+func startPnlReporter(ctx context.Context, cfg *config.Config) {
+	if cfg.PnlReport.IntervalMinutes <= 0 {
+		logger.Info("PnL reporter is disabled.")
+		return
+	}
+
+	logger.Infof("Starting PnL reporter: interval=%d minutes, maxAge=%d hours",
+		cfg.PnlReport.IntervalMinutes, cfg.PnlReport.MaxAgeHours)
+
+	ticker := time.NewTicker(time.Duration(cfg.PnlReport.IntervalMinutes) * time.Minute)
+	defer ticker.Stop()
+
+	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+		cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name, cfg.Database.SSLMode)
+	dbpool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		logger.Fatalf("PnL reporter unable to connect to database: %v", err)
+	}
+	defer dbpool.Close()
+
+	repo := datastore.NewRepository(dbpool)
+
+	// 初回実行
+	generateAndSaveReport(ctx, repo)
+	deleteOldReports(ctx, repo, cfg.PnlReport.MaxAgeHours)
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("Stopping PnL reporter.")
+			return
+		case <-ticker.C:
+			generateAndSaveReport(ctx, repo)
+			deleteOldReports(ctx, repo, cfg.PnlReport.MaxAgeHours)
+		}
+	}
+}
+
+func generateAndSaveReport(ctx context.Context, repo *datastore.Repository) {
+	logger.Info("Generating PnL report...")
+	trades, err := repo.FetchAllTradesForReport(ctx)
+	if err != nil {
+		logger.Errorf("Failed to fetch trades for PnL report: %v", err)
+		return
+	}
+
+	if len(trades) == 0 {
+		logger.Info("No trades found for PnL report.")
+		return
+	}
+
+	report, err := datastore.AnalyzeTrades(trades)
+	if err != nil {
+		logger.Errorf("Failed to analyze trades for PnL report: %v", err)
+		return
+	}
+
+	if err := repo.SavePnlReport(ctx, report); err != nil {
+		logger.Errorf("Failed to save PnL report: %v", err)
+		return
+	}
+	logger.Info("Successfully generated and saved PnL report.")
+}
+
+func deleteOldReports(ctx context.Context, repo *datastore.Repository, maxAgeHours int) {
+	if maxAgeHours <= 0 {
+		return
+	}
+	logger.Infof("Deleting PnL reports older than %d hours...", maxAgeHours)
+	deletedCount, err := repo.DeleteOldPnlReports(ctx, maxAgeHours)
+	if err != nil {
+		logger.Errorf("Failed to delete old PnL reports: %v", err)
+		return
+	}
+	if deletedCount > 0 {
+		logger.Infof("Successfully deleted %d old PnL reports.", deletedCount)
+	} else {
+		logger.Info("No old PnL reports to delete.")
 	}
 }
 

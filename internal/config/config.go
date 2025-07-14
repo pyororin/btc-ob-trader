@@ -22,9 +22,10 @@ type Config struct {
 	APISecret   string         `yaml:"-"` // Loaded from env
 	LogLevel    string         `yaml:"log_level"`
 	Order       OrderConfig    `yaml:"order"`
-	Database    DatabaseConfig `yaml:"database"`
-	DBWriter    DBWriterConfig `yaml:"db_writer"`
-	Replay      ReplayConfig   `yaml:"replay"`
+	Database    DatabaseConfig  `yaml:"database"`
+	DBWriter    DBWriterConfig  `yaml:"db_writer"`
+	Replay      ReplayConfig    `yaml:"replay"`
+	PnlReport   PnlReportConfig `yaml:"pnl_report"`
 }
 
 // SignalConfig holds configuration for signal generation.
@@ -49,6 +50,12 @@ type TwapConfig struct {
 type ReplayConfig struct {
 	StartTime string `yaml:"start_time"`
 	EndTime   string `yaml:"end_time"`
+}
+
+// PnlReportConfig holds settings for PnL reporting.
+type PnlReportConfig struct {
+	IntervalMinutes int `yaml:"interval_minutes"`
+	MaxAgeHours     int `yaml:"max_age_hours"`
 }
 
 // DatabaseConfig holds all database connection parameters.
