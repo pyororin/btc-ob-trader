@@ -50,7 +50,7 @@ twap:
   # 有効化フラグ
   enabled: true
   # 1注文あたりの最大サイズ（BTC）
-  max_order_size_btc: 0.005
+  max_order_size_btc: 0.011
   # 注文間隔（秒）
   interval_seconds: 5
 
