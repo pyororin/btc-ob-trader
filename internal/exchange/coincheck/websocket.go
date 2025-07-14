@@ -107,6 +107,7 @@ func (c *WebSocketClient) Connect() error {
 				}
 				return
 			}
+			logger.Debugf("Received raw message: %s", string(message)) // Raw message logging
 
 			// Handle trades message (different format)
 			var rawTradeData []string
@@ -195,7 +196,7 @@ func (c *WebSocketClient) Connect() error {
 
 type subscriptionMessage struct {
 	Type    string `json:"type"`
-	Channel string `json:"json"`
+	Channel string `json:"channel"`
 }
 
 func (c *WebSocketClient) subscribe(channel string) error {
