@@ -71,7 +71,7 @@
     {
       "title": "Cumulative PnL Over Time",
       "type": "timeseries",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "${datasource}",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -107,7 +107,7 @@
           "format": "time_series",
           "group": [],
           "metricColumn": "total_pnl",
-          "rawSql": "SELECT\n  time, total_pnl\nFROM pnl_summary\nWHERE\n  $__timeFilter(time) AND replay_session_id = '${replay_session_id}'\nORDER BY time ASC",
+          "rawSql": "SELECT\n  time, total_pnl\nFROM pnl_summary\nWHERE\n  $__timeFilter(time) AND \n  (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL))\nORDER BY time ASC",
           "select": [
             [
               { "type": "column", "params": ["total_pnl"] }
@@ -134,7 +134,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT COUNT(*) FROM trades WHERE replay_session_id = '${replay_session_id}'",
+          "rawSql": "SELECT COUNT(*) FROM trades WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL))",
           "format": "table"
         }
       ]
@@ -175,7 +175,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT realized_pnl FROM pnl_summary WHERE replay_session_id = '${replay_session_id}' ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT realized_pnl FROM pnl_summary WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -183,7 +183,7 @@
     {
       "title": "Sharpe Ratio (placeholder)",
       "type": "stat",
-      "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+      "datasource": "${datasource}",
       "gridPos": { "h": 4, "w": 6, "x": 18, "y": 9 },
       "options": {
         "colorMode": "value",
@@ -194,7 +194,7 @@
       },
       "targets": [
         {
-          "datasource": "${DS_TIMESCALEDB_PRODUCTION}",
+          "datasource": "${datasource}",
           "rawSql": "SELECT 0.0 -- Placeholder for Sharpe Ratio calculation",
           "format": "table"
         }
@@ -209,7 +209,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT time, side, price, size, transaction_id FROM trades WHERE $__timeFilter(time) AND replay_session_id = '${replay_session_id}' ORDER BY time DESC LIMIT 100",
+          "rawSql": "SELECT time, side, price, size, transaction_id FROM trades WHERE $__timeFilter(time) AND (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 100",
           "format": "table"
         }
       ]
@@ -222,9 +222,9 @@
     "list": [
       {
         "current": {
-          "selected": true,
-          "text": "TimescaleDB (Replay)",
-          "value": "${DS_TIMESCALEDB_REPLAY}"
+          "selected": false,
+          "text": "TimescaleDB (Production)",
+          "value": "${DS_TIMESCALEDB_PRODUCTION}"
         },
         "hide": 0,
         "includeAll": false,
@@ -233,12 +233,12 @@
         "name": "datasource",
         "options": [
           {
-            "selected": false,
+            "selected": true,
             "text": "TimescaleDB (Production)",
             "value": "${DS_TIMESCALEDB_PRODUCTION}"
           },
           {
-            "selected": true,
+            "selected": false,
             "text": "TimescaleDB (Replay)",
             "value": "${DS_TIMESCALEDB_REPLAY}"
           }
@@ -250,7 +250,7 @@
       },
       {
         "allValue": null,
-        "current": {},
+        "current": { "text": "All", "value": "" },
         "datasource": "${datasource}",
         "definition": "SELECT DISTINCT replay_session_id FROM pnl_summary WHERE replay_session_id IS NOT NULL",
         "hide": 0,
@@ -272,5 +272,5 @@
   "timezone": "browser",
   "title": "OBI Scalp Bot PnL",
   "uid": "unique-pnl-dashboard-uid",
-  "version": 1
+  "version": 2
 }
