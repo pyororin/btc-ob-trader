@@ -111,7 +111,7 @@
         "justifyMode": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "textMode": "auto",
-        "unit": "%"
+        "unit": "percent"
       },
       "targets": [
         {
@@ -125,6 +125,29 @@
       "title": "合計損益",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "Yen"
+        },
+        "overrides": []
+      },
       "gridPos": { "h": 4, "w": 8, "x": 16, "y": 0 },
       "options": {
         "colorMode": "value",
@@ -186,14 +209,36 @@
       "title": "勝率",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 40
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 4 },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto",
-        "unit": "%"
+        "textMode": "auto"
       },
       "targets": [
         {
@@ -234,7 +279,7 @@
         "justifyMode": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "textMode": "auto",
-        "unit": "円"
+        "unit": "Yen"
       },
       "targets": [
         {
@@ -255,7 +300,7 @@
         "justifyMode": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "textMode": "auto",
-        "unit": "円"
+        "unit": "Yen"
       },
       "targets": [
         {
@@ -269,6 +314,53 @@
       "title": "ロング戦略",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "long_winning_trades"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "勝ちトレード"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "long_losing_trades"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "負けトレード"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "long_win_rate"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "勝率"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          }
+        ]
+      },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "options": {
         "colorMode": "value",
@@ -289,6 +381,53 @@
       "title": "ショート戦略",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "short_winning_trades"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "勝ちトレード"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "short_losing_trades"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "負けトレード"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "short_win_rate"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "勝率"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          }
+        ]
+      },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "options": {
         "colorMode": "value",
