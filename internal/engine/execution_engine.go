@@ -142,28 +142,30 @@ type ReplayExecutionEngine struct {
 	dbWriter      *dbwriter.Writer
 	position      *position.Position
 	pnlCalculator *pnl.Calculator
+	// ExecutedTrades stores the history of simulated trades.
+	ExecutedTrades []dbwriter.Trade
 }
 
 // NewReplayExecutionEngine creates a new ReplayExecutionEngine.
 func NewReplayExecutionEngine(dbWriter *dbwriter.Writer) *ReplayExecutionEngine {
 	return &ReplayExecutionEngine{
-		dbWriter:      dbWriter,
-		position:      position.NewPosition(),
-		pnlCalculator: pnl.NewCalculator(),
+		dbWriter:       dbWriter,
+		position:       position.NewPosition(),
+		pnlCalculator:  pnl.NewCalculator(),
+		ExecutedTrades: make([]dbwriter.Trade, 0),
 	}
 }
 
-// PlaceOrder simulates placing an order and records it to the database.
+// PlaceOrder simulates placing an order and records it.
+// If dbWriter is configured, it also saves the trade to the database.
 func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, orderType string, rate float64, amount float64, postOnly bool) (*coincheck.OrderResponse, error) {
+	mode := "Replay"
 	if e.dbWriter == nil {
-		return nil, fmt.Errorf("ReplayExecutionEngine: dbWriter is not initialized")
+		mode = "Simulation"
 	}
-
-	// Simulate immediate execution at the requested rate
-	logger.Infof("[Replay] Simulating order placement: Pair=%s, Type=%s, Rate=%.2f, Amount=%.4f", pair, orderType, rate, amount)
+	logger.Infof("[%s] Simulating order placement: Pair=%s, Type=%s, Rate=%.2f, Amount=%.4f", mode, pair, orderType, rate, amount)
 
 	// Generate a fake transaction ID for the trade record.
-	// In a real scenario, this might need to be more sophisticated.
 	fakeTxID, err := uuid.NewRandom()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate fake transaction ID: %w", err)
@@ -171,42 +173,61 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 
 	// Create a trade record for the simulated execution.
 	trade := dbwriter.Trade{
-		Time:        time.Now().UTC(), // In replay, this should be the event time
-		Pair:        pair,
-		Side:        orderType, // "buy" or "sell"
-		Price:       rate,
-		Size:        amount,
+		// TODO: This should ideally use the event time from the simulation, not time.Now().
+		// This requires passing the event time through the execution flow.
+		Time:          time.Now().UTC(),
+		Pair:          pair,
+		Side:          orderType, // "buy" or "sell"
+		Price:         rate,
+		Size:          amount,
 		TransactionID: int64(fakeTxID.ID()), // This is not ideal, but works for now.
 	}
-	e.dbWriter.SaveTrade(trade)
 
-	// Update position before calculating PnL
-	e.position.Update(trade.Size, trade.Price)
-	logger.Infof("[Replay] Position updated: %s", e.position.String())
+	// Store the executed trade in memory for later analysis.
+	e.ExecutedTrades = append(e.ExecutedTrades, trade)
+
+	// Update position and get realized PnL
+	tradeAmount := trade.Size
+	if trade.Side == "sell" {
+		tradeAmount = -tradeAmount
+	}
+	realizedPnL := e.position.Update(tradeAmount, trade.Price)
+	if realizedPnL != 0 {
+		e.pnlCalculator.UpdateRealizedPnL(realizedPnL)
+	}
+	trade.RealizedPnL = realizedPnL
+	logger.Infof("[%s] Position updated: %s", mode, e.position.String())
 
 	// Calculate PnL
 	positionSize, avgEntryPrice := e.position.Get()
 	unrealizedPnL := e.pnlCalculator.CalculateUnrealizedPnL(positionSize, avgEntryPrice, rate) // Use current rate for unrealized PnL
-	realizedPnL := e.pnlCalculator.GetRealizedPnL()                                           // This needs more logic for realized PnL
-	totalPnL := realizedPnL + unrealizedPnL
+	totalRealizedPnL := e.pnlCalculator.GetRealizedPnL()
+	totalPnL := totalRealizedPnL + unrealizedPnL
 
-	// Save PnL summary
-	pnlSummary := dbwriter.PnLSummary{
-		Time:          trade.Time,
-		StrategyID:    "default", // Or get from context/config
-		Pair:          pair,
-		RealizedPnL:   realizedPnL,
-		UnrealizedPnL: unrealizedPnL,
-		TotalPnL:      totalPnL,
-		PositionSize:  positionSize,
-		AvgEntryPrice: avgEntryPrice,
-	}
-	if err := e.dbWriter.SavePnLSummary(ctx, pnlSummary); err != nil {
-		logger.Errorf("[Replay] Error saving PnL summary: %v", err)
-		// Decide if you should return the error or just log it
-	}
+	// If dbWriter is available, save the trade and PnL summary.
+	if e.dbWriter != nil {
+		e.dbWriter.SaveTrade(trade)
 
-	logger.Infof("[Replay] Saved simulated trade and PnL summary to DB.")
+		pnlSummary := dbwriter.PnLSummary{
+			Time:          trade.Time,
+			StrategyID:    "default", // Or get from context/config
+			Pair:          pair,
+			RealizedPnL:   realizedPnL,
+			UnrealizedPnL: unrealizedPnL,
+			TotalPnL:      totalPnL,
+			PositionSize:  positionSize,
+			AvgEntryPrice: avgEntryPrice,
+		}
+		if err := e.dbWriter.SavePnLSummary(ctx, pnlSummary); err != nil {
+			logger.Errorf("[%s] Error saving PnL summary: %v", mode, err)
+			// Decide if you should return the error or just log it
+		}
+
+		logger.Infof("[%s] Saved simulated trade and PnL summary to DB.", mode)
+	} else {
+		// Log PnL info for simulation mode
+		logger.Infof("[%s] PnL Update: Realized=%.2f, Unrealized=%.2f, Total=%.2f", mode, realizedPnL, unrealizedPnL, totalPnL)
+	}
 
 	// Return a mock OrderResponse
 	return &coincheck.OrderResponse{
@@ -226,4 +247,9 @@ func (e *ReplayExecutionEngine) CancelOrder(ctx context.Context, orderID int64) 
 		Success: true,
 		ID:      orderID,
 	}, nil
+}
+
+// GetTotalRealizedPnL returns the total realized PnL from the internal calculator.
+func (e *ReplayExecutionEngine) GetTotalRealizedPnL() float64 {
+	return e.pnlCalculator.GetRealizedPnL()
 }

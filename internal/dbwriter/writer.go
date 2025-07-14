@@ -32,6 +32,7 @@ type Trade struct {
 	Price           float64   `db:"price"`
 	Size            float64   `db:"size"`
 	TransactionID   int64     `db:"transaction_id"`
+	RealizedPnL   float64   `db:"realized_pnl"` // Not always stored in DB, but used for simulation summary
 }
 
 // PnLSummary はデータベースに保存するPnL情報の構造体です。

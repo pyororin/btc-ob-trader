@@ -1,4 +1,7 @@
-.PHONY: help up down logs shell clean test build replay monitor
+-include .env
+export
+
+.PHONY: help up down logs shell clean test build replay monitor report
 
 # ==============================================================================
 # HELP
@@ -41,9 +44,35 @@ clean: ## Stop, remove containers, and remove volumes.
 	@echo "Stopping application stack and removing volumes..."
 	sudo -E docker compose down -v --remove-orphans
 
-replay: ## Run a backtest using historical data.
+replay: ## Run a backtest using historical data from the database.
 	@echo "Running replay task..."
 	sudo -E docker compose run --build --rm bot-replay
+
+simulate: ## Run a backtest using trade data from a local CSV file.
+	@echo "Running simulation task..."
+	@if [ -z "$(CSV_PATH)" ]; then \
+		echo "Error: CSV_PATH environment variable is not set."; \
+		echo "Usage: make simulate CSV_PATH=/path/to/your/trades.csv"; \
+		exit 1; \
+	fi
+	sudo -E docker compose run --build --rm --entrypoint "go" bot-replay run cmd/bot/main.go --simulate --csv=$(CSV_PATH) --config=config/config.yaml
+
+export-sim-data: ## Export order book data from the database to a CSV file for simulation.
+	@echo "Exporting simulation data..."
+	@mkdir -p ./simulation
+	@if [ -z "$(START_TIME)" ] || [ -z "$(END_TIME)" ]; then \
+		echo "Error: START_TIME and END_TIME environment variables must be set."; \
+		echo "Usage: make export-sim-data START_TIME='YYYY-MM-DD HH:MM:SS' END_TIME='YYYY-MM-DD HH:MM:SS'"; \
+		exit 1; \
+	fi
+	@FILENAME="simulation/order_book_updates_$$(date +%Y%m%d-%H%M%S).csv"; \
+	echo "Exporting data to $$FILENAME..."; \
+	sudo -E docker compose run --rm \
+		-e DB_USER=$(DB_USER) \
+		-e DB_PASSWORD=$(DB_PASSWORD) \
+		-e DB_NAME=$(DB_NAME) \
+		builder go run cmd/export/main.go --start "$(START_TIME)" --end "$(END_TIME)" > $$FILENAME
+	@echo "Export complete. See $$FILENAME";
 
 # ==============================================================================
 # GO BUILDS & TESTS
@@ -61,7 +90,9 @@ build: ## Build the Go application binary inside the container.
 	$(DOCKER_RUN_GO) go build -a -ldflags="-s -w" -o build/obi-scalp-bot cmd/bot/main.go
 
 report: ## Generate and display the PnL report.
+	@echo "Starting report generator service..."
+	sudo -E docker compose up -d --build report-generator
 	@echo "Generating PnL report..."
-	sudo -E docker compose run --rm report-generator go build -o build/report cmd/report/main.go
+	sudo -E docker compose exec report-generator go build -o build/report cmd/report/main.go
 	@echo "Running PnL report..."
-	sudo -E docker compose run --rm report-generator ./build/report
+	sudo -E docker compose exec report-generator ./build/report

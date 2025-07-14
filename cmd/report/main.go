@@ -73,12 +73,18 @@ func main() {
 	// レポートをコンソールに出力
 	printReport(report)
 
+	// JSTの現在時刻を取得
+	jst := time.FixedZone("Asia/Tokyo", 9*60*60)
+	now := time.Now().In(jst)
+	filename := fmt.Sprintf("report_%s.json", now.Format("20060102_150405"))
+	filepath := "./report/" + filename
+
 	// レポートをJSONファイルに出力
-	if err := writeReportToJSON(report, "report.json"); err != nil {
+	if err := writeReportToJSON(report, filepath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing JSON report: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("Report successfully written to report.json")
+	fmt.Printf("Report successfully written to %s\n", filepath)
 }
 
 // fetchAllTrades はデータベースからすべてのトレードを取得します。
@@ -217,8 +223,16 @@ func printReport(r Report) {
 }
 
 // writeReportToJSON はレポートをJSONファイルに書き込みます。
-func writeReportToJSON(r Report, filename string) error {
-	file, err := os.Create(filename)
+func writeReportToJSON(r Report, filepath string) error {
+	// ディレクトリが存在しない場合は作成
+	dir := "./report"
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+	}
+
+	file, err := os.Create(filepath)
 	if err != nil {
 		return err
 	}
