@@ -41,9 +41,18 @@ clean: ## Stop, remove containers, and remove volumes.
 	@echo "Stopping application stack and removing volumes..."
 	sudo -E docker compose down -v --remove-orphans
 
-replay: ## Run a backtest using historical data.
+replay: ## Run a backtest using historical data from the database.
 	@echo "Running replay task..."
 	sudo -E docker compose run --build --rm bot-replay
+
+simulate: ## Run a backtest using trade data from a local CSV file.
+	@echo "Running simulation task..."
+	@if [ -z "$(CSV_PATH)" ]; then \
+		echo "Error: CSV_PATH environment variable is not set."; \
+		echo "Usage: make simulate CSV_PATH=/path/to/your/trades.csv"; \
+		exit 1; \
+	fi
+	sudo -E docker compose run --build --rm --entrypoint "go" bot-replay run cmd/bot/main.go --simulate --csv=$(CSV_PATH) --config=config/config.yaml
 
 # ==============================================================================
 # GO BUILDS & TESTS

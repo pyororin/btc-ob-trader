@@ -27,8 +27,10 @@ import (
 )
 
 type flags struct {
-	configPath string
-	replayMode bool
+	configPath    string
+	replayMode    bool
+	simulateMode  bool
+	csvPath       string
 }
 
 func main() {
@@ -40,7 +42,11 @@ func main() {
 	cfg := setupConfig(f.configPath)
 	setupLogger(cfg.LogLevel, f.configPath, cfg.Pair)
 
-	if !f.replayMode {
+	if f.simulateMode && f.csvPath == "" {
+		logger.Fatal("CSV file path must be provided in simulation mode using --csv flag")
+	}
+
+	if !f.replayMode && !f.simulateMode {
 		startHealthCheckServer()
 	}
 
@@ -48,9 +54,12 @@ func main() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
-	dbWriter := setupDBWriter(ctx, cfg)
-	if dbWriter != nil {
-		defer dbWriter.Close()
+	var dbWriter *dbwriter.Writer
+	if !f.simulateMode {
+		dbWriter = setupDBWriter(ctx, cfg)
+		if dbWriter != nil {
+			defer dbWriter.Close()
+		}
 	}
 
 	runMainLoop(ctx, f, cfg, dbWriter, sigs)
@@ -67,8 +76,15 @@ func main() {
 func parseFlags() flags {
 	configPath := flag.String("config", "config/config.yaml", "Path to the configuration file")
 	replayMode := flag.Bool("replay", false, "Enable replay mode")
+	simulateMode := flag.Bool("simulate", false, "Enable simulation mode from CSV")
+	csvPath := flag.String("csv", "", "Path to the trade data CSV file for simulation")
 	flag.Parse()
-	return flags{configPath: *configPath, replayMode: *replayMode}
+	return flags{
+		configPath:   *configPath,
+		replayMode:   *replayMode,
+		simulateMode: *simulateMode,
+		csvPath:      *csvPath,
+	}
 }
 
 // setupConfig loads the application configuration.
@@ -250,10 +266,12 @@ func processSignalsAndExecute(ctx context.Context, cfg *config.Config, obiCalcul
 	}()
 }
 
-// runMainLoop starts either the live trading or replay mode.
+// runMainLoop starts either the live trading, replay, or simulation mode.
 func runMainLoop(ctx context.Context, f flags, cfg *config.Config, dbWriter *dbwriter.Writer, sigs chan<- os.Signal) {
 	if f.replayMode {
 		go runReplay(ctx, cfg, dbWriter, sigs)
+	} else if f.simulateMode {
+		go runSimulation(ctx, f, cfg, sigs)
 	} else {
 		// Live trading setup
 		execEngine := engine.NewLiveExecutionEngine(coincheck.NewClient(cfg.APIKey, cfg.APISecret))
@@ -280,6 +298,124 @@ func runMainLoop(ctx context.Context, f flags, cfg *config.Config, dbWriter *dbw
 func waitForShutdownSignal(sigs <-chan os.Signal) {
 	sig := <-sigs
 	logger.Infof("Received signal: %s", sig)
+}
+
+// printSimulationSummary calculates and prints the performance metrics of the simulation.
+func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine) {
+	executedTrades := replayEngine.ExecutedTrades
+	totalProfit := replayEngine.GetTotalRealizedPnL()
+	totalTrades := len(executedTrades)
+
+	if totalTrades == 0 {
+		fmt.Println("\n==== シミュレーション結果 ====")
+		fmt.Println("取引は実行されませんでした。")
+		fmt.Println("==========================")
+		return
+	}
+
+	var wins, losses, closingTrades int
+	var totalWinAmount, totalLossAmount float64
+
+	for _, trade := range executedTrades {
+		if trade.RealizedPnL != 0 {
+			closingTrades++
+			if trade.RealizedPnL > 0 {
+				wins++
+				totalWinAmount += trade.RealizedPnL
+			} else {
+				losses++
+				totalLossAmount += trade.RealizedPnL
+			}
+		}
+	}
+
+	winRate := 0.0
+	if closingTrades > 0 {
+		winRate = float64(wins) / float64(closingTrades) * 100
+	}
+
+	avgWin := 0.0
+	if wins > 0 {
+		avgWin = totalWinAmount / float64(wins)
+	}
+	avgLoss := 0.0
+	if losses > 0 {
+		avgLoss = totalLossAmount / float64(losses)
+	}
+
+	fmt.Println("\n==== シミュレーション結果 ====")
+	fmt.Printf("総損益　     : %.2f JPY\n", totalProfit)
+	fmt.Printf("取引回数     : %d回\n", totalTrades)
+	fmt.Printf("勝率         : %.2f%% (%d勝/%d敗)\n", winRate, wins, losses)
+	fmt.Printf("平均利益/損失: %.2f JPY / %.2f JPY\n", avgWin, avgLoss)
+	// NOTE: Max Drawdown calculation is complex and requires tracking equity curve, omitted for now.
+	fmt.Println("最大ドローダウン: N/A")
+	fmt.Println("==========================")
+}
+
+// runSimulation runs a backtest using data from a CSV file.
+func runSimulation(ctx context.Context, f flags, cfg *config.Config, sigs chan<- os.Signal) {
+	// --- Log Simulation Configuration ---
+	logger.Info("--- SIMULATION MODE ---")
+	logger.Infof("CSV File: %s", f.csvPath)
+	logger.Infof("Pair: %s", cfg.Pair)
+	logger.Infof("Long Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Long.OBIThreshold, cfg.Long.TP, cfg.Long.SL)
+	logger.Infof("Short Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Short.OBIThreshold, cfg.Short.TP, cfg.Short.SL)
+	logger.Info("--------------------")
+
+	// --- Execution Engine ---
+	// In simulation mode, we don't write to the DB, so we pass nil for the writer.
+	replayEngine := engine.NewReplayExecutionEngine(nil)
+	var execEngine engine.ExecutionEngine = replayEngine
+
+	// --- Setup Handlers and Indicators ---
+	orderBook := indicator.NewOrderBook()
+	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
+	// In simulation mode, we don't have a dbWriter.
+	orderBookHandler, _ := setupHandlers(orderBook, nil, cfg.Pair)
+
+	// --- Start Services ---
+	obiCalculator.Start(ctx)
+	go processSignalsAndExecute(ctx, cfg, obiCalculator, execEngine)
+
+	// --- Fetch Events from CSV ---
+	logger.Infof("Fetching market events from %s", f.csvPath)
+	events, err := datastore.FetchMarketEventsFromCSV(ctx, f.csvPath)
+	if err != nil {
+		logger.Fatalf("Failed to fetch market events from CSV: %v", err)
+	}
+	if len(events) == 0 {
+		logger.Info("No market events found in the CSV file.")
+		sigs <- syscall.SIGTERM
+		return
+	}
+	logger.Infof("Fetched %d market snapshots.", len(events))
+
+	// --- Event Loop ---
+	go func() {
+		defer func() {
+			logger.Info("Simulation finished.")
+			printSimulationSummary(replayEngine)
+			sigs <- syscall.SIGTERM // Notify main thread to exit
+		}()
+
+		for i, event := range events {
+			select {
+			case <-ctx.Done():
+				logger.Info("Simulation cancelled.")
+				return
+			default:
+				// In this mode, we only have OrderBookEvents.
+				if e, ok := event.(datastore.OrderBookEvent); ok {
+					orderBookHandler(e.OrderBook)
+				}
+				if (i+1)%100 == 0 { // Log progress every 100 events (snapshots are less frequent)
+					logger.Infof("Processed snapshot %d/%d", i+1, len(events))
+				}
+			}
+		}
+		logger.Infof("Finished processing all %d snapshots.", len(events))
+	}()
 }
 
 // runReplay runs the backtest simulation using data from the database.
