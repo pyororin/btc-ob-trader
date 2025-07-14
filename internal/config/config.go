@@ -9,20 +9,33 @@ import (
 
 // Config defines the structure for all application configuration.
 type Config struct {
-	Pair        string       `yaml:"pair"`
-	SpreadLimit float64      `yaml:"spread_limit"`
-	LotMaxRatio float64      `yaml:"lot_max_ratio"`
-	OrderRatio  float64      `yaml:"order_ratio"`
-	Long        StrategyConf `yaml:"long"`
-	Short       StrategyConf `yaml:"short"`
-	Volatility  VolConf      `yaml:"volatility"`
-	APIKey      string       `yaml:"-"` // Loaded from env
-	APISecret   string       `yaml:"-"` // Loaded from env
-	LogLevel    string       `yaml:"log_level"`
+	Pair        string         `yaml:"pair"`
+	SpreadLimit float64        `yaml:"spread_limit"`
+	LotMaxRatio float64        `yaml:"lot_max_ratio"`
+	OrderRatio  float64        `yaml:"order_ratio"`
+	Long        StrategyConf   `yaml:"long"`
+	Short       StrategyConf   `yaml:"short"`
+	Volatility  VolConf        `yaml:"volatility"`
+	Twap        TwapConfig     `yaml:"twap"`
+	Signal      SignalConfig   `yaml:"signal"`
+	APIKey      string         `yaml:"-"` // Loaded from env
+	APISecret   string         `yaml:"-"` // Loaded from env
+	LogLevel    string         `yaml:"log_level"`
+	Order       OrderConfig    `yaml:"order"`
 	Database    DatabaseConfig `yaml:"database"`
 	DBWriter    DBWriterConfig `yaml:"db_writer"`
-	Replay      ReplayConfig `yaml:"replay"`
-	Twap        TwapConfig   `yaml:"twap"`
+	Replay      ReplayConfig   `yaml:"replay"`
+}
+
+// SignalConfig holds configuration for signal generation.
+type SignalConfig struct {
+	HoldDurationMs int `yaml:"hold_duration_ms"`
+}
+
+// OrderConfig holds configuration for the execution engine.
+type OrderConfig struct {
+	TimeoutSeconds  int `yaml:"timeout_seconds"`
+	PollIntervalMs int `yaml:"poll_interval_ms"`
 }
 
 // TwapConfig holds configuration for the TWAP execution strategy.

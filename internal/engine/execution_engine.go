@@ -118,8 +118,8 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	logger.Infof("[Live] Order placed successfully: ID=%d", orderResp.ID)
 
 	// Monitor for execution
-	const pollInterval = 2 * time.Second
-	const timeout = 30 * time.Second
+	pollInterval := time.Duration(e.cfg.Order.PollIntervalMs) * time.Millisecond
+	timeout := time.Duration(e.cfg.Order.TimeoutSeconds) * time.Second
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
