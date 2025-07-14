@@ -22,7 +22,18 @@ help:
 # ==============================================================================
 up: ## Start all services including the bot for live trading.
 	@echo "Starting all services (including trading bot)..."
+	@if [ ! -f .db_initialized ]; then \
+		echo "Database not initialized. Please run 'make init-db' first."; \
+		exit 1; \
+	fi
 	sudo -E docker compose up -d --build
+
+init-db: ## Initialize the database.
+	@echo "Initializing database..."
+	sudo -E docker compose up -d timescaledb
+	sudo -E docker compose run --rm db-init
+	@touch .db_initialized
+	@echo "Database initialized."
 
 monitor: ## Start monitoring services (DB, Grafana) without the bot.
 	@echo "Starting monitoring services (TimescaleDB, Grafana)..."
