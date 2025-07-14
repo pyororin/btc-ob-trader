@@ -117,7 +117,6 @@ func fetchAllTrades(ctx context.Context, dbpool *pgxpool.Pool) ([]Trade, error) 
 type Report struct {
 	StartDate          time.Time       `json:"start_date"`
 	EndDate            time.Time       `json:"end_date"`
-	TotalAttempts      int             `json:"total_attempts"`      // Total orders placed (including cancelled)
 	TotalTrades        int             `json:"total_trades"`        // Executed trades
 	CancelledTrades    int             `json:"cancelled_trades"`    // Cancelled trades
 	CancellationRate   float64         `json:"cancellation_rate"`   // Cancellation rate
@@ -152,20 +151,12 @@ func analyzeTrades(trades []Trade) (Report, error) {
 		}
 	}
 
-	totalAttempts := len(trades)
-	cancellationRate := 0.0
-	if totalAttempts > 0 {
-		cancellationRate = float64(cancelledCount) / float64(totalAttempts) * 100
-	}
-
 	if len(executedTrades) == 0 {
 		return Report{
-			StartDate:        trades[0].Time,
-			EndDate:          trades[len(trades)-1].Time,
-			TotalAttempts:    totalAttempts,
-			CancelledTrades:  cancelledCount,
-			CancellationRate: cancellationRate,
-			TotalTrades:      0,
+			StartDate:       trades[0].Time,
+			EndDate:         trades[len(trades)-1].Time,
+			CancelledTrades: cancelledCount,
+			TotalTrades:     0,
 		}, nil
 	}
 
@@ -234,6 +225,11 @@ func analyzeTrades(trades []Trade) (Report, error) {
 	losingTrades := longLosingTrades + shortLosingTrades
 	totalExecutedTrades := winningTrades + losingTrades
 
+	cancellationRate := 0.0
+	if cancelledCount+totalExecutedTrades > 0 {
+		cancellationRate = float64(cancelledCount) / float64(cancelledCount+totalExecutedTrades) * 100
+	}
+
 	winRate := 0.0
 	if totalExecutedTrades > 0 {
 		winRate = float64(winningTrades) / float64(totalExecutedTrades) * 100
@@ -267,7 +263,6 @@ func analyzeTrades(trades []Trade) (Report, error) {
 	return Report{
 		StartDate:          startDate,
 		EndDate:            endDate,
-		TotalAttempts:      totalAttempts,
 		TotalTrades:        totalExecutedTrades,
 		CancelledTrades:    cancelledCount,
 		CancellationRate:   cancellationRate,
@@ -293,7 +288,6 @@ func printReport(r Report) {
 	fmt.Printf("集計期間: %s から %s\n", r.StartDate.Format(time.RFC3339), r.EndDate.Format(time.RFC3339))
 	fmt.Println()
 	fmt.Println("--- 全体 ---")
-	fmt.Printf("総試行回数: %d\n", r.TotalAttempts)
 	fmt.Printf("約定済み取引数: %d\n", r.TotalTrades)
 	fmt.Printf("キャンセル済み取引数: %d\n", r.CancelledTrades)
 	fmt.Printf("キャンセル率: %.2f%%\n", r.CancellationRate)
