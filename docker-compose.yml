@@ -8,7 +8,7 @@ services:
       - .:/app
       - ./.env:/app/.env:ro
       - ./config:/app/config:ro
-    entrypoint: ["./obi-scalp-bot"]
+    entrypoint: ["/usr/local/bin/obi-scalp-bot"]
     command: ["-config", "/app/config/config.yaml"]
     env_file:
       - .env
@@ -34,7 +34,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: obi-scalp-bot-replay
-    entrypoint: ["./obi-scalp-bot"]
+    entrypoint: ["/usr/local/bin/obi-scalp-bot"]
     volumes:
       - ./.env:/app/.env:ro
       - ./config:/app/config:ro
