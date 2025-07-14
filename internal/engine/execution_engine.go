@@ -13,6 +13,7 @@ import (
 	"github.com/your-org/obi-scalp-bot/internal/pnl"
 	"github.com/your-org/obi-scalp-bot/internal/position"
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
+	"github.com/your-org/obi-scalp-bot/internal/config"
 )
 
 // ExecutionEngine defines the interface for order execution.
@@ -24,12 +25,14 @@ type ExecutionEngine interface {
 // LiveExecutionEngine handles real order placement with the exchange.
 type LiveExecutionEngine struct {
 	exchangeClient *coincheck.Client
+	cfg            *config.Config
 }
 
 // NewLiveExecutionEngine creates a new LiveExecutionEngine.
-func NewLiveExecutionEngine(client *coincheck.Client) *LiveExecutionEngine {
+func NewLiveExecutionEngine(client *coincheck.Client, cfg *config.Config) *LiveExecutionEngine {
 	return &LiveExecutionEngine{
 		exchangeClient: client,
+		cfg:            cfg,
 	}
 }
 
@@ -78,20 +81,20 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	roundedRate := math.Round(rate)
 	adjustedAmount := amount
 
-	// Adjust order size based on available balance
+	// Calculate the maximum amount based on the order ratio
+	var cappedAmount float64
 	if orderType == "buy" {
-		orderValue := roundedRate * amount
-		if orderValue > availableJpy {
-			adjustedAmount = availableJpy / roundedRate
-			// Round down to 6 decimal places for safety
-			adjustedAmount = math.Floor(adjustedAmount*1e6) / 1e6
-			logger.Warnf("[Live] Buy order amount %.8f exceeds available JPY balance. Adjusting to %.8f.", amount, adjustedAmount)
-		}
-	} else if orderType == "sell" {
-		if amount > availableBtc {
-			adjustedAmount = availableBtc
-			logger.Warnf("[Live] Sell order amount %.8f exceeds available BTC balance. Adjusting to %.8f.", amount, adjustedAmount)
-		}
+		cappedAmount = (availableJpy * e.cfg.OrderRatio) / roundedRate
+	} else { // sell
+		cappedAmount = availableBtc * e.cfg.OrderRatio
+	}
+	// Round down to 6 decimal places for safety
+	cappedAmount = math.Floor(cappedAmount*1e6) / 1e6
+
+	// Adjust order size only if the requested amount exceeds the capped amount
+	if amount > cappedAmount {
+		adjustedAmount = cappedAmount
+		logger.Warnf("[Live] Requested %s amount %.8f exceeds the allowable ratio. Adjusting to %.8f.", orderType, amount, adjustedAmount)
 	}
 
 	if adjustedAmount <= 0 {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/your-org/obi-scalp-bot/internal/engine"
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
+	"github.com/your-org/obi-scalp-bot/internal/config"
 )
 
 // mockCoincheckServer is a helper to create a mock HTTP server for Coincheck API.
@@ -106,7 +107,8 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	execEngine := engine.NewLiveExecutionEngine(ccClient)
+	testCfg := &config.Config{OrderRatio: 0.5}
+	execEngine := engine.NewLiveExecutionEngine(ccClient, testCfg)
 
 	// Test DoD: Mock 50 注文全成功
 	for i := 0; i < 50; i++ {
@@ -145,15 +147,23 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 	}
 }
 
-func TestExecutionEngine_PlaceOrder_Failure_ZeroBalance(t *testing.T) {
+func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
+	var adjustedAmount float64
 	mockServer := mockCoincheckServer(
-		func(w http.ResponseWriter, r *http.Request) {
-			t.Error("NewOrder handler was called unexpectedly")
-			http.Error(w, "should not be called", http.StatusInternalServerError)
+		func(w http.ResponseWriter, r *http.Request) { // NewOrder Handler
+			var reqBody coincheck.OrderRequest
+			if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+				http.Error(w, "bad request body", http.StatusBadRequest)
+				return
+			}
+			adjustedAmount = reqBody.Amount
+			resp := coincheck.OrderResponse{Success: true, ID: 123}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
 		},
-		nil,
+		nil, // No cancel handler
 		func(w http.ResponseWriter, r *http.Request) { // Balance Handler
-			resp := coincheck.BalanceResponse{Success: true, Jpy: "0", Btc: "0"}
+			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
 		},
@@ -170,14 +180,17 @@ func TestExecutionEngine_PlaceOrder_Failure_ZeroBalance(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	execEngine := engine.NewLiveExecutionEngine(ccClient)
+	testCfg := &config.Config{OrderRatio: 0.5}
+	execEngine := engine.NewLiveExecutionEngine(ccClient, testCfg)
 
-	_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 4000000, 0.1, false)
-	if err == nil {
-		t.Fatal("PlaceOrder was expected to return an error for zero balance, but it didn't")
+	_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.2, false)
+	if err != nil {
+		t.Fatalf("PlaceOrder returned an unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "adjusted order amount is zero or negative") {
-		t.Errorf("Expected error message to contain 'adjusted order amount is zero or negative', got '%s'", err.Error())
+
+	expectedAmount := 0.1
+	if adjustedAmount != expectedAmount {
+		t.Errorf("Expected adjusted amount to be %.8f, got %.8f", expectedAmount, adjustedAmount)
 	}
 }
 
@@ -205,7 +218,7 @@ func TestExecutionEngine_CancelOrder_Success(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	execEngine := engine.NewLiveExecutionEngine(ccClient)
+	execEngine := engine.NewLiveExecutionEngine(ccClient, nil)
 
 	resp, err := execEngine.CancelOrder(context.Background(), 56789)
 	if err != nil {
@@ -244,7 +257,7 @@ func TestExecutionEngine_CancelOrder_Failure(t *testing.T) {
     coincheck.SetBaseURL(mockServer.URL)
     defer coincheck.SetBaseURL(originalBaseURL)
 
-    execEngine := engine.NewLiveExecutionEngine(ccClient)
+    execEngine := engine.NewLiveExecutionEngine(ccClient, nil)
 
     resp, err := execEngine.CancelOrder(context.Background(), 11111)
     if err == nil {

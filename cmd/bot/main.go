@@ -257,7 +257,7 @@ func runMainLoop(ctx context.Context, f flags, cfg *config.Config, dbWriter *dbw
 	} else {
 		// Live trading setup
 		client := coincheck.NewClient(cfg.APIKey, cfg.APISecret)
-		execEngine := engine.NewLiveExecutionEngine(client)
+		execEngine := engine.NewLiveExecutionEngine(client, cfg)
 
 		orderBook := indicator.NewOrderBook()
 		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
