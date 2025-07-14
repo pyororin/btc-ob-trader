@@ -49,8 +49,8 @@ volatility:
 twap:
   # 有効化フラグ
   enabled: true
-  # 1注文あたりの最大サイズ（BTC）
-  max_order_size_btc: 0.011
+  # 1注文あたりの最大サイズ（BTC）（下限0.01）
+  max_order_size_btc: 0.01
   # 注文間隔（秒）
   interval_seconds: 5
 
