@@ -137,12 +137,6 @@ services:
     restart: unless-stopped
     networks:
       - bot_network
-    environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
-      - DB_USER=bot
-      - DB_PASSWORD=botpwd
-      - DB_NAME=coincheck_data
 
 networks:
   bot_network:
@@ -151,3 +145,11 @@ networks:
 volumes:
   timescaledb_data:
   grafana_data:
+
+environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - DB_USER=bot
+      - DB_PASSWORD=botpwd
+      - DB_NAME=coincheck_data
+      
