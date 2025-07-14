@@ -1,7 +1,7 @@
 -include .env
 export
 
-.PHONY: help up down logs shell clean test build replay monitor report grafana
+.PHONY: help up down logs shell clean test build replay monitor report
 
 # ==============================================================================
 # HELP
@@ -27,10 +27,6 @@ up: ## Start all services including the bot for live trading.
 monitor: ## Start monitoring services (DB, Grafana) without the bot.
 	@echo "Starting monitoring services (TimescaleDB, Grafana)..."
 	sudo -E docker compose up -d timescaledb grafana
-
-grafana: ## Start only the Grafana service.
-	@echo "Starting Grafana service..."
-	sudo -E docker compose up -d grafana
 
 down: ## Stop and remove all application stack containers.
 	@echo "Stopping application stack..."
