@@ -12,13 +12,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/your-org/obi-scalp-bot/internal/config"
 	"github.com/your-org/obi-scalp-bot/internal/datastore"
 	"github.com/your-org/obi-scalp-bot/internal/dbwriter"
+	"github.com/your-org/obi-scalp-bot/internal/engine"
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
 	"github.com/your-org/obi-scalp-bot/internal/http/handler"
 	"github.com/your-org/obi-scalp-bot/internal/indicator"
+	tradingsignal "github.com/your-org/obi-scalp-bot/internal/signal"
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -41,25 +44,11 @@ func main() {
 		startHealthCheckServer()
 	}
 
-	dbWriter := setupDBWriter(ctx, cfg)
-	if dbWriter != nil {
-		defer dbWriter.Close()
-	}
-
-	// --- Setup Handlers and Indicators ---
-	orderBook := indicator.NewOrderBook()
-	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
-	orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter)
-
-	// --- Start Services ---
-	obiCalculator.Start(ctx)
-	go processOBICalculations(ctx, obiCalculator)
-
 	// --- Main Execution Loop ---
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
-	runMainLoop(ctx, f, cfg, orderBookHandler, tradeHandler, sigs)
+	runMainLoop(ctx, f, cfg, sigs)
 
 	// --- Graceful Shutdown ---
 	waitForShutdownSignal(sigs)
@@ -178,28 +167,70 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer) (c
 	return orderBookHandler, tradeHandler
 }
 
-// processOBICalculations subscribes to and logs OBI calculation results.
-func processOBICalculations(ctx context.Context, obiCalculator *indicator.OBICalculator) {
+// processSignalsAndExecute subscribes to indicators, evaluates signals, and executes trades.
+func processSignalsAndExecute(ctx context.Context, cfg *config.Config, obiCalculator *indicator.OBICalculator, execEngine engine.ExecutionEngine) {
+	signalEngine, err := tradingsignal.NewSignalEngine(cfg)
+	if err != nil {
+		logger.Fatalf("Failed to create signal engine: %v", err)
+	}
+
+	resultsCh := obiCalculator.Subscribe()
 	go func() {
-		resultsCh := obiCalculator.Subscribe()
 		for {
 			select {
 			case <-ctx.Done():
-				logger.Info("OBI processing goroutine shutting down.")
+				logger.Info("Signal processing and execution goroutine shutting down.")
 				return
 			case result := <-resultsCh:
-				logger.Infof("OBI Calculated: OBI8=%.4f, OBI16=%.4f, Timestamp=%v", result.OBI8, result.OBI16, result.Timestamp)
+				// TODO: This is a simplified view. We need more data for a robust signal.
+				// For now, we use a placeholder for mid-price and other data points.
+				// A proper implementation would get this from the order book.
+				midPrice := (result.BestAsk + result.BestBid) / 2
+				signalEngine.UpdateMarketData(result.Timestamp, midPrice, result.BestBid, result.BestAsk, 1.0, 1.0) // Placeholder sizes
+
+				tradingSignal := signalEngine.Evaluate(result.Timestamp, result.OBI8) // Using OBI8 for signals
+				if tradingSignal != nil {
+					orderType := ""
+					if tradingSignal.Type == tradingsignal.SignalLong {
+						orderType = "buy"
+					} else if tradingSignal.Type == tradingsignal.SignalShort {
+						orderType = "sell"
+					}
+
+					if orderType != "" {
+						logger.Infof("Executing trade for signal: %s", tradingSignal.Type.String())
+						_, err := execEngine.PlaceOrder(ctx, cfg.Pair, orderType, tradingSignal.EntryPrice, 0.01, false) // Placeholder amount
+						if err != nil {
+							logger.Errorf("Failed to place order for signal: %v", err)
+						}
+					}
+				}
 			}
 		}
 	}()
 }
 
 // runMainLoop starts either the live trading or replay mode.
-func runMainLoop(ctx context.Context, f flags, cfg *config.Config, obHandler coincheck.OrderBookHandler, tradeHandler coincheck.TradeHandler, sigs chan<- os.Signal) {
+func runMainLoop(ctx context.Context, f flags, cfg *config.Config, sigs chan<- os.Signal) {
 	if f.replayMode {
-		go runReplay(ctx, cfg, obHandler, tradeHandler, sigs)
+		go runReplay(ctx, cfg, sigs)
 	} else {
-		wsClient := coincheck.NewWebSocketClient(obHandler, tradeHandler)
+		// Live trading setup
+		dbWriter := setupDBWriter(ctx, cfg)
+		if dbWriter != nil {
+			defer dbWriter.Close()
+		}
+
+		execEngine := engine.NewLiveExecutionEngine(coincheck.NewClient(cfg.APIKey, cfg.APISecret))
+
+		orderBook := indicator.NewOrderBook()
+		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
+		orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter)
+
+		obiCalculator.Start(ctx)
+		go processSignalsAndExecute(ctx, cfg, obiCalculator, execEngine)
+
+		wsClient := coincheck.NewWebSocketClient(orderBookHandler, tradeHandler)
 		go func() {
 			logger.Info("Connecting to Coincheck WebSocket API...")
 			if err := wsClient.Connect(); err != nil {
@@ -217,10 +248,43 @@ func waitForShutdownSignal(sigs <-chan os.Signal) {
 }
 
 // runReplay runs the backtest simulation using data from the database.
-func runReplay(ctx context.Context, cfg *config.Config, obHandler coincheck.OrderBookHandler, tradeHandler coincheck.TradeHandler, sigs chan<- os.Signal) {
-	logger.Info("Starting replay mode...")
+func runReplay(ctx context.Context, cfg *config.Config, sigs chan<- os.Signal) {
+	// --- Replay Session ID & Logger ---
+	replaySessionID, err := uuid.NewRandom()
+	if err != nil {
+		logger.Fatalf("Failed to generate replay session ID: %v", err)
+	}
+	logger.SetReplayMode(replaySessionID.String())
 
-	// --- DB Connection ---
+	// --- DB Writer ---
+	dbWriter := setupDBWriter(ctx, cfg)
+	if dbWriter != nil {
+		defer dbWriter.Close()
+		dbWriter.SetReplaySessionID(replaySessionID.String())
+	}
+
+	// --- Log Replay Configuration ---
+	logger.Info("--- REPLAY MODE ---")
+	logger.Infof("Session ID: %s", replaySessionID.String())
+	logger.Infof("Pair: %s", cfg.Pair)
+	logger.Infof("Time Range: %s -> %s", cfg.Replay.StartTime, cfg.Replay.EndTime)
+	logger.Infof("Long Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Long.OBIThreshold, cfg.Long.TP, cfg.Long.SL)
+	logger.Infof("Short Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Short.OBIThreshold, cfg.Short.TP, cfg.Short.SL)
+	logger.Info("--------------------")
+
+	// --- Execution Engine ---
+	execEngine := engine.NewReplayExecutionEngine(dbWriter)
+
+	// --- Setup Handlers and Indicators ---
+	orderBook := indicator.NewOrderBook()
+	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
+	orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter)
+
+	// --- Start Services ---
+	obiCalculator.Start(ctx)
+	go processSignalsAndExecute(ctx, cfg, obiCalculator, execEngine)
+
+	// --- DB Connection for Data Fetching ---
 	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
 		cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name, cfg.Database.SSLMode)
 	dbpool, err := pgxpool.New(ctx, dbURL)
@@ -240,15 +304,15 @@ func runReplay(ctx context.Context, cfg *config.Config, obHandler coincheck.Orde
 	if err != nil {
 		logger.Fatalf("Invalid end_time format: %v", err)
 	}
-	logger.Infof("Fetching data from %s to %s for pair %s", startTime, endTime, cfg.Pair)
 
 	// --- Fetch Events ---
+	logger.Infof("Fetching market events from %s to %s", startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
 	events, err := repo.FetchMarketEvents(ctx, cfg.Pair, startTime, endTime)
 	if err != nil {
 		logger.Fatalf("Failed to fetch market events: %v", err)
 	}
 	if len(events) == 0 {
-		logger.Infof("No market events found in the specified time range.")
+		logger.Info("No market events found in the specified time range.")
 		sigs <- syscall.SIGTERM
 		return
 	}
@@ -271,13 +335,14 @@ func runReplay(ctx context.Context, cfg *config.Config, obHandler coincheck.Orde
 				switch e := event.(type) {
 				case datastore.TradeEvent:
 					tradeHandler(e.Trade)
-					logger.Debugf("Processed Trade: Time=%s, Price=%s, Size=%s", e.GetTime(), e.Trade.Rate(), e.Trade.Amount())
 				case datastore.OrderBookEvent:
-					obHandler(e.OrderBook)
-					logger.Debugf("Processed OrderBook: Time=%s, Bids=%d, Asks=%d", e.GetTime(), len(e.OrderBook.Bids), len(e.OrderBook.Asks))
+					orderBookHandler(e.OrderBook)
 				}
-				logger.Infof("Processed event %d/%d", i+1, len(events))
+				if (i+1)%1000 == 0 { // Log progress every 1000 events
+					logger.Infof("Processed event %d/%d", i+1, len(events))
+				}
 			}
 		}
+		logger.Infof("Finished processing all %d events.", len(events))
 	}()
 }
