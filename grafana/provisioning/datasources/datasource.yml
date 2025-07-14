@@ -14,8 +14,8 @@ datasources:
       sslmode: 'disable' # For internal network, 'require' is better for prod.
       postgresVersion: 14
       timescaledb: true
-    # uid: obi_scalp_bot_db
-    # readOnly: true
+    uid: obi_scalp_bot_db
+    readOnly: true
 
   - name: 'TimescaleDB (Replay)'
     type: postgres
@@ -28,5 +28,5 @@ datasources:
       sslmode: 'disable'
       postgresVersion: 14
       timescaledb: true
-    # uid: obi_scalp_bot_db_replay
-    # readOnly: true
+    uid: obi_scalp_bot_db_replay
+    readOnly: true
