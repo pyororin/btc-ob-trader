@@ -65,7 +65,7 @@ CREATE INDEX IF NOT EXISTS idx_pnl_summary_strategy_pair_time ON pnl_summary (st
 -- Botが受信した約定履歴テーブル (trades)
 -- WebSocketから受信した全ての約定情報を記録
 CREATE TABLE IF NOT EXISTS trades (
-    time TIMESTAMTz NOT NULL,
+    time TIMESTAMPTZ NOT NULL,
     replay_session_id TEXT, -- リプレイセッションID (リプレイ時のみ使用)
     pair TEXT NOT NULL,
     side TEXT NOT NULL,        -- 'buy' or 'sell'
