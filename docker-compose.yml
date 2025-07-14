@@ -137,6 +137,8 @@ services:
     restart: unless-stopped
     networks:
       - bot_network
+    env_file:
+      - .env
 
 networks:
   bot_network:
