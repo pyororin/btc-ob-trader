@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/your-org/obi-scalp-bot/internal/config"
 	"github.com/your-org/obi-scalp-bot/internal/datastore"
@@ -28,10 +27,9 @@ import (
 )
 
 type flags struct {
-	configPath    string
-	replayMode    bool
-	simulateMode  bool
-	csvPath       string
+	configPath   string
+	simulateMode bool
+	csvPath      string
 }
 
 func main() {
@@ -47,7 +45,7 @@ func main() {
 		logger.Fatal("CSV file path must be provided in simulation mode using --csv flag")
 	}
 
-	if !f.replayMode && !f.simulateMode {
+	if !f.simulateMode {
 		startHealthCheckServer()
 	}
 
@@ -76,13 +74,11 @@ func main() {
 // parseFlags parses command-line flags.
 func parseFlags() flags {
 	configPath := flag.String("config", "config/config.yaml", "Path to the configuration file")
-	replayMode := flag.Bool("replay", false, "Enable replay mode")
 	simulateMode := flag.Bool("simulate", false, "Enable simulation mode from CSV")
 	csvPath := flag.String("csv", "", "Path to the trade data CSV file for simulation")
 	flag.Parse()
 	return flags{
 		configPath:   *configPath,
-		replayMode:   *replayMode,
 		simulateMode: *simulateMode,
 		csvPath:      *csvPath,
 	}
@@ -344,9 +340,7 @@ func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, cf
 
 // runMainLoop starts either the live trading, replay, or simulation mode.
 func runMainLoop(ctx context.Context, f flags, cfg *config.Config, dbWriter *dbwriter.Writer, sigs chan<- os.Signal) {
-	if f.replayMode {
-		go runReplay(ctx, cfg, dbWriter, sigs)
-	} else if f.simulateMode {
+	if f.simulateMode {
 		go runSimulation(ctx, f, cfg, sigs)
 	} else {
 		// Live trading setup
@@ -570,91 +564,4 @@ func orderMonitor(ctx context.Context, cfg *config.Config, execEngine engine.Exe
 			}
 		}
 	}
-}
-
-// runReplay runs the backtest simulation using data from the database.
-func runReplay(ctx context.Context, cfg *config.Config, dbWriter *dbwriter.Writer, sigs chan<- os.Signal) {
-	replaySessionID, err := uuid.NewRandom()
-	if err != nil {
-		logger.Fatalf("Failed to generate replay session ID: %v", err)
-	}
-	logger.SetReplayMode(replaySessionID.String())
-
-	if dbWriter != nil {
-		dbWriter.SetReplaySessionID(replaySessionID.String())
-	}
-
-	logger.Info("--- REPLAY MODE ---")
-	logger.Infof("Session ID: %s", replaySessionID.String())
-	logger.Infof("Pair: %s", cfg.Pair)
-	logger.Infof("Time Range: %s -> %s", cfg.Replay.StartTime, cfg.Replay.EndTime)
-	logger.Infof("Long Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Long.OBIThreshold, cfg.Long.TP, cfg.Long.SL)
-	logger.Infof("Short Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Short.OBIThreshold, cfg.Short.TP, cfg.Short.SL)
-	logger.Info("--------------------")
-
-	execEngine := engine.NewReplayExecutionEngine(dbWriter)
-
-	orderBook := indicator.NewOrderBook()
-	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
-	orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Pair)
-
-	obiCalculator.Start(ctx)
-	go processSignalsAndExecute(ctx, cfg, obiCalculator, execEngine)
-
-	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name, cfg.Database.SSLMode)
-	dbpool, err := pgxpool.New(ctx, dbURL)
-	if err != nil {
-		logger.Fatalf("Unable to connect to database: %v", err)
-	}
-	defer dbpool.Close()
-
-	repo := datastore.NewRepository(dbpool)
-
-	startTime, err := time.Parse(time.RFC3339, cfg.Replay.StartTime)
-	if err != nil {
-		logger.Fatalf("Invalid start_time format: %v", err)
-	}
-	endTime, err := time.Parse(time.RFC3339, cfg.Replay.EndTime)
-	if err != nil {
-		logger.Fatalf("Invalid end_time format: %v", err)
-	}
-
-	logger.Infof("Fetching market events from %s to %s", startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
-	events, err := repo.FetchMarketEvents(ctx, cfg.Pair, startTime, endTime)
-	if err != nil {
-		logger.Fatalf("Failed to fetch market events: %v", err)
-	}
-	if len(events) == 0 {
-		logger.Info("No market events found in the specified time range.")
-		sigs <- syscall.SIGTERM
-		return
-	}
-	logger.Infof("Fetched %d market events.", len(events))
-
-	go func() {
-		defer func() {
-			logger.Info("Replay finished.")
-			sigs <- syscall.SIGTERM
-		}()
-
-		for i, event := range events {
-			select {
-			case <-ctx.Done():
-				logger.Info("Replay cancelled.")
-				return
-			default:
-				switch e := event.(type) {
-				case datastore.TradeEvent:
-					tradeHandler(e.Trade)
-				case datastore.OrderBookEvent:
-					orderBookHandler(e.OrderBook)
-				}
-				if (i+1)%1000 == 0 {
-					logger.Infof("Processed event %d/%d", i+1, len(events))
-				}
-			}
-		}
-		logger.Infof("Finished processing all %d events.", len(events))
-	}()
 }
