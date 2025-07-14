@@ -1,7 +1,7 @@
 -include .env
 export
 
-.PHONY: help up down logs shell clean test build replay monitor
+.PHONY: help up down logs shell clean test build replay monitor report
 
 # ==============================================================================
 # HELP
