@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/your-org/obi-scalp-bot/internal/dbwriter"
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
+	"github.com/your-org/obi-scalp-bot/internal/pnl"
+	"github.com/your-org/obi-scalp-bot/internal/position"
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
 )
 
@@ -78,14 +80,17 @@ func (e *LiveExecutionEngine) CancelOrder(ctx context.Context, orderID int64) (*
 
 // ReplayExecutionEngine simulates order execution for backtesting.
 type ReplayExecutionEngine struct {
-	dbWriter *dbwriter.Writer
-	// TODO: Add position manager and PnL calculator
+	dbWriter      *dbwriter.Writer
+	position      *position.Position
+	pnlCalculator *pnl.Calculator
 }
 
 // NewReplayExecutionEngine creates a new ReplayExecutionEngine.
 func NewReplayExecutionEngine(dbWriter *dbwriter.Writer) *ReplayExecutionEngine {
 	return &ReplayExecutionEngine{
-		dbWriter: dbWriter,
+		dbWriter:      dbWriter,
+		position:      position.NewPosition(),
+		pnlCalculator: pnl.NewCalculator(),
 	}
 }
 
@@ -116,9 +121,33 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 	}
 	e.dbWriter.SaveTrade(trade)
 
-	// TODO: Update position and PnL here.
-	// For now, we just log it.
-	logger.Infof("[Replay] Saved simulated trade to DB: %+v", trade)
+	// Update position before calculating PnL
+	e.position.Update(trade.Size, trade.Price)
+	logger.Infof("[Replay] Position updated: %s", e.position.String())
+
+	// Calculate PnL
+	positionSize, avgEntryPrice := e.position.Get()
+	unrealizedPnL := e.pnlCalculator.CalculateUnrealizedPnL(positionSize, avgEntryPrice, rate) // Use current rate for unrealized PnL
+	realizedPnL := e.pnlCalculator.GetRealizedPnL()                                           // This needs more logic for realized PnL
+	totalPnL := realizedPnL + unrealizedPnL
+
+	// Save PnL summary
+	pnlSummary := dbwriter.PnLSummary{
+		Time:          trade.Time,
+		StrategyID:    "default", // Or get from context/config
+		Pair:          pair,
+		RealizedPnL:   realizedPnL,
+		UnrealizedPnL: unrealizedPnL,
+		TotalPnL:      totalPnL,
+		PositionSize:  positionSize,
+		AvgEntryPrice: avgEntryPrice,
+	}
+	if err := e.dbWriter.SavePnLSummary(ctx, pnlSummary); err != nil {
+		logger.Errorf("[Replay] Error saving PnL summary: %v", err)
+		// Decide if you should return the error or just log it
+	}
+
+	logger.Infof("[Replay] Saved simulated trade and PnL summary to DB.")
 
 	// Return a mock OrderResponse
 	return &coincheck.OrderResponse{
