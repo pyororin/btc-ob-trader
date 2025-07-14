@@ -73,6 +73,6 @@ report: ## Generate and display the PnL report.
 	@echo "Starting report generator service..."
 	sudo -E docker compose up -d --build report-generator
 	@echo "Generating PnL report..."
-	sudo -E docker compose exec $(shell cat .env | xargs -I {} echo -n "-e {} ") report-generator go build -o build/report cmd/report/main.go
+	sudo -E docker compose exec $(shell sed 's/#.*//' .env | xargs -I {} echo -n "-e {} ") report-generator go build -o build/report cmd/report/main.go
 	@echo "Running PnL report..."
-	sudo -E docker compose exec $(shell cat .env | xargs -I {} echo -n "-e {} ") report-generator ./build/report
+	sudo -E docker compose exec $(shell sed 's/#.*//' .env | xargs -I {} echo -n "-e {} ") report-generator ./build/report
