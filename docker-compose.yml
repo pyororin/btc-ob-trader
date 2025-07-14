@@ -7,6 +7,12 @@ services:
     volumes:
       - .:/app
     working_dir: /app
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=timescaledb
+    networks:
+      - bot_network
 
   bot:
     build:
@@ -79,6 +85,24 @@ services:
     restart: unless-stopped
     networks:
       - bot_network
+
+  report-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    container_name: report-generator
+    volumes:
+      - .:/app
+    working_dir: /app
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=timescaledb
+    networks:
+      - bot_network
+    depends_on:
+      - timescaledb
 
   grafana:
     image: grafana/grafana-oss:latest
