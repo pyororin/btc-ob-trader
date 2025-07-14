@@ -88,7 +88,7 @@ type priceLevel struct {
 }
 
 // CalculateOBI calculates the Order Book Imbalance from the current state of the book.
-func (ob *OrderBook) CalculateOBI(levels ...int) OBIResult {
+func (ob *OrderBook) CalculateOBI(levels ...int) (OBIResult, bool) {
 	ob.RLock()
 	defer ob.RUnlock()
 
@@ -117,12 +117,12 @@ func (ob *OrderBook) CalculateOBI(levels ...int) OBIResult {
 		return asks[i].Rate < asks[j].Rate
 	})
 
-	if len(bids) > 0 {
-		result.BestBid = bids[0].Rate
+	if len(bids) == 0 || len(asks) == 0 {
+		return OBIResult{}, false
 	}
-	if len(asks) > 0 {
-		result.BestAsk = asks[0].Rate
-	}
+
+	result.BestBid = bids[0].Rate
+	result.BestAsk = asks[0].Rate
 
 	maxLevel := 0
 	for _, l := range levels {
@@ -167,5 +167,5 @@ func (ob *OrderBook) CalculateOBI(levels ...int) OBIResult {
 		}
 	}
 
-	return result
+	return result, true
 }
