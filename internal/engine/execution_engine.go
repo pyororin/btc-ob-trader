@@ -4,6 +4,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,10 +37,13 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 		return nil, fmt.Errorf("LiveExecutionEngine: exchange client is not initialized")
 	}
 
+	// Round rate to the nearest integer for JPY pairs, as required by Coincheck API.
+	roundedRate := math.Round(rate)
+
 	req := coincheck.OrderRequest{
 		Pair:      pair,
 		OrderType: orderType,
-		Rate:      rate,
+		Rate:      roundedRate,
 		Amount:    amount,
 	}
 	if postOnly {

@@ -204,22 +204,25 @@ func (c *WebSocketClient) handleMessage(message []byte, targetPair string) {
 		}
 	}
 
-	// Try to parse as a trades message: [id, pair, rate, amount, side]
-	var tradeMsg []string
-	if err := json.Unmarshal(message, &tradeMsg); err == nil && len(tradeMsg) == 5 {
-		if tradeMsg[1] == targetPair {
-			tradeData := TradeData{
-				ID:        tradeMsg[0],
-				PairStr:   tradeMsg[1],
-				RateStr:   tradeMsg[2],
-				AmountStr: tradeMsg[3],
-				SideStr:   tradeMsg[4],
+	// Try to parse as a trades message, which can be a nested array.
+	var multiTradeMsg [][]string
+	if err := json.Unmarshal(message, &multiTradeMsg); err == nil {
+		for _, tradeMsg := range multiTradeMsg {
+			// Expected format: [timestamp, id, pair, rate, amount, side, buy_order_id, sell_order_id]
+			if len(tradeMsg) == 8 && tradeMsg[2] == targetPair {
+				tradeData := TradeData{
+					ID:        tradeMsg[1], // Use the actual transaction ID
+					PairStr:   tradeMsg[2],
+					RateStr:   tradeMsg[3],
+					AmountStr: tradeMsg[4],
+					SideStr:   tradeMsg[5],
+				}
+				if c.tradeHandler != nil {
+					c.tradeHandler(tradeData)
+				}
 			}
-			if c.tradeHandler != nil {
-				c.tradeHandler(tradeData)
-			}
-			return
 		}
+		return
 	}
 
 	logger.Errorf("Unknown message format received: %s", string(message))
