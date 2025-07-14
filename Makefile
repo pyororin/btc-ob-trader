@@ -59,3 +59,8 @@ build: ## Build the Go application binary inside the container.
 	@echo "Building Go application binary..."
 	@mkdir -p build
 	$(DOCKER_RUN_GO) go build -a -ldflags="-s -w" -o build/obi-scalp-bot cmd/bot/main.go
+
+report: ## Build the report generation script.
+	@echo "Building report generation script..."
+	@mkdir -p build
+	$(DOCKER_RUN_GO) go build -o build/report cmd/report/main.go
