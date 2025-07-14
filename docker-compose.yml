@@ -123,6 +123,8 @@ services:
     container_name: grafana-obi
     ports:
       - "3000:3000"
+    env_file:
+      - .env
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
