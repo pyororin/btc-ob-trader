@@ -61,7 +61,7 @@
   "links": [],
   "panels": [
     {
-      "title": "Executed Trades",
+      "title": "約定済みトレード",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
@@ -81,7 +81,7 @@
       ]
     },
     {
-      "title": "Cancelled Trades",
+      "title": "キャンセル済みトレード",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
@@ -101,7 +101,7 @@
       ]
     },
     {
-      "title": "Cancellation Rate",
+      "title": "キャンセル率",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
@@ -111,7 +111,7 @@
         "justifyMode": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "textMode": "auto",
-        "unit": "%"
+        "unit": "percent"
       },
       "targets": [
         {
@@ -122,9 +122,32 @@
       ]
     },
     {
-      "title": "Total PnL",
+      "title": "合計損益",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "Yen"
+        },
+        "overrides": []
+      },
       "gridPos": { "h": 4, "w": 8, "x": 16, "y": 0 },
       "options": {
         "colorMode": "value",
@@ -142,7 +165,7 @@
       ]
     },
     {
-      "title": "Winning Trades",
+      "title": "勝ちトレード",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 0, "y": 4 },
@@ -162,7 +185,7 @@
       ]
     },
     {
-      "title": "Losing Trades",
+      "title": "負けトレード",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 4, "y": 4 },
@@ -182,17 +205,39 @@
       ]
     },
     {
-      "title": "Win Rate",
+      "title": "勝率",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 40
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 4 },
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto",
-        "unit": "%"
+        "textMode": "auto"
       },
       "targets": [
         {
@@ -203,7 +248,7 @@
       ]
     },
     {
-      "title": "Risk Reward Ratio",
+      "title": "リスクリワード比率",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
@@ -223,7 +268,7 @@
       ]
     },
     {
-      "title": "Average Profit",
+      "title": "平均利益",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 12, "y": 4 },
@@ -232,7 +277,8 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto"
+        "textMode": "auto",
+        "unit": "Yen"
       },
       "targets": [
         {
@@ -243,7 +289,7 @@
       ]
     },
     {
-      "title": "Average Loss",
+      "title": "平均損失",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 4 },
@@ -252,7 +298,8 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto"
+        "textMode": "auto",
+        "unit": "Yen"
       },
       "targets": [
         {
@@ -263,9 +310,56 @@
       ]
     },
     {
-      "title": "Long Strategy",
+      "title": "ロング戦略",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "long_winning_trades"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "勝ちトレード"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "long_losing_trades"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "負けトレード"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "long_win_rate"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "勝率"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          }
+        ]
+      },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "options": {
         "colorMode": "value",
@@ -283,9 +377,56 @@
       ]
     },
     {
-      "title": "Short Strategy",
+      "title": "ショート戦略",
       "type": "stat",
       "datasource": "TimescaleDB (Production)",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "short_winning_trades"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "勝ちトレード"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "short_losing_trades"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "負けトレード"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "short_win_rate"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "勝率"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          }
+        ]
+      },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "options": {
         "colorMode": "value",
@@ -312,7 +453,7 @@
   "time": { "from": "now-6h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
-  "title": "PnL Report",
+  "title": "損益レポート",
   "uid": "unique-pnl-dashboard-uid",
   "version": 2
 }
