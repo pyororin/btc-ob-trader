@@ -54,6 +54,20 @@ simulate: ## Run a backtest using trade data from a local CSV file.
 	fi
 	sudo -E docker compose run --build --rm --entrypoint "go" bot-replay run cmd/bot/main.go --simulate --csv=$(CSV_PATH) --config=config/config.yaml
 
+export-sim-data: ## Export order book data from the database to a CSV file for simulation.
+	@echo "Exporting simulation data..."
+	@mkdir -p ./simulation
+	@if [ -z "$(START_TIME)" ] || [ -z "$(END_TIME)" ]; then \
+		echo "Error: START_TIME and END_TIME environment variables must be set."; \
+		echo "Usage: make export-sim-data START_TIME='YYYY-MM-DD HH:MM:SS' END_TIME='YYYY-MM-DD HH:MM:SS'"; \
+		exit 1; \
+	fi
+	@COUNT=$$(sudo docker compose exec -T timescaledb psql -U $$POSTGRES_USER -d $$POSTGRES_DB -t -c "SELECT COUNT(*) FROM order_book_updates WHERE time >= '$(START_TIME)' AND time < '$(END_TIME)';"); \
+	FILENAME="simulation/order_book_updates_$$(date +%Y%m%d-%H%M%S)_$$(echo $$COUNT | xargs).csv"; \
+	echo "Exporting $$COUNT rows to $$FILENAME..."; \
+	sudo docker compose exec -T timescaledb psql -U $$POSTGRES_USER -d $$POSTGRES_DB -c "\copy (SELECT * FROM order_book_updates WHERE time >= '$(START_TIME)' AND time < '$(END_TIME)' ORDER BY time ASC) to stdout with csv header" > $$FILENAME
+	@echo "Export complete."
+
 # ==============================================================================
 # GO BUILDS & TESTS
 # ==============================================================================

@@ -120,7 +120,15 @@ make replay
 
 **1. CSVデータの準備**
 
-`order_book_updates` テーブルからエクスポートした、以下のカラムを持つCSVファイルを準備します（ヘッダー行が必要）。
+まず、データベースに保存されている過去の板情報（`order_book_updates`テーブル）をCSVファイルにエクスポートします。以下のコマンドを実行してください。`START_TIME`と`END_TIME`には、エクスポートしたいデータの期間を `YYYY-MM-DD HH:MM:SS` 形式で指定します。
+
+```bash
+make export-sim-data START_TIME='2024-01-01 00:00:00' END_TIME='2024-01-01 01:00:00'
+```
+
+このコマンドは、`./simulation/` ディレクトリに `order_book_updates_YYYYMMDD-HHMMSS_COUNT.csv` という形式でCSVファイルを生成します。
+
+エクスポートされるCSVは、以下のカラムを持ちます（ヘッダー行付き）。
 
 - `time`: 板情報のタイムスタンプ（RFC3339形式: `2023-01-01T15:04:05Z` や `2025-07-14 04:11:13.484971+00` など）
 - `pair`: 通貨ペア（例: `btc_jpy`）
