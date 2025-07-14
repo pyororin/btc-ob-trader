@@ -94,6 +94,38 @@ CREATE INDEX IF NOT EXISTS idx_trades_replay_id_time ON trades (replay_session_i
 CREATE INDEX IF NOT EXISTS idx_trades_pair_time ON trades (pair, time DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_transaction_id ON trades (transaction_id, time);
 
+-- PnLレポートテーブル (pnl_reports)
+-- report-generatorによって生成された分析レポートの結果を格納
+CREATE TABLE IF NOT EXISTS pnl_reports (
+    time TIMESTAMPTZ NOT NULL,
+    replay_session_id TEXT,                      -- リプレイセッションID (リプレイ時のみ使用)
+    start_date TIMESTAMPTZ NOT NULL,
+    end_date TIMESTAMPTZ NOT NULL,
+    total_trades INT NOT NULL,
+    cancelled_trades INT NOT NULL,
+    cancellation_rate REAL NOT NULL,
+    winning_trades INT NOT NULL,
+    losing_trades INT NOT NULL,
+    win_rate REAL NOT NULL,
+    long_winning_trades INT NOT NULL,
+    long_losing_trades INT NOT NULL,
+    long_win_rate REAL NOT NULL,
+    short_winning_trades INT NOT NULL,
+    short_losing_trades INT NOT NULL,
+    short_win_rate REAL NOT NULL,
+    total_pnl DECIMAL NOT NULL,
+    average_profit DECIMAL NOT NULL,
+    average_loss DECIMAL NOT NULL,
+    risk_reward_ratio REAL NOT NULL
+);
+
+-- pnl_reports テーブルをHypertableに変換
+SELECT create_hypertable('pnl_reports', 'time', if_not_exists => TRUE);
+
+-- インデックスの追加
+CREATE INDEX IF NOT EXISTS idx_pnl_reports_replay_id_time ON pnl_reports (replay_session_id, time DESC);
+
+
 -- （オプション）ポジション管理テーブル (positions)
 -- 通貨ペアごとの現在の詳細なポジション情報を保持 (PnLサマリーと重複する部分もあるがより詳細)
 -- CREATE TABLE IF NOT EXISTS positions (
