@@ -311,6 +311,7 @@
           "color": {
             "mode": "thresholds"
           },
+          "fieldMinMax": false,
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -319,12 +320,12 @@
                 "color": "red"
               },
               {
-                "color": "green",
+                "color": "blue",
                 "value": 0
               }
             ]
           },
-          "unit": "Yen"
+          "unit": "currencyJPY"
         },
         "overrides": []
       },
@@ -643,7 +644,8 @@
                 "color": "blue"
               }
             ]
-          }
+          },
+          "unit": "currencyJPY"
         },
         "overrides": []
       },
@@ -721,7 +723,8 @@
                 "color": "red"
               }
             ]
-          }
+          },
+          "unit": "currencyJPY"
         },
         "overrides": []
       },
@@ -1115,5 +1118,5 @@
   "timezone": "browser",
   "title": "損益レポート",
   "uid": "unique-pnl-dashboard-uid",
-  "version": 12
+  "version": 13
 }
