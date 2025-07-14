@@ -133,12 +133,9 @@ func setupDBWriter(ctx context.Context, cfg *config.Config) *dbwriter.Writer {
 // setupHandlers creates and returns the handlers for order book and trade data.
 func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pair string) (coincheck.OrderBookHandler, coincheck.TradeHandler) {
 	orderBookHandler := func(data coincheck.OrderBookData) {
-		logger.Debugf("orderBookHandler: received data")
 		orderBook.ApplyUpdate(data)
-		logger.Debugf("orderBookHandler: applied update to in-memory book")
 
 		if dbWriter == nil {
-			logger.Debugf("orderBookHandler: dbWriter is nil, skipping DB write")
 			return
 		}
 
@@ -146,8 +143,7 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pa
 
 		// Helper function to parse and save levels
 		saveLevels := func(levels [][]string, side string, isSnapshot bool) {
-			logger.Debugf("orderBookHandler: saveLevels started for side %s", side)
-			for i, level := range levels {
+			for _, level := range levels {
 				price, err := strconv.ParseFloat(level[0], 64)
 				if err != nil {
 					logger.Errorf("Failed to parse order book price: %v", err)
@@ -167,15 +163,12 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pa
 					IsSnapshot: isSnapshot,
 				}
 				dbWriter.SaveOrderBookUpdate(update)
-				logger.Debugf("orderBookHandler: saved level %d for side %s", i, side)
 			}
-			logger.Debugf("orderBookHandler: saveLevels finished for side %s", side)
 		}
 
 		// For Coincheck, each update is a snapshot
 		saveLevels(data.Bids, "bid", true)
 		saveLevels(data.Asks, "ask", true)
-		logger.Debugf("orderBookHandler: finished processing")
 	}
 
 	tradeHandler := func(data coincheck.TradeData) {
