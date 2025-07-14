@@ -7,14 +7,6 @@
       "type": "datasource",
       "pluginId": "postgres",
       "pluginName": "PostgreSQL"
-    },
-    {
-      "name": "DS_TIMESCALEDB_REPLAY",
-      "label": "TimescaleDB (Replay)",
-      "description": "",
-      "type": "datasource",
-      "pluginId": "postgres",
-      "pluginName": "PostgreSQL"
     }
   ],
   "__requires": [
@@ -83,7 +75,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT total_trades FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT total_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -103,7 +95,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT cancelled_trades FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT cancelled_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -124,7 +116,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT cancellation_rate FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT cancellation_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -144,7 +136,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT total_pnl FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT total_pnl FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -164,7 +156,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT winning_trades FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT winning_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -184,7 +176,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT losing_trades FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT losing_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -205,7 +197,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT win_rate FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT win_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -225,7 +217,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT risk_reward_ratio FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT risk_reward_ratio FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -245,7 +237,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT average_profit FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT average_profit FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -265,7 +257,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT average_loss FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT average_loss FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -285,7 +277,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT long_winning_trades, long_losing_trades, long_win_rate FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT long_winning_trades, long_losing_trades, long_win_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -305,7 +297,7 @@
       "targets": [
         {
           "datasource": "${datasource}",
-          "rawSql": "SELECT short_winning_trades, short_losing_trades, short_win_rate FROM pnl_reports WHERE (replay_session_id = '${replay_session_id}' OR ('${replay_session_id}' = '' AND replay_session_id IS NULL)) ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT short_winning_trades, short_losing_trades, short_win_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -315,58 +307,12 @@
   "style": "dark",
   "tags": [],
   "templating": {
-    "list": [
-      {
-        "current": {
-          "selected": false,
-          "text": "TimescaleDB (Production)",
-          "value": "${DS_TIMESCALEDB_PRODUCTION}"
-        },
-        "hide": 0,
-        "includeAll": false,
-        "label": "Datasource",
-        "multi": false,
-        "name": "datasource",
-        "options": [
-          {
-            "selected": true,
-            "text": "TimescaleDB (Production)",
-            "value": "${DS_TIMESCALEDB_PRODUCTION}"
-          },
-          {
-            "selected": false,
-            "text": "TimescaleDB (Replay)",
-            "value": "${DS_TIMESCALEDB_REPLAY}"
-          }
-        ],
-        "query": "postgres",
-        "queryValue": "",
-        "skipUrlSync": false,
-        "type": "datasource"
-      },
-      {
-        "allValue": null,
-        "current": { "text": "All", "value": "" },
-        "datasource": "${datasource}",
-        "definition": "SELECT DISTINCT replay_session_id FROM pnl_reports WHERE replay_session_id IS NOT NULL",
-        "hide": 0,
-        "includeAll": true,
-        "multi": false,
-        "name": "replay_session_id",
-        "options": [],
-        "query": "SELECT DISTINCT replay_session_id FROM pnl_reports WHERE replay_session_id IS NOT NULL",
-        "refresh": 1,
-        "regex": "",
-        "skipUrlSync": false,
-        "sort": 1,
-        "type": "query"
-      }
-    ]
+    "list": []
   },
   "time": { "from": "now-6h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
-  "title": "OBI Scalp Bot PnL",
+  "title": "PnL Report",
   "uid": "unique-pnl-dashboard-uid",
   "version": 2
 }
