@@ -154,7 +154,8 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "textMode": "auto"
+        "textMode": "auto",
+        "unit": "円"
       },
       "targets": [
         {
