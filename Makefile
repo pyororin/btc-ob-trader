@@ -62,11 +62,10 @@ export-sim-data: ## Export order book data from the database to a CSV file for s
 		echo "Usage: make export-sim-data START_TIME='YYYY-MM-DD HH:MM:SS' END_TIME='YYYY-MM-DD HH:MM:SS'"; \
 		exit 1; \
 	fi
-	@COUNT=$$(sudo docker compose exec -T timescaledb psql -U $$POSTGRES_USER -d $$POSTGRES_DB -t -c "SELECT COUNT(*) FROM order_book_updates WHERE time >= '$(START_TIME)' AND time < '$(END_TIME)';"); \
-	FILENAME="simulation/order_book_updates_$$(date +%Y%m%d-%H%M%S)_$$(echo $$COUNT | xargs).csv"; \
-	echo "Exporting $$COUNT rows to $$FILENAME..."; \
-	sudo docker compose exec -T timescaledb psql -U $$POSTGRES_USER -d $$POSTGRES_DB -c "\copy (SELECT * FROM order_book_updates WHERE time >= '$(START_TIME)' AND time < '$(END_TIME)' ORDER BY time ASC) to stdout with csv header" > $$FILENAME
-	@echo "Export complete."
+	@FILENAME="simulation/order_book_updates_$$(date +%Y%m%d-%H%M%S).csv"; \
+	echo "Exporting data to $$FILENAME..."; \
+	sudo -E docker compose run --rm --entrypoint "go" bot-replay run cmd/export/main.go -- --start "$(START_TIME)" --end "$(END_TIME)" > $$FILENAME
+	@echo "Export complete. See $$FILENAME";
 
 # ==============================================================================
 # GO BUILDS & TESTS
