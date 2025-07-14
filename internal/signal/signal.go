@@ -75,7 +75,7 @@ type SignalEngine struct {
 
 // NewSignalEngine creates a new SignalEngine.
 func NewSignalEngine(cfg *config.Config) (*SignalEngine, error) {
-	signalHoldDuration := 300 * time.Millisecond // Example, make configurable if needed
+	signalHoldDuration := time.Duration(cfg.Signal.HoldDurationMs) * time.Millisecond
 
 	engineCfg := EngineConfig{
 		LongOBIBaseThreshold:  cfg.Long.OBIThreshold,
