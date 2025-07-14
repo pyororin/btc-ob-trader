@@ -640,84 +640,6 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red"
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 12,
-        "y": 4
-      },
-      "id": 10,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "unit": "Yen",
-        "wideLayout": true
-      },
-      "pluginVersion": "12.0.2",
-      "targets": [
-        {
-          "datasource": {
-            "0": "T",
-            "1": "i",
-            "2": "m",
-            "3": "e",
-            "4": "s",
-            "5": "c",
-            "6": "a",
-            "7": "l",
-            "8": "e",
-            "9": "D",
-            "10": "B",
-            "11": " ",
-            "12": "(",
-            "13": "P",
-            "14": "r",
-            "15": "o",
-            "16": "d",
-            "17": "u",
-            "18": "c",
-            "19": "t",
-            "20": "i",
-            "21": "o",
-            "22": "n",
-            "23": ")"
-          },
-          "format": "table",
-          "rawSql": "SELECT average_loss FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "refId": "A"
-        }
-      ],
-      "title": "平均損失",
-      "type": "stat"
-    },
-    {
-      "datasource": "TimescaleDB (Production)",
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
                 "color": "blue"
               }
             ]
@@ -728,7 +650,7 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 16,
+        "x": 12,
         "y": 4
       },
       "id": 9,
@@ -785,6 +707,84 @@
         }
       ],
       "title": "平均利益",
+      "type": "stat"
+    },
+    {
+      "datasource": "TimescaleDB (Production)",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 4
+      },
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "unit": "Yen",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "0": "T",
+            "1": "i",
+            "2": "m",
+            "3": "e",
+            "4": "s",
+            "5": "c",
+            "6": "a",
+            "7": "l",
+            "8": "e",
+            "9": "D",
+            "10": "B",
+            "11": " ",
+            "12": "(",
+            "13": "P",
+            "14": "r",
+            "15": "o",
+            "16": "d",
+            "17": "u",
+            "18": "c",
+            "19": "t",
+            "20": "i",
+            "21": "o",
+            "22": "n",
+            "23": ")"
+          },
+          "format": "table",
+          "rawSql": "SELECT average_loss FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "refId": "A"
+        }
+      ],
+      "title": "平均損失",
       "type": "stat"
     },
     {
@@ -1115,5 +1115,5 @@
   "timezone": "browser",
   "title": "損益レポート",
   "uid": "unique-pnl-dashboard-uid",
-  "version": 10
+  "version": 12
 }
