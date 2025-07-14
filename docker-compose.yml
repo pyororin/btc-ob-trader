@@ -65,6 +65,19 @@ services:
     networks:
       - bot_network
 
+  bot-simulate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: obi-scalp-bot-simulate
+    entrypoint: ["/usr/local/bin/obi-scalp-bot"]
+    volumes:
+      - ./config:/app/config:ro
+      - ./pkg:/app/pkg:ro
+      - ./simulation:/app/simulation:ro
+    networks:
+      - bot_network
+
   timescaledb:
     image: timescale/timescaledb-ha:pg14.9-ts2.11.2
     container_name: timescaledb-obi
