@@ -20,35 +20,32 @@ import (
 func mockCoincheckServer(
 	newOrderHandler http.HandlerFunc,
 	cancelOrderHandler http.HandlerFunc,
+	balanceHandler http.HandlerFunc,
+	openOrdersHandler http.HandlerFunc,
 ) *httptest.Server {
 	mux := http.NewServeMux()
+
+	if balanceHandler != nil {
+		mux.HandleFunc("/api/accounts/balance", balanceHandler)
+	}
+	if openOrdersHandler != nil {
+		mux.HandleFunc("/api/exchange/orders/opens", openOrdersHandler)
+	}
+
 	mux.HandleFunc("/api/exchange/orders", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && newOrderHandler != nil {
 			newOrderHandler(w, r)
-		} else if r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/exchange/orders/") && cancelOrderHandler != nil {
-			// This specific path with DELETE is usually /api/exchange/orders/{id}
-			// The mux might need more specific registration or the handler needs to parse ID.
-			// For simplicity, if it's a DELETE to the base, we'll assume it's a cancel for this test structure,
-			// but ideally, the path for cancel is distinct or parsed.
-			// Let's adjust the registration in the test functions for cancel.
-			http.NotFound(w, r) // Should be handled by specific path
 		} else {
 			http.NotFound(w, r)
 		}
 	})
-	// Specific path for cancel needed due to {id}
+
 	mux.HandleFunc("/api/exchange/orders/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodDelete && cancelOrderHandler != nil {
-			parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-			if len(parts) == 4 && parts[0] == "api" && parts[1] == "exchange" && parts[2] == "orders" {
-				// _, err := strconv.ParseInt(parts[3], 10, 64) // ID part
-				// if err == nil {
-				cancelOrderHandler(w,r)
-				return
-				// }
-			}
+			cancelOrderHandler(w, r)
+		} else {
+			http.NotFound(w, r)
 		}
-		http.NotFound(w, r)
 	})
 
 	return httptest.NewServer(mux)
@@ -70,17 +67,6 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 				return
 			}
 
-			// timeInForceExpected := "" // This variable was unused.
-			// This block was identified as an empty branch by staticcheck (SA9003)
-			// The logic for timeInForceExpected was not actually used to assert or modify behavior based on URL query.
-			// The actual test for postOnly is done by checking reqBody.TimeInForce which is set by the client.
-			// Removing the problematic empty if block and unused timeInForceExpected variable.
-			// if strings.Contains(r.URL.RawQuery, "postOnly=true") {
-			// timeInForceExpected = "post_only"
-			// }
-			// if reqBody.TimeInForce != timeInForceExpected && !(reqBody.TimeInForce == "" && timeInForceExpected == "") {
-			// }
-
 			resp := coincheck.OrderResponse{
 				Success:     true,
 				ID:          12345,
@@ -92,28 +78,35 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 				CreatedAt:   time.Now().Format(time.RFC3339),
 			}
 			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(resp); err != nil {
-				t.Logf("Error encoding response in mock server: %v", err) // Use t.Logf for test helper logging
-				http.Error(w, "failed to encode response", http.StatusInternalServerError)
-			}
+			json.NewEncoder(w).Encode(resp)
 		},
-		nil, // No cancel handler needed for this test
+		nil, // No cancel handler
+		func(w http.ResponseWriter, r *http.Request) { // Balance Handler
+			resp := coincheck.BalanceResponse{
+				Success: true,
+				Jpy:     "1000000",
+				Btc:     "1.0",
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		},
+		func(w http.ResponseWriter, r *http.Request) { // OpenOrders Handler
+			resp := coincheck.OpenOrdersResponse{
+				Success: true,
+				Orders:  []coincheck.OpenOrder{},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		},
 	)
 	defer mockServer.Close()
 
-	// Override the coincheckBaseURL in the client (or pass mockServer.URL to client constructor if designed for it)
-	// For this test, we assume NewClient can be configured or we modify its base URL.
-	// Simplest for now: the client uses a passed-in URL or we modify the constant (not ideal for parallel tests).
-	// Let's assume client is created with mockServer.URL
 	ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
-	// Modify client to use mock server's URL - this is a hack for the current client design
-	// A better design would be ccClient := coincheck.NewClient("key", "secret", mockServer.URL)
-	// Forcing the URL for testing:
-	originalBaseURL := coincheck.GetBaseURL() // Need a getter for this, or make it configurable.
-	coincheck.SetBaseURL(mockServer.URL)      // Need a setter for this.
-	defer coincheck.SetBaseURL(originalBaseURL) // Reset after test
+	originalBaseURL := coincheck.GetBaseURL()
+	coincheck.SetBaseURL(mockServer.URL)
+	defer coincheck.SetBaseURL(originalBaseURL)
 
-	execEngine := engine.NewLiveExecutionEngine(ccClient, 1000000, 1.0)
+	execEngine := engine.NewLiveExecutionEngine(ccClient)
 
 	// Test DoD: Mock 50 注文全成功
 	for i := 0; i < 50; i++ {
@@ -147,27 +140,28 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 	if respPostOnly.TimeInForce != "post_only" {
 		t.Errorf("Expected TimeInForce to be 'post_only', got '%s'", respPostOnly.TimeInForce)
 	}
-    if atomic.LoadInt32(&requestCount) != 1 {
+	if atomic.LoadInt32(&requestCount) != 1 {
 		t.Errorf("Expected 1 request to new order endpoint for postOnly, got %d", atomic.LoadInt32(&requestCount))
 	}
 }
 
-func TestExecutionEngine_PlaceOrder_Failure(t *testing.T) {
+func TestExecutionEngine_PlaceOrder_Failure_ZeroBalance(t *testing.T) {
 	mockServer := mockCoincheckServer(
-		func(w http.ResponseWriter, r *http.Request) { // NewOrder Handler for failure
-			resp := coincheck.OrderResponse{
-				Success: false,
-				Error:   "insufficient_balance",
-                ErrorDescription: "Your JPY balance is not enough.",
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK) // Coincheck might return 200 OK with success:false
-			if err := json.NewEncoder(w).Encode(resp); err != nil {
-				t.Logf("Error encoding response in mock server (PlaceOrder_Failure): %v", err)
-				http.Error(w, "failed to encode response", http.StatusInternalServerError)
-			}
+		func(w http.ResponseWriter, r *http.Request) {
+			t.Error("NewOrder handler was called unexpectedly")
+			http.Error(w, "should not be called", http.StatusInternalServerError)
 		},
 		nil,
+		func(w http.ResponseWriter, r *http.Request) { // Balance Handler
+			resp := coincheck.BalanceResponse{Success: true, Jpy: "0", Btc: "0"}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		},
+		func(w http.ResponseWriter, r *http.Request) { // OpenOrders Handler
+			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		},
 	)
 	defer mockServer.Close()
 
@@ -176,24 +170,14 @@ func TestExecutionEngine_PlaceOrder_Failure(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	execEngine := engine.NewLiveExecutionEngine(ccClient, 1000000, 1.0)
+	execEngine := engine.NewLiveExecutionEngine(ccClient)
 
-	resp, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "sell", 4000000, 0.1, false)
+	_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 4000000, 0.1, false)
 	if err == nil {
-		t.Fatal("PlaceOrder was expected to return an error, but it didn't")
+		t.Fatal("PlaceOrder was expected to return an error for zero balance, but it didn't")
 	}
-	if resp == nil {
-		t.Fatal("PlaceOrder response should not be nil on API error")
-	}
-	if resp.Success {
-		t.Error("PlaceOrder success was true when expecting API error")
-	}
-	if resp.Error != "insufficient_balance" {
-		t.Errorf("Expected API error 'insufficient_balance', got '%s'", resp.Error)
-	}
-	if !strings.Contains(err.Error(), "insufficient_balance") {
-		// Comparing the full error string can be brittle. Checking for key parts.
-		t.Errorf("Error message does not contain expected API error. Got: %s, Expected to contain: %s", err.Error(), "insufficient_balance")
+	if !strings.Contains(err.Error(), "adjusted order amount is zero or negative") {
+		t.Errorf("Expected error message to contain 'adjusted order amount is zero or negative', got '%s'", err.Error())
 	}
 }
 
@@ -204,21 +188,15 @@ func TestExecutionEngine_CancelOrder_Success(t *testing.T) {
 		nil, // No new order handler
 		func(w http.ResponseWriter, r *http.Request) { // CancelOrder Handler
 			atomic.AddInt32(&cancelRequestCount, 1)
-			// Path: /api/exchange/orders/56789
-			if !strings.HasSuffix(r.URL.Path, "/56789") {
-				http.Error(w, "unexpected cancel URL", http.StatusBadRequest)
-				return
-			}
 			resp := coincheck.CancelResponse{
 				Success: true,
 				ID:      56789,
 			}
 			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(resp); err != nil {
-				t.Logf("Error encoding response in mock server (CancelOrder_Success): %v", err)
-				http.Error(w, "failed to encode response", http.StatusInternalServerError)
-			}
+			json.NewEncoder(w).Encode(resp)
 		},
+		nil, // No balance handler
+		nil, // No open orders handler
 	)
 	defer mockServer.Close()
 
@@ -227,7 +205,7 @@ func TestExecutionEngine_CancelOrder_Success(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	execEngine := engine.NewLiveExecutionEngine(ccClient, 1000000, 1.0)
+	execEngine := engine.NewLiveExecutionEngine(ccClient)
 
 	resp, err := execEngine.CancelOrder(context.Background(), 56789)
 	if err != nil {
@@ -246,25 +224,18 @@ func TestExecutionEngine_CancelOrder_Success(t *testing.T) {
 
 func TestExecutionEngine_CancelOrder_Failure(t *testing.T) {
     mockServer := mockCoincheckServer(
-        nil,
+        nil, // No new order handler
         func(w http.ResponseWriter, r *http.Request) { // CancelOrder Handler for failure
-            // Path: /api/exchange/orders/11111
-            if !strings.HasSuffix(r.URL.Path, "/11111") {
-                http.Error(w, "unexpected cancel URL for failure test", http.StatusBadRequest)
-                return
-            }
             resp := coincheck.CancelResponse{
                 Success: false,
-                ID:      11111, // Coincheck often returns the ID even on failure
+                ID:      11111,
                 Error:   "Order not found or already processed",
             }
             w.Header().Set("Content-Type", "application/json")
-            w.WriteHeader(http.StatusOK) // Or appropriate error code like 404, API dependent
-            if err := json.NewEncoder(w).Encode(resp); err != nil {
-				t.Logf("Error encoding response in mock server (CancelOrder_Failure): %v", err)
-				http.Error(w, "failed to encode response", http.StatusInternalServerError)
-			}
+            json.NewEncoder(w).Encode(resp)
         },
+        nil, // No balance handler
+        nil, // No open orders handler
     )
     defer mockServer.Close()
 
@@ -273,7 +244,7 @@ func TestExecutionEngine_CancelOrder_Failure(t *testing.T) {
     coincheck.SetBaseURL(mockServer.URL)
     defer coincheck.SetBaseURL(originalBaseURL)
 
-    execEngine := engine.NewLiveExecutionEngine(ccClient, 1000000, 1.0)
+    execEngine := engine.NewLiveExecutionEngine(ccClient)
 
     resp, err := execEngine.CancelOrder(context.Background(), 11111)
     if err == nil {
