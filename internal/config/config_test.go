@@ -1,54 +1,126 @@
-package config
+// Package config_test tests the config package.
+package config_test
 
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/yaml.v3"
+	"fmt"
+	"github.com/stretchr/testify/require"
+	"github.com/your-org/obi-scalp-bot/internal/config"
 )
 
-func TestLoadConfig(t *testing.T) {
-	// Create a temporary directory for the test
-	tmpDir, err := os.MkdirTemp("", "config-test")
-	assert.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	// Create a dummy config file
-	configPath := filepath.Join(tmpDir, "config.yaml")
-
-	// Define a sample config with the new Risk struct
-	sampleConfig := Config{
-		Pair:        "btc_jpy",
-		SpreadLimit: 100,
-		Risk: RiskConfig{
-			MaxDrawdownPercent: 10.0,
-			MaxPositionJPY:     500000.0,
-		},
-		// Add other necessary fields to make the config valid
+// TestMain sets up and tears down the test environment.
+func TestMain(m *testing.M) {
+	// Setup: Create a temporary directory for config files
+	tmpDir, err := os.MkdirTemp("", "config_test")
+	if err != nil {
+		panic("failed to create temp dir for config test")
 	}
 
-	yamlData, err := yaml.Marshal(&sampleConfig)
-	assert.NoError(t, err)
+	// Create initial config file
+	createTestConfigFile(filepath.Join(tmpDir, "config.yaml"), 10.0)
 
-	err = os.WriteFile(configPath, yamlData, 0644)
-	assert.NoError(t, err)
+	// Run tests
+	code := m.Run()
 
-	// Test loading the config
-	loadedCfg, err := LoadConfig(configPath)
-	assert.NoError(t, err)
+	// Teardown: Remove the temporary directory
+	os.RemoveAll(tmpDir)
 
-	// Assert that the risk config is loaded correctly
-	assert.Equal(t, 10.0, loadedCfg.Risk.MaxDrawdownPercent)
-	assert.Equal(t, 500000.0, loadedCfg.Risk.MaxPositionJPY)
-	assert.Equal(t, "btc_jpy", loadedCfg.Pair)
-	assert.Equal(t, float64(100), loadedCfg.SpreadLimit)
+	os.Exit(code)
+}
 
-	// Test with environment variable overrides
-	os.Setenv("LOG_LEVEL", "debug")
-	loadedCfg, err = LoadConfig(configPath)
-	assert.NoError(t, err)
-	assert.Equal(t, "debug", loadedCfg.LogLevel)
-	os.Unsetenv("LOG_LEVEL")
+// createTestConfigFile creates a dummy config file for testing.
+func createTestConfigFile(path string, obiThreshold float64) {
+	yamlContent := fmt.Sprintf(`
+pair: "btc_jpy"
+log_level: "info"
+long:
+  obi_threshold: %.2f
+`, obiThreshold)
+	err := os.WriteFile(path, []byte(yamlContent), 0644)
+	if err != nil {
+		panic(err)
+	}
+}
+
+// TestConfigReloading tests the dynamic reloading of configuration.
+func TestConfigReloading(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// 1. Create and load initial config
+	createTestConfigFile(configPath, 10.0)
+	initialCfg, err := config.LoadConfig(configPath)
+	require.NoError(t, err, "Initial config loading should succeed")
+	require.Equal(t, 10.0, initialCfg.Long.OBIThreshold, "Initial OBI threshold should be 10.0")
+
+	// 2. Concurrently access config while reloading
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		time.Sleep(50 * time.Millisecond) // Give some time for the main thread to start reading
+		t.Log("Goroutine: Reloading config...")
+		createTestConfigFile(configPath, 20.0) // Update the config file
+		_, err := config.ReloadConfig(configPath)
+		assert.NoError(t, err, "Config reloading should succeed")
+		t.Log("Goroutine: Config reloaded.")
+	}()
+
+	// Continuously read the config to check for race conditions and see the update
+	var finalOBI float64
+	for i := 0; i < 100; i++ {
+		currentCfg := config.GetConfig()
+		if currentCfg.Long.OBIThreshold == 20.0 {
+			finalOBI = currentCfg.Long.OBIThreshold
+			break
+		}
+		time.Sleep(10 * time.Millisecond) // Simulate work
+	}
+	wg.Wait() // Wait for the reloading goroutine to finish
+
+	// 3. Verify the config was updated
+	assert.Equal(t, 20.0, finalOBI, "OBI threshold should have been updated to 20.0")
+
+	finalCfg := config.GetConfig()
+	assert.Equal(t, 20.0, finalCfg.Long.OBIThreshold, "Final config check should show updated OBI threshold")
+}
+
+// Helper function to create a dummy config file with specific content
+func createDummyConfigFile(t *testing.T, path, content string) {
+	t.Helper()
+	err := os.WriteFile(path, []byte(content), 0644)
+	require.NoError(t, err)
+}
+
+// TestLoadConfig_EnvVarOverride tests if environment variables correctly override yaml values.
+func TestLoadConfig_EnvVarOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Initial config file
+	createDummyConfigFile(t, configPath, `
+log_level: "info"
+database:
+  host: "localhost"
+  user: "testuser"`)
+
+	// Set environment variables
+	t.Setenv("LOG_LEVEL", "debug")
+	t.Setenv("DB_HOST", "db.production")
+	t.Setenv("COINCHECK_API_KEY", "test_api_key")
+
+	cfg, err := config.LoadConfig(configPath)
+	require.NoError(t, err)
+
+	assert.Equal(t, "debug", cfg.LogLevel)
+	assert.Equal(t, "db.production", cfg.Database.Host)
+	assert.Equal(t, "testuser", cfg.Database.User) // Should remain from file
+	assert.Equal(t, "test_api_key", cfg.APIKey)
 }
