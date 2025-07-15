@@ -63,7 +63,7 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 		func(w http.ResponseWriter, r *http.Request) { // NewOrder Handler
 			atomic.AddInt32(&requestCount, 1)
 			var reqBody coincheck.OrderRequest
-			json.NewDecoder(r.Body).Decode(&reqBody)
+			_ = json.NewDecoder(r.Body).Decode(&reqBody)
 			resp := coincheck.OrderResponse{
 				Success:     true,
 				ID:          orderID,
@@ -75,18 +75,18 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 				CreatedAt:   time.Now().Format(time.RFC3339),
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		},
 		nil, // No cancel handler needed for success case
 		func(w http.ResponseWriter, r *http.Request) { // Balance Handler
 			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		},
 		func(w http.ResponseWriter, r *http.Request) { // OpenOrders Handler
 			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		},
 		func(w http.ResponseWriter, r *http.Request) { // Transactions Handler
 			resp := coincheck.TransactionsResponse{
@@ -96,7 +96,7 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		},
 	)
 	defer mockServer.Close()
@@ -146,23 +146,23 @@ func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 	mockServer := mockCoincheckServer(
 		func(w http.ResponseWriter, r *http.Request) { // NewOrder Handler
 			var reqBody coincheck.OrderRequest
-			json.NewDecoder(r.Body).Decode(&reqBody)
+			_ = json.NewDecoder(r.Body).Decode(&reqBody)
 			adjustedAmount = reqBody.Amount
 			orderID = 123 // Set orderID for the transaction handler to use
 			resp := coincheck.OrderResponse{Success: true, ID: orderID}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		},
 		nil, // No cancel handler
 		func(w http.ResponseWriter, r *http.Request) { // Balance Handler
 			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		},
 		func(w http.ResponseWriter, r *http.Request) { // OpenOrders Handler
 			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		},
 		func(w http.ResponseWriter, r *http.Request) { // Transactions Handler
 			resp := coincheck.TransactionsResponse{
@@ -172,7 +172,7 @@ func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		},
 	)
 	defer mockServer.Close()
@@ -213,7 +213,7 @@ func TestExecutionEngine_CancelOrder_Success(t *testing.T) {
 				ID:      56789,
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		},
 		nil,
 		nil,
@@ -253,7 +253,7 @@ func TestExecutionEngine_CancelOrder_Failure(t *testing.T) {
 				Error:   "Order not found or already processed",
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		},
 		nil,
 		nil,
@@ -292,7 +292,7 @@ func TestExecutionEngine_PlaceOrder_Timeout(t *testing.T) {
 		func(w http.ResponseWriter, r *http.Request) { // NewOrder Handler
 			resp := coincheck.OrderResponse{Success: true, ID: orderID}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		},
 		func(w http.ResponseWriter, r *http.Request) { // CancelOrder Handler
 			// Extract order ID from URL path, e.g., /api/exchange/orders/67890
@@ -305,22 +305,22 @@ func TestExecutionEngine_PlaceOrder_Timeout(t *testing.T) {
 
 			resp := coincheck.CancelResponse{Success: true, ID: cancelledID}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		},
 		func(w http.ResponseWriter, r *http.Request) { // Balance Handler
 			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		},
 		func(w http.ResponseWriter, r *http.Request) { // OpenOrders Handler
 			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		},
 		func(w http.ResponseWriter, r *http.Request) { // Transactions Handler (returns no matching transaction)
 			resp := coincheck.TransactionsResponse{Success: true, Transactions: []coincheck.Transaction{}}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		},
 	)
 	defer mockServer.Close()

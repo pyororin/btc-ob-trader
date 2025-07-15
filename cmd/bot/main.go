@@ -264,7 +264,7 @@ func processSignalsAndExecute(ctx context.Context, cfg *config.Config, obiCalcul
 						}
 
 						finalPrice := tradingSignal.EntryPrice
-						orderLogMsg := "Placing standard limit order."
+						var orderLogMsg string
 
 						if depth >= liquidityThresholdBtc {
 							if orderType == "buy" {
