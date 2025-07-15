@@ -112,3 +112,12 @@ pnl_report:
   interval_minutes: 1
   # レポートの最大保存期間（時間）
   max_age_hours: 24
+
+# --- リスク管理設定 ---
+risk:
+  # 許容最大ドローダウン率 (%)
+  # この値を超えた場合、新規注文を停止します。
+  max_drawdown_percent: 10.0
+  # 最大ポジションサイズ (JPY)
+  # この値を超えた場合、新規注文を停止します。
+  max_position_jpy: 500000.0

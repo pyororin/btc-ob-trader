@@ -26,6 +26,13 @@ type Config struct {
 	DBWriter    DBWriterConfig  `yaml:"db_writer"`
 	Replay      ReplayConfig    `yaml:"replay"`
 	PnlReport   PnlReportConfig `yaml:"pnl_report"`
+	Risk        RiskConfig      `yaml:"risk"`
+}
+
+// RiskConfig holds risk management settings.
+type RiskConfig struct {
+	MaxDrawdownPercent float64 `yaml:"max_drawdown_percent"`
+	MaxPositionJPY     float64 `yaml:"max_position_jpy"`
 }
 
 // SignalConfig holds configuration for signal generation.
