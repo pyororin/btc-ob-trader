@@ -95,6 +95,13 @@ test: ## Run Go tests inside the container.
 	@echo "Running Go tests..."
 	$(DOCKER_RUN_GO) go test ./... -v
 
+local-test: ## Run Go tests locally without Docker.
+	@echo "Running Go tests locally..."
+	@if [ -f .env ]; then \
+		export $$(cat .env | grep -v '#' | xargs); \
+	fi
+	go test ./... -v
+
 build: ## Build the Go application binary inside the container.
 	@echo "Building Go application binary..."
 	@mkdir -p build
