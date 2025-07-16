@@ -91,9 +91,14 @@ export-sim-data: ## Export order book data from the database to a CSV file for s
 # Define a helper to run commands inside a temporary Go builder container
 DOCKER_RUN_GO = sudo -E docker compose run --rm --service-ports --entrypoint "" builder
 
-test: ## Run Go tests inside the container.
-	@echo "Running Go tests..."
-	$(DOCKER_RUN_GO) go test ./... -v
+test: ## Run standard Go tests (excluding DB-dependent tests).
+	@echo "Running standard Go tests..."
+	$(DOCKER_RUN_GO) go test -tags="" -v ./...
+
+sqltest: ## Run tests that require a database connection.
+	@echo "Running database integration tests..."
+	@echo "Make sure TimescaleDB is running ('make monitor')."
+	$(DOCKER_RUN_GO) go test -tags=sqltest -v ./...
 
 local-test: ## Run Go tests locally without Docker.
 	@echo "Running Go tests locally..."
@@ -106,6 +111,48 @@ build: ## Build the Go application binary inside the container.
 	@echo "Building Go application binary..."
 	@mkdir -p build
 	$(DOCKER_RUN_GO) go build -a -ldflags="-s -w" -o build/obi-scalp-bot cmd/bot/main.go
+
+# ==============================================================================
+# GRAFANA DASHBOARDS
+# ==============================================================================
+.PHONY: grafana-render grafana-lint vendor tools
+
+GRAFANA_DIR = ./grafana
+DASHBOARDS_DIR = $(GRAFANA_DIR)/dashboards
+JSONNET_DIR = $(GRAFANA_DIR)/jsonnet
+JSONNET_FILES = $(wildcard $(JSONNET_DIR)/*.jsonnet)
+JSON_FILES = $(patsubst $(JSONNET_DIR)/%.jsonnet,$(DASHBOARDS_DIR)/%.json,$(JSONNET_FILES))
+JB_EXE = ./bin/jb
+JSONNET_EXE = ./bin/jsonnet
+
+tools: $(JB_EXE) $(JSONNET_EXE) ## Install required local tools (jb, jsonnet).
+
+$(JB_EXE):
+	@echo "Installing jsonnet-bundler (jb)..."
+	@mkdir -p ./bin
+	GOBIN=$(shell pwd)/bin go install github.com/jsonnet-bundler/jsonnet-bundler/cmd/jb@latest
+
+$(JSONNET_EXE):
+	@echo "Installing jsonnet..."
+	@mkdir -p ./bin
+	GOBIN=$(shell pwd)/bin go install github.com/google/go-jsonnet/cmd/jsonnet@latest
+
+vendor: tools ## Install jsonnet dependencies into the vendor directory.
+	@echo "Installing jsonnet dependencies..."
+	@cd $(JSONNET_DIR) && $(JB_EXE) install
+
+grafana-render: vendor ## Render Grafana dashboards from Jsonnet to JSON.
+	@echo "Rendering Grafana dashboards..."
+	@mkdir -p $(DASHBOARDS_DIR)
+	@for file in $(JSONNET_FILES); do \
+		output_file="$(DASHBOARDS_DIR)/$$(basename $${file%.jsonnet}.json)"; \
+		echo "Rendering $$file -> $$output_file"; \
+		$(JSONNET_EXE) -J $(JSONNET_DIR)/vendor $$file > $$output_file; \
+	done
+
+grafana-lint: vendor ## Lint and validate Grafana dashboards.
+	@echo "Linting and validating Grafana dashboards..."
+	$(DOCKER_RUN_GO) go test -v ./grafana/jsonnet/...
 
 report: ## Generate and display the PnL report.
 	@echo "Starting report generator service..."

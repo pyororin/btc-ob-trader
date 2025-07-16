@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/your-org/obi-scalp-bot/internal/benchmark"
 	"github.com/your-org/obi-scalp-bot/internal/config"
 	"github.com/your-org/obi-scalp-bot/internal/datastore"
 	"github.com/your-org/obi-scalp-bot/internal/dbwriter"
@@ -244,7 +245,7 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pa
 }
 
 // processSignalsAndExecute subscribes to indicators, evaluates signals, and executes trades.
-func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBICalculator, execEngine engine.ExecutionEngine) {
+func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBICalculator, execEngine engine.ExecutionEngine, benchmarkService *benchmark.Service) {
 	cfg := config.GetConfig()
 	signalEngine, err := tradingsignal.NewSignalEngine(cfg)
 	if err != nil {
@@ -265,6 +266,9 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 					continue
 				}
 				midPrice := (result.BestAsk + result.BestBid) / 2
+				if benchmarkService != nil {
+					benchmarkService.Tick(ctx, midPrice)
+				}
 				signalEngine.UpdateMarketData(result.Timestamp, midPrice, result.BestBid, result.BestAsk, 1.0, 1.0)
 
 				tradingSignal := signalEngine.Evaluate(result.Timestamp, result.OBI8)
@@ -372,6 +376,20 @@ func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, pa
 // runMainLoop starts either the live trading, replay, or simulation mode.
 func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs chan<- os.Signal) {
 	cfg := config.GetConfig()
+
+	var benchmarkService *benchmark.Service
+	if dbWriter != nil {
+		var zapLogger *zap.Logger
+		// Assuming logger is already configured, but if not, initialize it.
+		// For simplicity, re-using the logic from setupDBWriter.
+		if cfg.LogLevel == "debug" {
+			zapLogger, _ = zap.NewDevelopment()
+		} else {
+			zapLogger, _ = zap.NewProduction()
+		}
+		benchmarkService = benchmark.NewService(zapLogger, dbWriter)
+	}
+
 	if f.replayMode {
 		go runReplay(ctx, dbWriter, sigs)
 	} else if f.simulateMode {
@@ -386,7 +404,7 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 		orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Pair)
 
 		obiCalculator.Start(ctx)
-		go processSignalsAndExecute(ctx, obiCalculator, execEngine)
+		go processSignalsAndExecute(ctx, obiCalculator, execEngine, benchmarkService)
 		go orderMonitor(ctx, execEngine, client, orderBook)
 		go startPnlReporter(ctx)
 
@@ -601,7 +619,7 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 	orderBookHandler, _ := setupHandlers(orderBook, nil, cfg.Pair)
 
 	obiCalculator.Start(ctx)
-	go processSignalsAndExecute(ctx, obiCalculator, execEngine)
+	go processSignalsAndExecute(ctx, obiCalculator, execEngine, nil)
 
 	logger.Infof("Fetching market events from %s", f.csvPath)
 	events, err := datastore.FetchMarketEventsFromCSV(ctx, f.csvPath)
@@ -753,8 +771,19 @@ func runReplay(ctx context.Context, dbWriter *dbwriter.Writer, sigs chan<- os.Si
 	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
 	orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Pair)
 
+	var benchmarkService *benchmark.Service
+	if dbWriter != nil {
+		var zapLogger *zap.Logger
+		if cfg.LogLevel == "debug" {
+			zapLogger, _ = zap.NewDevelopment()
+		} else {
+			zapLogger, _ = zap.NewProduction()
+		}
+		benchmarkService = benchmark.NewService(zapLogger, dbWriter)
+	}
+
 	obiCalculator.Start(ctx)
-	go processSignalsAndExecute(ctx, obiCalculator, execEngine)
+	go processSignalsAndExecute(ctx, obiCalculator, execEngine, benchmarkService)
 
 	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
 		cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name, cfg.Database.SSLMode)
