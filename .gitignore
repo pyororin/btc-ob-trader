@@ -17,5 +17,9 @@
 # Build output
 build/
 .env
+
+# Local tools
+bin/
+vendor/
 pkg/cvd/test_trades.csv
 report_app

@@ -122,8 +122,8 @@ DASHBOARDS_DIR = $(GRAFANA_DIR)/dashboards
 JSONNET_DIR = $(GRAFANA_DIR)/jsonnet
 JSONNET_FILES = $(wildcard $(JSONNET_DIR)/*.jsonnet)
 JSON_FILES = $(patsubst $(JSONNET_DIR)/%.jsonnet,$(DASHBOARDS_DIR)/%.json,$(JSONNET_FILES))
-JB_EXE = ./bin/jb
-JSONNET_EXE = ./bin/jsonnet
+JB_EXE = $(shell pwd)/bin/jb
+JSONNET_EXE = $(shell pwd)/bin/jsonnet
 
 tools: $(JB_EXE) $(JSONNET_EXE) ## Install required local tools (jb, jsonnet).
 
