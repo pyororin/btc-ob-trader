@@ -31,6 +31,18 @@ type Config struct {
 	Replay      ReplayConfig    `yaml:"replay"`
 	PnlReport   PnlReportConfig `yaml:"pnl_report"`
 	Risk        RiskConfig      `yaml:"risk"`
+	Alert       AlertConfig     `yaml:"alert"`
+}
+
+// AlertConfig holds alert settings.
+type AlertConfig struct {
+	Discord DiscordConfig `yaml:"discord"`
+}
+
+// DiscordConfig holds Discord notification settings.
+type DiscordConfig struct {
+	BotToken string `yaml:"bot_token"`
+	UserID   string `yaml:"user_id"`
 }
 
 // RiskConfig holds risk management settings.
