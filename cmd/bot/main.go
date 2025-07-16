@@ -15,6 +15,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
+	"github.com/your-org/obi-scalp-bot/internal/benchmark"
 	"github.com/your-org/obi-scalp-bot/internal/config"
 	"github.com/your-org/obi-scalp-bot/internal/datastore"
 	"github.com/your-org/obi-scalp-bot/internal/dbwriter"
@@ -358,10 +360,21 @@ func runMainLoop(ctx context.Context, f flags, cfg *config.Config, dbWriter *dbw
 		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
 		orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Pair)
 
+		// Benchmark Service
+		dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+			cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name, cfg.Database.SSLMode)
+		dbpool, err := pgxpool.New(ctx, dbURL)
+		if err != nil {
+			logger.Fatalf("Benchmark service unable to connect to database: %v", err)
+		}
+		benchmarkSvc := benchmark.NewDBBenchmarkService(dbpool)
+		go startBenchmarkReporter(ctx, benchmarkSvc, orderBook)
+
+
 		obiCalculator.Start(ctx)
 		go processSignalsAndExecute(ctx, cfg, obiCalculator, execEngine)
 		go orderMonitor(ctx, cfg, execEngine, client, orderBook)
-		go startPnlReporter(ctx, cfg)
+		go startPnlReporter(ctx, cfg, dbpool)
 
 		wsClient := coincheck.NewWebSocketClient(orderBookHandler, tradeHandler)
 		go func() {
@@ -375,7 +388,7 @@ func runMainLoop(ctx context.Context, f flags, cfg *config.Config, dbWriter *dbw
 }
 
 // startPnlReporter は定期的にPnLレポートを生成し、古いレポートを削除します。
-func startPnlReporter(ctx context.Context, cfg *config.Config) {
+func startPnlReporter(ctx context.Context, cfg *config.Config, dbpool *pgxpool.Pool) {
 	if cfg.PnlReport.IntervalMinutes <= 0 {
 		logger.Info("PnL reporter is disabled.")
 		return
@@ -386,14 +399,6 @@ func startPnlReporter(ctx context.Context, cfg *config.Config) {
 
 	ticker := time.NewTicker(time.Duration(cfg.PnlReport.IntervalMinutes) * time.Minute)
 	defer ticker.Stop()
-
-	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name, cfg.Database.SSLMode)
-	dbpool, err := pgxpool.New(ctx, dbURL)
-	if err != nil {
-		logger.Fatalf("PnL reporter unable to connect to database: %v", err)
-	}
-	defer dbpool.Close()
 
 	repo := datastore.NewRepository(dbpool)
 
@@ -651,6 +656,45 @@ func orderMonitor(ctx context.Context, cfg *config.Config, execEngine engine.Exe
 						logger.Infof("Successfully re-placed order for original ID %d with new rate.", order.ID)
 					}
 				}
+			}
+		}
+	}
+}
+
+// startBenchmarkReporter は、ベンチマーク（例：単純保有戦略）の値を定期的に記録します。
+func startBenchmarkReporter(ctx context.Context, svc benchmark.BenchmarkService, book *indicator.OrderBook) {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	var initialPrice float64
+	logger.Info("Starting benchmark reporter...")
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("Stopping benchmark reporter.")
+			return
+		case <-ticker.C:
+			midPrice := (book.BestBid() + book.BestAsk()) / 2
+			if midPrice <= 0 {
+				continue
+			}
+
+			if initialPrice == 0 {
+				initialPrice = midPrice
+				logger.Infof("Benchmark initial price set to: %.2f", initialPrice)
+			}
+
+			// 単純保有戦略の現在価値を計算
+			// (現在の価格 / 初期価格) * 初期投資額(ここでは1とする)
+			// 簡単のため、価値を価格そのものとして記録する
+			currentValue := decimal.NewFromFloat(midPrice)
+
+			err := svc.Tick(ctx, "buy_and_hold", currentValue)
+			if err != nil {
+				logger.Errorf("Failed to record benchmark tick: %v", err)
+			} else {
+				logger.Debugf("Recorded benchmark tick for buy_and_hold: %s", currentValue.String())
 			}
 		}
 	}
