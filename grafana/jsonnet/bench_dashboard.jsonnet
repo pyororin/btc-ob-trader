@@ -13,7 +13,7 @@ dashboard.new(
 .addPanel(
   graphPanel.new(
     'PnL vs. Benchmark (Normalized)',
-    datasource='TimescaleDB',
+    datasource='TimescaleDB (Production)',
     description='Bot Total PnL vs. Normalized Benchmark Price (starts at 100).',
   )
   .addTarget(
@@ -35,7 +35,7 @@ dashboard.new(
 .addPanel(
   graphPanel.new(
     'Performance Alpha',
-    datasource='TimescaleDB',
+    datasource='TimescaleDB (Production)',
     description='Difference between PnL and normalized benchmark.',
   )
   .addTarget(
