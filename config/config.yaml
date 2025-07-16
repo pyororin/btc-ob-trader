@@ -121,3 +121,11 @@ risk:
   # 最大ポジションサイズ (JPY)
   # この値を超えた場合、新規注文を停止します。
   max_position_jpy: 500000.0
+
+# --- アラート設定 ---
+alert:
+  discord:
+    # Discord Botのトークン
+    bot_token: "YOUR_DISCORD_BOT_TOKEN"
+    # 通知を送信するユーザーのID
+    user_id: "YOUR_DISCORD_USER_ID"
