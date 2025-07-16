@@ -53,8 +53,7 @@ func TestViewPerformanceVsBenchmark(t *testing.T) {
 	defer pool.Close()
 
 	// 3. スキーマの適用
-	applySchema(t, pool, "001_tables.sql")
-	applySchema(t, pool, "002_views.sql")
+	applyAllSchemas(t, pool, ".")
 
 	// 4. テストデータの挿入
 	insertTestData(t, pool)
@@ -98,24 +97,37 @@ func TestViewPerformanceVsBenchmark(t *testing.T) {
 	assert.InDelta(t, 48.0, results[1].Alpha, 0.01)             // 150.0 - 102.0
 }
 
-func applySchema(t *testing.T, pool *pgxpool.Pool, filename string) {
+func applyAllSchemas(t *testing.T, pool *pgxpool.Pool, schemaDir string) {
 	t.Helper()
-	// プロジェクトルートからの相対パスでスキーマファイルを指定
-	// このテストは `db/schema` ディレクトリで実行されることを想定
-	path := filepath.Join(".", filename)
-	schema, err := os.ReadFile(path)
-	if err != nil {
-		// もし `go test ./...` のようにルートで実行された場合を考慮
-		altPath := filepath.Join("db", "schema", filename)
-		schema, err = os.ReadFile(altPath)
-		if err != nil {
-			t.Fatalf("failed to read schema file from %s or %s: %s", path, altPath, err)
-		}
+
+	// スキーマディレクトリを決定
+	// テストがどこから実行されてもいいように、まず `db/schema` を試す
+	var effectiveSchemaDir string
+	if _, err := os.Stat(filepath.Join("db", "schema")); !os.IsNotExist(err) {
+		effectiveSchemaDir = filepath.Join("db", "schema")
+	} else if _, err := os.Stat(schemaDir); !os.IsNotExist(err) {
+		effectiveSchemaDir = schemaDir
+	} else {
+		t.Fatalf("schema directory not found at %s or db/schema", schemaDir)
 	}
 
-	_, err = pool.Exec(context.Background(), string(schema))
+	files, err := filepath.Glob(filepath.Join(effectiveSchemaDir, "*.sql"))
 	if err != nil {
-		t.Fatalf("failed to apply schema %s: %s", filename, err)
+		t.Fatalf("failed to glob sql files: %s", err)
+	}
+	// ファイル名でソートして実行順を保証
+	// sort.Strings(files) // filepath.Globはソート済みのはずだが念のため
+
+	for _, file := range files {
+		schema, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("failed to read schema file %s: %s", file, err)
+		}
+		_, err = pool.Exec(context.Background(), string(schema))
+		if err != nil {
+			t.Fatalf("failed to apply schema %s: %s", file, err)
+		}
+		t.Logf("Applied schema: %s", file)
 	}
 }
 

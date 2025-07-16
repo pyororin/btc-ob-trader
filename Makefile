@@ -98,7 +98,7 @@ test: ## Run standard Go tests (excluding DB-dependent tests).
 sqltest: ## Run tests that require a database connection.
 	@echo "Running database integration tests..."
 	@echo "Make sure TimescaleDB is running ('make monitor')."
-	$(DOCKER_RUN_GO) go test -tags=sqltest -v ./...
+	$(DOCKER_RUN_GO) go test -tags=sqltest -v ./db/schema/...
 
 local-test: ## Run Go tests locally without Docker.
 	@echo "Running Go tests locally..."
@@ -130,12 +130,14 @@ tools: $(JB_EXE) $(JSONNET_EXE) ## Install required local tools (jb, jsonnet).
 $(JB_EXE):
 	@echo "Installing jsonnet-bundler (jb)..."
 	@mkdir -p ./bin
-	GOBIN=$(shell pwd)/bin go install github.com/jsonnet-bundler/jsonnet-bundler/cmd/jb@latest
+	@go install github.com/jsonnet-bundler/jsonnet-bundler/cmd/jb@latest
+	@mv $$(go env GOPATH)/bin/jb ./bin/
 
 $(JSONNET_EXE):
 	@echo "Installing jsonnet..."
 	@mkdir -p ./bin
-	GOBIN=$(shell pwd)/bin go install github.com/google/go-jsonnet/cmd/jsonnet@latest
+	@go install github.com/google/go-jsonnet/cmd/jsonnet@latest
+	@mv $$(go env GOPATH)/bin/jsonnet ./bin/
 
 vendor: tools ## Install jsonnet dependencies into the vendor directory.
 	@echo "Installing jsonnet dependencies..."
