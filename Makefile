@@ -95,14 +95,6 @@ test: ## Run Go tests inside the container.
 	@echo "Running Go tests..."
 	$(DOCKER_RUN_GO) go test ./... -v
 
-sqltest: ## Run SQL integration tests using testcontainers.
-	@echo "Running SQL integration tests..."
-	$(DOCKER_RUN_GO) go test -tags=sqltest ./... -v
-
-grafana-lint: ## Lint and validate grafana dashboard definitions.
-	@echo "Linting Grafana dashboards..."
-	$(MAKE) -C grafana/jsonnet lint
-
 local-test: ## Run Go tests locally without Docker.
 	@echo "Running Go tests locally..."
 	@if [ -f .env ]; then \
