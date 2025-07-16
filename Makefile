@@ -91,19 +91,16 @@ export-sim-data: ## Export order book data from the database to a CSV file for s
 # Define a helper to run commands inside a temporary Go builder container
 DOCKER_RUN_GO = sudo -E docker compose run --rm --service-ports --entrypoint "" builder
 
-test: ## Run Go tests inside the container.
-	@echo "Running Go tests..."
+test-db: ## Run database migration tests.
+	@echo "Running database migration tests..."
+	$(DOCKER_RUN_GO) go test ./db/schema/... -v
+
+test: ## Run all Go tests (application and DB) inside the container.
+	@echo "Running all Go tests..."
+	$(MAKE) test-db
 	$(DOCKER_RUN_GO) go test ./... -v
 
-sqltest: ## Run SQL integration tests using testcontainers.
-	@echo "Running SQL integration tests..."
-	$(DOCKER_RUN_GO) go test -tags=sqltest ./... -v
-
-grafana-lint: ## Lint and validate grafana dashboard definitions.
-	@echo "Linting Grafana dashboards..."
-	$(MAKE) -C grafana/jsonnet lint
-
-local-test: ## Run Go tests locally without Docker.
+local-test: ## Run all Go tests locally without Docker.
 	@echo "Running Go tests locally..."
 	@if [ -f .env ]; then \
 		export $$(cat .env | grep -v '#' | xargs); \
