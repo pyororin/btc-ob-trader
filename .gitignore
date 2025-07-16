@@ -18,3 +18,4 @@
 build/
 .env
 pkg/cvd/test_trades.csv
+report_app

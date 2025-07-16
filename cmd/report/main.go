@@ -144,6 +144,12 @@ type Report struct {
 	RiskRewardRatio    float64         `json:"risk_reward_ratio"`
 }
 
+// OrderPnl は注文ごとの損益を追跡します。
+type OrderPnl struct {
+	Side   string
+	TotalPnl decimal.Decimal
+}
+
 // analyzeTrades はトレードリストを分析してレポートを作成します。
 func analyzeTrades(trades []Trade) (Report, error) {
 	if len(trades) == 0 {
@@ -174,29 +180,29 @@ func analyzeTrades(trades []Trade) (Report, error) {
 		}, nil
 	}
 
-	var buys, sells []Trade
 	var totalPnL decimal.Decimal
-	var longWinningTrades, longLosingTrades int
-	var shortWinningTrades, shortLosingTrades int
 	var totalProfit, totalLoss decimal.Decimal
 
 	startDate := executedTrades[0].Time
 	endDate := executedTrades[len(executedTrades)-1].Time
 
+	// transaction_id ごとに損益を計算
+	orderPnlMap := make(map[int64]*OrderPnl)
+
+	var buys, sells []Trade
 	for _, trade := range executedTrades {
 		if trade.Side == "buy" {
 			for len(sells) > 0 && trade.Size.IsPositive() {
 				sell := sells[0]
 				matchSize := decimal.Min(sell.Size, trade.Size)
 				pnl := sell.Price.Sub(trade.Price).Mul(matchSize)
-				totalPnL = totalPnL.Add(pnl)
-				if pnl.IsPositive() {
-					shortWinningTrades++
-					totalProfit = totalProfit.Add(pnl)
-				} else {
-					shortLosingTrades++
-					totalLoss = totalLoss.Add(pnl.Abs())
+
+				// ショートポジションの決済
+				if _, ok := orderPnlMap[sell.TransactionID]; !ok {
+					orderPnlMap[sell.TransactionID] = &OrderPnl{Side: "sell"}
 				}
+				orderPnlMap[sell.TransactionID].TotalPnl = orderPnlMap[sell.TransactionID].TotalPnl.Add(pnl)
+
 				sell.Size = sell.Size.Sub(matchSize)
 				trade.Size = trade.Size.Sub(matchSize)
 				if sell.Size.IsZero() {
@@ -213,14 +219,13 @@ func analyzeTrades(trades []Trade) (Report, error) {
 				buy := buys[0]
 				matchSize := decimal.Min(buy.Size, trade.Size)
 				pnl := trade.Price.Sub(buy.Price).Mul(matchSize)
-				totalPnL = totalPnL.Add(pnl)
-				if pnl.IsPositive() {
-					longWinningTrades++
-					totalProfit = totalProfit.Add(pnl)
-				} else {
-					longLosingTrades++
-					totalLoss = totalLoss.Add(pnl.Abs())
+
+				// ロングポジションの決済
+				if _, ok := orderPnlMap[buy.TransactionID]; !ok {
+					orderPnlMap[buy.TransactionID] = &OrderPnl{Side: "buy"}
 				}
+				orderPnlMap[buy.TransactionID].TotalPnl = orderPnlMap[buy.TransactionID].TotalPnl.Add(pnl)
+
 				buy.Size = buy.Size.Sub(matchSize)
 				trade.Size = trade.Size.Sub(matchSize)
 				if buy.Size.IsZero() {
@@ -231,6 +236,28 @@ func analyzeTrades(trades []Trade) (Report, error) {
 			}
 			if trade.Size.IsPositive() {
 				sells = append(sells, trade)
+			}
+		}
+	}
+
+	var longWinningTrades, longLosingTrades int
+	var shortWinningTrades, shortLosingTrades int
+
+	for _, orderPnl := range orderPnlMap {
+		totalPnL = totalPnL.Add(orderPnl.TotalPnl)
+		if orderPnl.TotalPnl.IsPositive() {
+			totalProfit = totalProfit.Add(orderPnl.TotalPnl)
+			if orderPnl.Side == "buy" {
+				longWinningTrades++
+			} else {
+				shortWinningTrades++
+			}
+		} else if orderPnl.TotalPnl.IsNegative() {
+			totalLoss = totalLoss.Add(orderPnl.TotalPnl.Abs())
+			if orderPnl.Side == "buy" {
+				longLosingTrades++
+			} else {
+				shortLosingTrades++
 			}
 		}
 	}
