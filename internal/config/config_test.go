@@ -101,6 +101,20 @@ func createDummyConfigFile(t *testing.T, path, content string) {
 
 // TestLoadConfig_EnvVarOverride tests if environment variables correctly override yaml values.
 func TestLoadConfig_EnvVarOverride(t *testing.T) {
+	// Use t.Setenv to ensure environment variables are scoped to this test.
+	// This prevents interference from the host environment or .env files.
+	t.Setenv("LOG_LEVEL", "debug")
+	t.Setenv("DB_HOST", "db.from.env")
+	t.Setenv("DB_USER", "user_from_env")
+	t.Setenv("COINCHECK_API_KEY", "key_from_env")
+
+	// Explicitly unset a variable to ensure it's not present.
+	// This is a robust way to guarantee the test's environment.
+	t.Setenv("DB_PASSWORD", "")
+	// For this test, we also need to make sure cái `DOTENV_PATH` is not set,
+	// so it doesn't try to load a .env file from a default location.
+	t.Setenv("DOTENV_PATH", "")
+
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
@@ -110,16 +124,6 @@ log_level: "info"
 database:
   host: "localhost"
   user: "user_from_file"`)
-
-	// Set environment variables to override and supplement the config file
-	t.Setenv("LOG_LEVEL", "debug") // Override
-	t.Setenv("DB_HOST", "db.from.env") // Override
-	t.Setenv("DB_USER", "user_from_env") // Override
-	t.Setenv("COINCHECK_API_KEY", "key_from_env") // Supplement
-
-	// Unset a variable to ensure it doesn't carry over from the host environment
-	// Note: This is good practice but might not be strictly necessary if the test runner isolates env vars.
-	os.Unsetenv("DB_PASSWORD")
 
 	cfg, err := config.LoadConfig(configPath)
 	require.NoError(t, err)

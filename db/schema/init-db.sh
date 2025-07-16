@@ -8,5 +8,8 @@ do
   sleep 1
 done
 
-# Apply the schema
-psql -h $POSTGRES_HOST -U $POSTGRES_USER -d $POSTGRES_DB -f /docker-entrypoint-initdb.d/001_tables.sql
+# Apply all .sql files in the directory
+for f in /docker-entrypoint-initdb.d/*.sql; do
+  echo "Applying schema $f..."
+  psql -h $POSTGRES_HOST -U $POSTGRES_USER -d $POSTGRES_DB -f "$f"
+done
