@@ -49,6 +49,12 @@ type PnLSummary struct {
 	AvgEntryPrice   float64   `db:"avg_entry_price"`
 }
 
+// BenchmarkValue はデータベースに保存するベンチマーク情報の構造体です。
+type BenchmarkValue struct {
+	Time  time.Time `db:"time"`
+	Price float64   `db:"price"`
+}
+
 // Writer はTimescaleDBへのデータ書き込みを担当します。
 type Writer struct {
 	pool             *pgxpool.Pool
@@ -57,6 +63,7 @@ type Writer struct {
 	replaySessionID  *string // Use pointer to handle NULL
 	orderBookBuffer  []OrderBookUpdate
 	tradeBuffer      []Trade
+	benchmarkBuffer  []BenchmarkValue
 	bufferMutex      sync.Mutex
 	flushTicker      *time.Ticker
 	shutdownChan     chan struct{}
@@ -107,6 +114,7 @@ func NewWriter(ctx context.Context, dbConfig config.DatabaseConfig, writerConfig
 		config:          writerConfig,
 		orderBookBuffer: make([]OrderBookUpdate, 0, writerConfig.BatchSize),
 		tradeBuffer:     make([]Trade, 0, writerConfig.BatchSize),
+		benchmarkBuffer: make([]BenchmarkValue, 0, writerConfig.BatchSize),
 		shutdownChan:    make(chan struct{}),
 	}
 
@@ -214,6 +222,11 @@ func (w *Writer) flushBuffers() {
 		w.batchInsertTrades(context.Background(), w.tradeBuffer)
 		w.tradeBuffer = w.tradeBuffer[:0]
 	}
+
+	if len(w.benchmarkBuffer) > 0 {
+		w.batchInsertBenchmarkValues(context.Background(), w.benchmarkBuffer)
+		w.benchmarkBuffer = w.benchmarkBuffer[:0]
+	}
 }
 
 func (w *Writer) batchInsertOrderBookUpdates(ctx context.Context, updates []OrderBookUpdate) {
@@ -249,10 +262,50 @@ func (w *Writer) batchInsertTrades(ctx context.Context, trades []Trade) {
 	}
 }
 
+// SaveBenchmarkValue はベンチマーク値をバッファに追加します。
+func (w *Writer) SaveBenchmarkValue(ctx context.Context, value BenchmarkValue) {
+	if w.pool == nil {
+		return
+	}
+
+	w.bufferMutex.Lock()
+	w.benchmarkBuffer = append(w.benchmarkBuffer, value)
+	shouldFlush := len(w.benchmarkBuffer) >= w.config.BatchSize
+	w.bufferMutex.Unlock()
+
+	if shouldFlush {
+		w.flushBuffers()
+	}
+}
+
+func (w *Writer) batchInsertBenchmarkValues(ctx context.Context, values []BenchmarkValue) {
+	if w.pool == nil || len(values) == 0 {
+		return
+	}
+	w.logger.Info("Flushing benchmark values", zap.Int("count", len(values)))
+	_, err := w.pool.CopyFrom(
+		ctx,
+		pgx.Identifier{"benchmark_values"},
+		[]string{"time", "price"},
+		pgx.CopyFromRows(toBenchmarkInterfaces(values)),
+	)
+	if err != nil {
+		w.logger.Error("Failed to batch insert benchmark values", zap.Error(err))
+	}
+}
+
 func toOrderBookInterfaces(updates []OrderBookUpdate) [][]interface{} {
 	rows := make([][]interface{}, len(updates))
 	for i, u := range updates {
 		rows[i] = []interface{}{u.Time, u.Pair, u.Side, u.Price, u.Size, u.IsSnapshot}
+	}
+	return rows
+}
+
+func toBenchmarkInterfaces(values []BenchmarkValue) [][]interface{} {
+	rows := make([][]interface{}, len(values))
+	for i, v := range values {
+		rows[i] = []interface{}{v.Time, v.Price}
 	}
 	return rows
 }

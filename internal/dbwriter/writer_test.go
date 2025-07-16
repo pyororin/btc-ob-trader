@@ -230,4 +230,34 @@ func TestWriter_SavePnLSummary(t *testing.T) {
 		// assert.NoError(t, mockPool.ExpectationsWereMet(), "pgxmock expectations not met")
 	})
 }
+
+func TestWriter_SaveBenchmarkValue(t *testing.T) {
+	t.Skip("Skipping SaveBenchmarkValue test due to pgxmock/v3 dependency resolution issues in CI/environment.")
+
+	logger := newTestLogger()
+	ctx := context.Background()
+	writerCfg := config.DBWriterConfig{BatchSize: 1} // Flush immediately
+
+	value := BenchmarkValue{
+		Time:  time.Now(),
+		Price: 5000000,
+	}
+
+	t.Run("successful save", func(t *testing.T) {
+		mockPool, err := pgxmock.NewPool()
+		assert.NoError(t, err)
+		defer mockPool.Close()
+
+		// writer := &Writer{pool: mockPool, logger: logger, config: writerCfg}
+		// writer.benchmarkBuffer = make([]BenchmarkValue, 0, writerCfg.BatchSize)
+
+		// We expect a CopyFrom operation
+		mockPool.ExpectCopyFrom(pgx.Identifier{"benchmark_values"}, []string{"time", "price"}).
+			WithArgs(value.Time, value.Price).
+			WillReturnResult(1)
+
+		// writer.SaveBenchmarkValue(ctx, value)
+		// assert.NoError(t, mockPool.ExpectationsWereMet(), "pgxmock expectations not met")
+	})
+}
 */

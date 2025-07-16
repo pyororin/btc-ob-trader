@@ -109,18 +109,25 @@ func TestLoadConfig_EnvVarOverride(t *testing.T) {
 log_level: "info"
 database:
   host: "localhost"
-  user: "testuser"`)
+  user: "user_from_file"`)
 
-	// Set environment variables
-	t.Setenv("LOG_LEVEL", "debug")
-	t.Setenv("DB_HOST", "db.production")
-	t.Setenv("COINCHECK_API_KEY", "test_api_key")
+	// Set environment variables to override and supplement the config file
+	t.Setenv("LOG_LEVEL", "debug") // Override
+	t.Setenv("DB_HOST", "db.from.env") // Override
+	t.Setenv("DB_USER", "user_from_env") // Override
+	t.Setenv("COINCHECK_API_KEY", "key_from_env") // Supplement
+
+	// Unset a variable to ensure it doesn't carry over from the host environment
+	// Note: This is good practice but might not be strictly necessary if the test runner isolates env vars.
+	os.Unsetenv("DB_PASSWORD")
 
 	cfg, err := config.LoadConfig(configPath)
 	require.NoError(t, err)
 
-	assert.Equal(t, "debug", cfg.LogLevel)
-	assert.Equal(t, "db.production", cfg.Database.Host)
-	assert.Equal(t, "testuser", cfg.Database.User) // Should remain from file
-	assert.Equal(t, "test_api_key", cfg.APIKey)
+	// Assert that environment variables took precedence or supplemented the config
+	assert.Equal(t, "debug", cfg.LogLevel, "LOG_LEVEL should be overridden by env var")
+	assert.Equal(t, "db.from.env", cfg.Database.Host, "DB_HOST should be overridden by env var")
+	assert.Equal(t, "user_from_env", cfg.Database.User, "DB_USER should be overridden by env var")
+	assert.Equal(t, "key_from_env", cfg.APIKey, "COINCHECK_API_KEY should be supplemented by env var")
+	assert.Equal(t, "", cfg.Database.Password, "DB_PASSWORD should be empty as it was not in file or env")
 }
