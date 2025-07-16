@@ -1,7 +1,7 @@
 local grafana = import 'github.com/grafana/grafonnet-lib/grafonnet/grafana.libsonnet';
 local dashboard = grafana.dashboard;
 local row = grafana.row;
-local timeseries = grafana.timeseries;
+local graphPanel = grafana.graphPanel;
 local table = grafana.table;
 
 dashboard.new(
@@ -11,7 +11,7 @@ dashboard.new(
   timezone='browser',
 )
 .addPanel(
-  timeseries.new(
+  graphPanel.new(
     'PnL vs. Benchmark (Normalized)',
     datasource='TimescaleDB',
     description='Bot Total PnL vs. Normalized Benchmark Price (starts at 100).',
@@ -33,7 +33,7 @@ dashboard.new(
   gridPos={ x: 0, y: 0, w: 24, h: 12 }
 )
 .addPanel(
-  timeseries.new(
+  graphPanel.new(
     'Performance Alpha',
     datasource='TimescaleDB',
     description='Difference between PnL and normalized benchmark.',
