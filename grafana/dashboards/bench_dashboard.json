@@ -17,7 +17,7 @@
          "bars": false,
          "dashLength": 10,
          "dashes": false,
-         "datasource": "TimescaleDB",
+         "datasource": "TimescaleDB (Production)",
          "description": "Bot Total PnL vs. Normalized Benchmark Price (starts at 100).",
          "fill": 1,
          "gridPos": {
@@ -109,7 +109,7 @@
          "bars": false,
          "dashLength": 10,
          "dashes": false,
-         "datasource": "TimescaleDB",
+         "datasource": "TimescaleDB (Production)",
          "description": "Difference between PnL and normalized benchmark.",
          "fill": 1,
          "gridPos": {
