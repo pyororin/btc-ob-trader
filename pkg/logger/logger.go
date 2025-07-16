@@ -74,44 +74,44 @@ func NewLogger(logLevel string) Logger {
 }
 
 func (l *defaultLogger) Debug(args ...interface{}) {
-	l.debugLogger.Output(2, l.prefix+fmt.Sprintln(args...))
+	_ = l.debugLogger.Output(2, l.prefix+fmt.Sprintln(args...))
 }
 
 func (l *defaultLogger) Debugf(format string, args ...interface{}) {
-	l.debugLogger.Output(2, l.prefix+fmt.Sprintf(format, args...))
+	_ = l.debugLogger.Output(2, l.prefix+fmt.Sprintf(format, args...))
 }
 
 func (l *defaultLogger) Info(args ...interface{}) {
-	l.infoLogger.Output(2, l.prefix+fmt.Sprintln(args...))
+	_ = l.infoLogger.Output(2, l.prefix+fmt.Sprintln(args...))
 }
 
 func (l *defaultLogger) Infof(format string, args ...interface{}) {
-	l.infoLogger.Output(2, l.prefix+fmt.Sprintf(format, args...))
+	_ = l.infoLogger.Output(2, l.prefix+fmt.Sprintf(format, args...))
 }
 
 func (l *defaultLogger) Warn(args ...interface{}) {
-	l.warnLogger.Output(2, l.prefix+fmt.Sprintln(args...))
+	_ = l.warnLogger.Output(2, l.prefix+fmt.Sprintln(args...))
 }
 
 func (l *defaultLogger) Warnf(format string, args ...interface{}) {
-	l.warnLogger.Output(2, l.prefix+fmt.Sprintf(format, args...))
+	_ = l.warnLogger.Output(2, l.prefix+fmt.Sprintf(format, args...))
 }
 
 func (l *defaultLogger) Error(args ...interface{}) {
-	l.errorLogger.Output(2, l.prefix+fmt.Sprintln(args...))
+	_ = l.errorLogger.Output(2, l.prefix+fmt.Sprintln(args...))
 }
 
 func (l *defaultLogger) Errorf(format string, args ...interface{}) {
-	l.errorLogger.Output(2, l.prefix+fmt.Sprintf(format, args...))
+	_ = l.errorLogger.Output(2, l.prefix+fmt.Sprintf(format, args...))
 }
 
 func (l *defaultLogger) Fatal(args ...interface{}) {
-	l.fatalLogger.Output(2, l.prefix+fmt.Sprintln(args...))
+	_ = l.fatalLogger.Output(2, l.prefix+fmt.Sprintln(args...))
 	os.Exit(1)
 }
 
 func (l *defaultLogger) Fatalf(format string, args ...interface{}) {
-	l.fatalLogger.Output(2, l.prefix+fmt.Sprintf(format, args...))
+	_ = l.fatalLogger.Output(2, l.prefix+fmt.Sprintf(format, args...))
 	os.Exit(1)
 }
 

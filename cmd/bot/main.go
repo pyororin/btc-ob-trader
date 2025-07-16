@@ -23,6 +23,8 @@ import (
 	"github.com/your-org/obi-scalp-bot/internal/engine"
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
 	"github.com/your-org/obi-scalp-bot/internal/http/handler"
+	"sync"
+
 	"github.com/your-org/obi-scalp-bot/internal/indicator"
 	tradingsignal "github.com/your-org/obi-scalp-bot/internal/signal"
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
@@ -45,6 +47,7 @@ func main() {
 
 	cfg := setupConfig(f.configPath)
 	setupLogger(cfg.LogLevel, f.configPath, cfg.Pair)
+	go watchSignals(f.configPath)
 
 	if f.simulateMode && f.csvPath == "" {
 		logger.Fatal("CSV file path must be provided in simulation mode using --csv flag")
@@ -55,21 +58,22 @@ func main() {
 	}
 
 	// --- Main Execution Loop ---
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	// Use a separate channel for graceful shutdown signals
+	shutdownSigs := make(chan os.Signal, 1)
+	signal.Notify(shutdownSigs, syscall.SIGINT, syscall.SIGTERM)
 
 	var dbWriter *dbwriter.Writer
 	if !f.simulateMode {
-		dbWriter = setupDBWriter(ctx, cfg)
+		dbWriter = setupDBWriter(ctx)
 		if dbWriter != nil {
 			defer dbWriter.Close()
 		}
 	}
 
-	runMainLoop(ctx, f, cfg, dbWriter, sigs)
+	runMainLoop(ctx, f, dbWriter, shutdownSigs)
 
 	// --- Graceful Shutdown ---
-	waitForShutdownSignal(sigs)
+	waitForShutdownSignal(shutdownSigs)
 	logger.Info("Initiating graceful shutdown...")
 	cancel()
 	time.Sleep(1 * time.Second) // Allow time for services to shut down
@@ -101,6 +105,24 @@ func setupConfig(configPath string) *config.Config {
 	return cfg
 }
 
+// watchSignals sets up a handler for SIGHUP to reload the configuration.
+func watchSignals(configPath string) {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGHUP)
+
+	for {
+		<-sigChan
+		logger.Info("SIGHUP received, attempting to reload configuration...")
+		newCfg, err := config.ReloadConfig(configPath)
+		if err != nil {
+			logger.Errorf("Failed to reload configuration: %v", err)
+		} else {
+			logger.SetGlobalLogLevel(newCfg.LogLevel)
+			logger.Info("Configuration reloaded successfully.")
+		}
+	}
+}
+
 // setupLogger initializes the global logger.
 func setupLogger(logLevel, configPath, pair string) {
 	logger.SetGlobalLogLevel(logLevel)
@@ -121,7 +143,8 @@ func startHealthCheckServer() {
 }
 
 // setupDBWriter initializes the TimescaleDB writer if enabled.
-func setupDBWriter(ctx context.Context, cfg *config.Config) *dbwriter.Writer {
+func setupDBWriter(ctx context.Context) *dbwriter.Writer {
+	cfg := config.GetConfig()
 	if cfg.DBWriter.BatchSize <= 0 {
 		return nil
 	}
@@ -223,7 +246,8 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pa
 }
 
 // processSignalsAndExecute subscribes to indicators, evaluates signals, and executes trades.
-func processSignalsAndExecute(ctx context.Context, cfg *config.Config, obiCalculator *indicator.OBICalculator, execEngine engine.ExecutionEngine) {
+func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBICalculator, execEngine engine.ExecutionEngine) {
+	cfg := config.GetConfig()
 	signalEngine, err := tradingsignal.NewSignalEngine(cfg)
 	if err != nil {
 		logger.Fatalf("Failed to create signal engine: %v", err)
@@ -237,6 +261,7 @@ func processSignalsAndExecute(ctx context.Context, cfg *config.Config, obiCalcul
 				logger.Info("Signal processing and execution goroutine shutting down.")
 				return
 			case result := <-resultsCh:
+				currentCfg := config.GetConfig()
 				if result.BestBid <= 0 || result.BestAsk <= 0 {
 					logger.Warnf("Skipping signal evaluation due to invalid best bid/ask: BestBid=%.2f, BestAsk=%.2f", result.BestBid, result.BestAsk)
 					continue
@@ -266,7 +291,7 @@ func processSignalsAndExecute(ctx context.Context, cfg *config.Config, obiCalcul
 						}
 
 						finalPrice := tradingSignal.EntryPrice
-						orderLogMsg := "Placing standard limit order."
+						var orderLogMsg string
 
 						if depth >= liquidityThresholdBtc {
 							if orderType == "buy" {
@@ -283,11 +308,11 @@ func processSignalsAndExecute(ctx context.Context, cfg *config.Config, obiCalcul
 						logger.Infof("Executing trade for signal: %s. %s", tradingSignal.Type.String(), orderLogMsg)
 						orderAmount := 0.01
 
-						if cfg.Twap.Enabled && orderAmount > cfg.Twap.MaxOrderSizeBtc {
-							logger.Infof("Order amount %.8f exceeds max size %.8f. Executing with TWAP.", orderAmount, cfg.Twap.MaxOrderSizeBtc)
-							go executeTwapOrder(ctx, execEngine, cfg, cfg.Pair, orderType, finalPrice, orderAmount)
+						if currentCfg.Twap.Enabled && orderAmount > currentCfg.Twap.MaxOrderSizeBtc {
+							logger.Infof("Order amount %.8f exceeds max size %.8f. Executing with TWAP.", orderAmount, currentCfg.Twap.MaxOrderSizeBtc)
+							go executeTwapOrder(ctx, execEngine, currentCfg.Pair, orderType, finalPrice, orderAmount)
 						} else {
-							_, err := execEngine.PlaceOrder(ctx, cfg.Pair, orderType, finalPrice, orderAmount, false)
+							_, err := execEngine.PlaceOrder(ctx, currentCfg.Pair, orderType, finalPrice, orderAmount, false)
 							if err != nil {
 								logger.Errorf("Failed to place order for signal: %v", err)
 							}
@@ -300,7 +325,8 @@ func processSignalsAndExecute(ctx context.Context, cfg *config.Config, obiCalcul
 }
 
 // executeTwapOrder executes a large order by splitting it into smaller chunks over time.
-func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, cfg *config.Config, pair, orderType string, price, totalAmount float64) {
+func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, pair, orderType string, price, totalAmount float64) {
+	cfg := config.GetConfig()
 	numOrders := int(math.Floor(totalAmount / cfg.Twap.MaxOrderSizeBtc))
 	lastOrderSize := totalAmount - float64(numOrders)*cfg.Twap.MaxOrderSizeBtc
 	chunkSize := cfg.Twap.MaxOrderSizeBtc
@@ -346,11 +372,12 @@ func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, cf
 }
 
 // runMainLoop starts either the live trading, replay, or simulation mode.
-func runMainLoop(ctx context.Context, f flags, cfg *config.Config, dbWriter *dbwriter.Writer, sigs chan<- os.Signal) {
+func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs chan<- os.Signal) {
+	cfg := config.GetConfig()
 	if f.replayMode {
-		go runReplay(ctx, cfg, dbWriter, sigs)
+		go runReplay(ctx, dbWriter, sigs)
 	} else if f.simulateMode {
-		go runSimulation(ctx, f, cfg, sigs)
+		go runSimulation(ctx, f, sigs)
 	} else {
 		// Live trading setup
 		client := coincheck.NewClient(cfg.APIKey, cfg.APISecret)
@@ -397,26 +424,66 @@ func startPnlReporter(ctx context.Context, cfg *config.Config, dbpool *pgxpool.P
 	logger.Infof("Starting PnL reporter: interval=%d minutes, maxAge=%d hours",
 		cfg.PnlReport.IntervalMinutes, cfg.PnlReport.MaxAgeHours)
 
-	ticker := time.NewTicker(time.Duration(cfg.PnlReport.IntervalMinutes) * time.Minute)
-	defer ticker.Stop()
+		logger.Infof("Starting PnL reporter: interval=%d minutes, maxAge=%d hours",
+			cfg.PnlReport.IntervalMinutes, cfg.PnlReport.MaxAgeHours)
 
 	repo := datastore.NewRepository(dbpool)
 
-	// 初回実行
-	generateAndSaveReport(ctx, repo)
-	deleteOldReports(ctx, repo, cfg.PnlReport.MaxAgeHours)
+			dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+				cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name, cfg.Database.SSLMode)
+			dbpool, err := pgxpool.New(ctx, dbURL)
+			if err != nil {
+				logger.Errorf("PnL reporter unable to connect to database: %v", err)
+				return // Exit goroutine if DB connection fails
+			}
+			defer dbpool.Close()
+			repo := datastore.NewRepository(dbpool)
 
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info("Stopping PnL reporter.")
-			return
-		case <-ticker.C:
+			// Initial run
 			generateAndSaveReport(ctx, repo)
 			deleteOldReports(ctx, repo, cfg.PnlReport.MaxAgeHours)
-		}
+
+			for {
+				select {
+				case <-ctx.Done():
+					logger.Info("Stopping PnL reporter.")
+					return
+				case <-ticker.C:
+					// Re-fetch config inside the loop to get the latest values
+					loopCfg := config.GetConfig()
+					generateAndSaveReport(ctx, repo)
+					deleteOldReports(ctx, repo, loopCfg.PnlReport.MaxAgeHours)
+				}
+			}
+		}()
 	}
+
+	// Initial start
+	start()
+
+	// Watch for config changes
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGHUP)
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-sigChan:
+				logger.Info("Restarting PnL reporter due to config reload.")
+				// Stop the current ticker and wait for the goroutine to exit
+				if ticker != nil {
+					ticker.Stop()
+				}
+				wg.Wait()
+				// Restart the reporter
+				start()
+			}
+		}
+	}()
 }
+
 
 func generateAndSaveReport(ctx context.Context, repo *datastore.Repository) {
 	logger.Info("Generating PnL report...")
@@ -520,7 +587,8 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine) {
 }
 
 // runSimulation runs a backtest using data from a CSV file.
-func runSimulation(ctx context.Context, f flags, cfg *config.Config, sigs chan<- os.Signal) {
+func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
+	cfg := config.GetConfig()
 	logger.Info("--- SIMULATION MODE ---")
 	logger.Infof("CSV File: %s", f.csvPath)
 	logger.Infof("Pair: %s", cfg.Pair)
@@ -536,7 +604,7 @@ func runSimulation(ctx context.Context, f flags, cfg *config.Config, sigs chan<-
 	orderBookHandler, _ := setupHandlers(orderBook, nil, cfg.Pair)
 
 	obiCalculator.Start(ctx)
-	go processSignalsAndExecute(ctx, cfg, obiCalculator, execEngine)
+	go processSignalsAndExecute(ctx, obiCalculator, execEngine)
 
 	logger.Infof("Fetching market events from %s", f.csvPath)
 	events, err := datastore.FetchMarketEventsFromCSV(ctx, f.csvPath)
@@ -576,7 +644,7 @@ func runSimulation(ctx context.Context, f flags, cfg *config.Config, sigs chan<-
 }
 
 // orderMonitor periodically checks open orders and adjusts them if necessary.
-func orderMonitor(ctx context.Context, cfg *config.Config, execEngine engine.ExecutionEngine, client *coincheck.Client, orderBook *indicator.OrderBook) {
+func orderMonitor(ctx context.Context, execEngine engine.ExecutionEngine, client *coincheck.Client, orderBook *indicator.OrderBook) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
@@ -647,9 +715,9 @@ func orderMonitor(ctx context.Context, cfg *config.Config, execEngine engine.Exe
 						logger.Errorf("Failed to parse pending amount for order %d: %v", order.ID, err)
 						continue
 					}
-
+					currentCfg := config.GetConfig()
 					logger.Infof("Re-placing order for pair %s, type %s, new rate %.2f, amount %.8f", order.Pair, order.OrderType, newRate, pendingAmount)
-					_, err = execEngine.PlaceOrder(ctx, order.Pair, order.OrderType, newRate, pendingAmount, false)
+					_, err = execEngine.PlaceOrder(ctx, currentCfg.Pair, order.OrderType, newRate, pendingAmount, false)
 					if err != nil {
 						logger.Errorf("Failed to re-place order after adjustment for original ID %d: %v", order.ID, err)
 					} else {
@@ -701,7 +769,8 @@ func startBenchmarkReporter(ctx context.Context, svc benchmark.BenchmarkService,
 }
 
 // runReplay runs the backtest simulation using data from the database.
-func runReplay(ctx context.Context, cfg *config.Config, dbWriter *dbwriter.Writer, sigs chan<- os.Signal) {
+func runReplay(ctx context.Context, dbWriter *dbwriter.Writer, sigs chan<- os.Signal) {
+	cfg := config.GetConfig()
 	replaySessionID, err := uuid.NewRandom()
 	if err != nil {
 		logger.Fatalf("Failed to generate replay session ID: %v", err)
@@ -727,7 +796,7 @@ func runReplay(ctx context.Context, cfg *config.Config, dbWriter *dbwriter.Write
 	orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Pair)
 
 	obiCalculator.Start(ctx)
-	go processSignalsAndExecute(ctx, cfg, obiCalculator, execEngine)
+	go processSignalsAndExecute(ctx, obiCalculator, execEngine)
 
 	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
 		cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name, cfg.Database.SSLMode)

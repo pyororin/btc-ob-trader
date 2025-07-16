@@ -3,9 +3,13 @@ package config
 
 import (
 	"os"
+	"sync/atomic"
 
 	"gopkg.in/yaml.v3"
 )
+
+// globalConfig holds the current configuration, accessible atomically.
+var globalConfig atomic.Value
 
 // Config defines the structure for all application configuration.
 type Config struct {
@@ -26,6 +30,13 @@ type Config struct {
 	DBWriter    DBWriterConfig  `yaml:"db_writer"`
 	Replay      ReplayConfig    `yaml:"replay"`
 	PnlReport   PnlReportConfig `yaml:"pnl_report"`
+	Risk        RiskConfig      `yaml:"risk"`
+}
+
+// RiskConfig holds risk management settings.
+type RiskConfig struct {
+	MaxDrawdownPercent float64 `yaml:"max_drawdown_percent"`
+	MaxPositionJPY     float64 `yaml:"max_position_jpy"`
 }
 
 // SignalConfig holds configuration for signal generation.
@@ -96,9 +107,9 @@ type DynamicOBIConf struct {
 	MaxThresholdFactor float64 `yaml:"max_threshold_factor"`
 }
 
-// LoadConfig loads configuration from the specified YAML file path
-// and environment variables.
-func LoadConfig(configPath string) (*Config, error) {
+// loadFromFile loads configuration from a YAML file and environment variables.
+// It does not store the config globally, allowing it to be used for reloading.
+func loadFromFile(configPath string) (*Config, error) {
 	cfg := &Config{
 		LogLevel: "info",
 	}
@@ -110,6 +121,13 @@ func LoadConfig(configPath string) (*Config, error) {
 	err = yaml.Unmarshal(file, cfg)
 	if err != nil {
 		return nil, err
+	}
+
+	// Preserve API keys from the currently active config if they are not re-set by env vars
+	currentCfg := GetConfig()
+	if currentCfg != nil {
+		cfg.APIKey = currentCfg.APIKey
+		cfg.APISecret = currentCfg.APISecret
 	}
 
 	if apiKey := os.Getenv("COINCHECK_API_KEY"); apiKey != "" {
@@ -138,4 +156,31 @@ func LoadConfig(configPath string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// LoadConfig loads the configuration for the first time and stores it globally.
+func LoadConfig(configPath string) (*Config, error) {
+	cfg, err := loadFromFile(configPath)
+	if err != nil {
+		return nil, err
+	}
+	globalConfig.Store(cfg)
+	return cfg, nil
+}
+
+// ReloadConfig reloads the configuration from the given path and atomically
+// updates the global configuration.
+func ReloadConfig(configPath string) (*Config, error) {
+	cfg, err := loadFromFile(configPath)
+	if err != nil {
+		return nil, err
+	}
+	globalConfig.Store(cfg)
+	return cfg, nil
+}
+
+// GetConfig returns the current global configuration.
+func GetConfig() *Config {
+	cfg, _ := globalConfig.Load().(*Config)
+	return cfg
 }
