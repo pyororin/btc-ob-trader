@@ -22,3 +22,6 @@ build/
 bin/
 vendor/
 pkg/cvd/test_trades.csv
+
+# Simulate
+simulation/*csv
