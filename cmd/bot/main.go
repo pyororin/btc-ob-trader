@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -96,10 +97,12 @@ func parseFlags() flags {
 
 // setupConfig loads the application configuration.
 func setupConfig(appConfigPath string) *config.Config {
-	tradeConfigPath := "config/trade_config.yaml"
+	dir := filepath.Dir(appConfigPath)
+	tradeConfigPath := filepath.Join(dir, "trade_config.yaml")
+
 	cfg, err := config.LoadConfig(appConfigPath, tradeConfigPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load configuration: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to load configuration from %s and %s: %v\n", appConfigPath, tradeConfigPath, err)
 		os.Exit(1)
 	}
 	return cfg
@@ -109,11 +112,12 @@ func setupConfig(appConfigPath string) *config.Config {
 func watchSignals(appConfigPath string) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGHUP)
-	tradeConfigPath := "config/trade_config.yaml"
 
 	for {
 		<-sigChan
 		logger.Info("SIGHUP received, attempting to reload configuration...")
+		dir := filepath.Dir(appConfigPath)
+		tradeConfigPath := filepath.Join(dir, "trade_config.yaml")
 		newCfg, err := config.ReloadConfig(appConfigPath, tradeConfigPath)
 		if err != nil {
 			logger.Errorf("Failed to reload configuration: %v", err)

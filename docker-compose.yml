@@ -23,7 +23,7 @@ services:
       - ./.env:/app/.env:ro
       - ./config:/app/config:ro
     entrypoint: ["/usr/local/bin/obi-scalp-bot"]
-    command: ["-config", "/app/config/config.yaml"]
+    command: ["-config", "/app/config/app_config.yaml"]
     env_file:
       - .env
     environment:
@@ -53,7 +53,7 @@ services:
       - ./.env:/app/.env:ro
       - ./config:/app/config:ro
       - ./pkg:/app/pkg:ro
-    command: ["-replay", "-config", "/app/config/config-replay.yaml"]
+    command: ["-replay", "-config", "/app/config/app_config.yaml"]
     env_file:
       - .env
     environment:
