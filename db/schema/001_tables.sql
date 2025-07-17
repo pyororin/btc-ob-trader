@@ -116,7 +116,21 @@ CREATE TABLE IF NOT EXISTS pnl_reports (
     total_pnl DECIMAL NOT NULL,
     average_profit DECIMAL NOT NULL,
     average_loss DECIMAL NOT NULL,
-    risk_reward_ratio REAL NOT NULL
+    risk_reward_ratio REAL NOT NULL,
+    -- 追加指標
+    profit_factor REAL,
+    sharpe_ratio REAL,
+    sortino_ratio REAL,
+    calmar_ratio REAL,
+    max_drawdown DECIMAL,
+    recovery_factor REAL,
+    avg_holding_period_seconds REAL,
+    avg_winning_holding_period_seconds REAL,
+    avg_losing_holding_period_seconds REAL,
+    max_consecutive_wins INT,
+    max_consecutive_losses INT,
+    buy_and_hold_return DECIMAL,
+    return_vs_buy_and_hold DECIMAL
 );
 
 -- pnl_reports テーブルをHypertableに変換
