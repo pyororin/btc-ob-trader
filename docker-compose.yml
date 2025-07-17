@@ -76,26 +76,6 @@ services:
     networks:
       - bot_network
 
-  db-init:
-    image: postgres:14
-    volumes:
-      - ./db/schema:/docker-entrypoint-initdb.d/schema
-      - ./db/migrations:/docker-entrypoint-initdb.d/migrations
-    environment:
-      POSTGRES_HOST: timescaledb
-      POSTGRES_USER: ${DB_USER:-your_db_user}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-your_db_password}
-      POSTGRES_DB: ${DB_NAME:-obi_scalp_bot_db}
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - >
-        /docker-entrypoint-initdb.d/init-db.sh
-    networks:
-      - bot_network
-    depends_on:
-      timescaledb:
-        condition: service_healthy
-
   timescaledb:
     image: timescale/timescaledb-ha:pg14.9-ts2.11.2
     container_name: timescaledb-obi
@@ -107,6 +87,8 @@ services:
       POSTGRES_DB: ${DB_NAME:-obi_scalp_bot_db}
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
+      - ./db/schema:/docker-entrypoint-initdb.d/01_schema
+      - ./db/migrations:/docker-entrypoint-initdb.d/02_migrations
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s

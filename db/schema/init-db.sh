@@ -8,14 +8,8 @@ do
   sleep 1
 done
 
-# Apply schema files
-for f in /docker-entrypoint-initdb.d/schema/*.sql; do
+# Apply all .sql files in the directory
+for f in /docker-entrypoint-initdb.d/*.sql; do
   echo "Applying schema $f..."
-  psql -h $POSTGRES_HOST -U $POSTGRES_USER -d $POSTGRES_DB -f "$f"
-done
-
-# Apply migration files
-for f in /docker-entrypoint-initdb.d/migrations/*.sql; do
-  echo "Applying migration $f..."
   psql -h $POSTGRES_HOST -U $POSTGRES_USER -d $POSTGRES_DB -f "$f"
 done
