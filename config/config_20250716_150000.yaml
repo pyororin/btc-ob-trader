@@ -6,40 +6,40 @@
 # 取引ペア
 pair: "btc_jpy"
 # 許容する最大スプレッド（円）
-spread_limit: 100
+spread_limit: 60
 # 1注文あたりの最大ロット比率（対利用可能残高）
-lot_max_ratio: 0.03
+lot_max_ratio: 0.05
 # 注文比率
-order_ratio: 0.15
+order_ratio: 0.2
 
 # ロングエントリー戦略
 long:
   # OBIの閾値
-  obi_threshold: 0.50
+  obi_threshold: 0.35
   # 利食い幅（円）
-  tp: 60
+  tp: 40
   # 損切り幅（円）
-  sl: -30
+  sl: -20
 
 # ショートエントリー戦略
 short:
   # OBIの閾値
-  obi_threshold: -0.25
+  obi_threshold: -0.35
   # 利食い幅（円）
-  tp: 60
+  tp: 40
   # 損切り幅（円）
-  sl: -30
+  sl: -20
 
 # ボラティリティ設定
 volatility:
   # EWMA（指数平滑移動平均）のλ値
-  ewma_lambda: 0.2
+  ewma_lambda: 0.3
   # 動的OBI設定
   dynamic_obi:
     # 有効化フラグ
-    enabled: true
+    enabled: false
     # ボラティリティ係数
-    volatility_factor: 1.3
+    volatility_factor: 1.6
     # 最小閾値係数
     min_threshold_factor: 0.8
     # 最大閾値係数
@@ -60,7 +60,7 @@ signal:
   # OBIが閾値を超えても即座にエントリーせず、この時間だけ閾値を超え続けた場合にシグナルが確定します。
   # 値を大きくするとダマシを避けやすくなりますが、エントリーは遅れます。
   # 値を小さくすると素早く反応できますが、ノイズに弱くなります。
-  hold_duration_ms: 1200
+  hold_duration_ms: 600
 
 
 # --- アプリケーション設定 ---
@@ -112,20 +112,3 @@ pnl_report:
   interval_minutes: 1
   # レポートの最大保存期間（時間）
   max_age_hours: 24
-
-# --- リスク管理設定 ---
-risk:
-  # 許容最大ドローダウン率 (%)
-  # この値を超えた場合、新規注文を停止します。
-  max_drawdown_percent: 8.0
-  # 最大ポジションサイズ (JPY)
-  # この値を超えた場合、新規注文を停止します。
-  max_position_jpy: 500000.0
-
-# --- アラート設定 ---
-alert:
-  discord:
-    # Discord Botのトークン
-    bot_token: "YOUR_DISCORD_BOT_TOKEN"
-    # 通知を送信するユーザーのID
-    user_id: "YOUR_DISCORD_USER_ID"
