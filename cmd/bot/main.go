@@ -99,7 +99,6 @@ func parseFlags() flags {
 func setupConfig(appConfigPath string) *config.Config {
 	dir := filepath.Dir(appConfigPath)
 	tradeConfigPath := filepath.Join(dir, "trade_config.yaml")
-
 	cfg, err := config.LoadConfig(appConfigPath, tradeConfigPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load configuration from %s and %s: %v\n", appConfigPath, tradeConfigPath, err)
@@ -112,6 +111,7 @@ func setupConfig(appConfigPath string) *config.Config {
 func watchSignals(appConfigPath string) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGHUP)
+	tradeConfigPath := "config/trade_config.yaml"
 
 	for {
 		<-sigChan
