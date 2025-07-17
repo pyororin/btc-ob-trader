@@ -483,7 +483,24 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 	if trade.Side == "sell" {
 		tradeAmount = -tradeAmount
 	}
+
+	previousPositionSize, _ := e.position.Get()
 	realizedPnL := e.position.Update(tradeAmount, trade.Price)
+	newPositionSize, _ := e.position.Get()
+
+	// Set entry and exit times
+	if math.Abs(previousPositionSize) > 1e-8 && math.Abs(newPositionSize) < 1e-8 { // Position closed
+		// Find the entry trade and set the exit time for all trades in that position
+		for i := len(e.ExecutedTrades) - 1; i >= 0; i-- {
+			if e.ExecutedTrades[i].ExitTime.IsZero() {
+				e.ExecutedTrades[i].ExitTime = trade.Time
+			} else {
+				break // Stop when we hit a trade that was already part of a closed position
+			}
+		}
+	}
+	trade.EntryTime = trade.Time
+
 	if realizedPnL != 0 {
 		e.pnlCalculator.UpdateRealizedPnL(realizedPnL)
 	}
