@@ -219,6 +219,17 @@ make simulate CSV_PATH=./simulation/your_exported_file.csv
 `make up` または `make monitor` を実行後、ブラウザで http://localhost:3000 にアクセスします。
 `.env` で設定したユーザー名とパスワードでログインしてください（デフォルト: admin/admin）。
 
+## Adminerによるデータベース閲覧
+
+`make up` または `make monitor` を実行後、ブラウザで http://localhost:8888 にアクセスすると、Adminerの管理画面が開きます。
+以下の情報でデータベースに接続できます。
+
+-   **System**: `PostgreSQL`
+-   **Server**: `timescaledb`
+-   **Username**: (`.env`で設定した`DB_USER`)
+-   **Password**: (`.env`で設定した`DB_PASSWORD`)
+-   **Database**: (`.env`で設定した`DB_NAME`)
+
 ## 開発
 
 ### テストの実行
