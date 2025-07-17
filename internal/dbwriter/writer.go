@@ -36,6 +36,14 @@ type Trade struct {
 	RealizedPnL   float64   `db:"realized_pnl"` // Not always stored in DB, but used for simulation summary
 }
 
+// TradePnL はデータベースに保存する個別の取引のPnL情報です。
+type TradePnL struct {
+	TradeID       int64     `db:"trade_id"`
+	Pnl           float64   `db:"pnl"`
+	CumulativePnl float64   `db:"cumulative_pnl"`
+	CreatedAt     time.Time `db:"created_at"`
+}
+
 // PnLSummary はデータベースに保存するPnL情報の構造体です。
 type PnLSummary struct {
 	Time            time.Time `db:"time"`
@@ -337,6 +345,38 @@ func (w *Writer) SavePnLSummary(ctx context.Context, pnl PnLSummary) error {
 	if err != nil {
 		w.logger.Error("Failed to insert PnL summary", zap.Error(err), zap.Any("pnl", pnl))
 		return fmt.Errorf("failed to insert PnL summary: %w", err)
+	}
+	return nil
+}
+
+// SaveTradePnL は個別の取引のPnLをデータベースに保存します。
+func (w *Writer) SaveTradePnL(ctx context.Context, tradePnl TradePnL) error {
+	if w.pool == nil {
+		w.logger.Info("Skipping trade PnL save for dummy writer", zap.Any("tradePnl", tradePnl))
+		return nil
+	}
+
+	// 既存の最大のcumulative_pnlを取得
+	var lastCumulativePnl float64
+	err := w.pool.QueryRow(ctx, "SELECT cumulative_pnl FROM trades_pnl ORDER BY created_at DESC LIMIT 1").Scan(&lastCumulativePnl)
+	if err != nil && err != pgx.ErrNoRows {
+		w.logger.Error("Failed to get last cumulative PnL", zap.Error(err))
+		return fmt.Errorf("failed to get last cumulative PnL: %w", err)
+	}
+
+	tradePnl.CumulativePnl = lastCumulativePnl + tradePnl.Pnl
+
+	query := `INSERT INTO trades_pnl (trade_id, pnl, cumulative_pnl, created_at)
+	          VALUES ($1, $2, $3, $4)`
+	_, err = w.pool.Exec(ctx, query,
+		tradePnl.TradeID,
+		tradePnl.Pnl,
+		tradePnl.CumulativePnl,
+		tradePnl.CreatedAt,
+	)
+	if err != nil {
+		w.logger.Error("Failed to insert trade PnL", zap.Error(err), zap.Any("tradePnl", tradePnl))
+		return fmt.Errorf("failed to insert trade PnL: %w", err)
 	}
 	return nil
 }

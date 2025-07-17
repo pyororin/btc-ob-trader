@@ -250,6 +250,19 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 						} else {
 							logger.Infof("[Live] Saved PnL summary to DB.")
 						}
+						// Save individual trade PnL
+						if realizedPnL != 0 {
+							tradePnl := dbwriter.TradePnL{
+								TradeID:   txID,
+								Pnl:       realizedPnL,
+								CreatedAt: trade.Time,
+							}
+							if err := e.dbWriter.SaveTradePnL(ctx, tradePnl); err != nil {
+								logger.Errorf("[Live] Error saving trade PnL: %v", err)
+							} else {
+								logger.Infof("[Live] Saved trade PnL to DB.")
+							}
+						}
 					}
 					return orderResp, nil // Order filled
 				}
@@ -498,6 +511,17 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 		}
 		if err := e.dbWriter.SavePnLSummary(ctx, pnlSummary); err != nil {
 			logger.Errorf("[%s] Error saving PnL summary: %v", mode, err)
+		}
+		// Save individual trade PnL
+		if realizedPnL != 0 {
+			tradePnl := dbwriter.TradePnL{
+				TradeID:   trade.TransactionID,
+				Pnl:       realizedPnL,
+				CreatedAt: trade.Time,
+			}
+			if err := e.dbWriter.SaveTradePnL(ctx, tradePnl); err != nil {
+				logger.Errorf("[%s] Error saving trade PnL: %v", mode, err)
+			}
 		}
 		logger.Infof("[%s] Saved simulated trade and PnL summary to DB.", mode)
 	} else {
