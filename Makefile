@@ -69,19 +69,25 @@ simulate: ## Run a backtest using trade data from a local CSV file.
 		exit 1; \
 	fi
 	@mkdir -p ./simulation
-	@CMD="sudo -E docker compose run --build --rm --no-deps -v $(shell pwd)/simulation:/simulation bot-simulate --simulate --config=config/app_config.yaml"; \
-	if [ $$(echo "$(CSV_PATH)" | grep -c ".zip$$") -gt 0 ]; then \
+	@if echo "$(CSV_PATH)" | grep -q ".zip$$"; then \
 		echo "Unzipping $(CSV_PATH) to ./simulation..."; \
 		unzip -o $(CSV_PATH) -d ./simulation; \
 		UNZIPPED_CSV_PATH=/simulation/$$(basename $(CSV_PATH) .zip).csv; \
 		echo "Using unzipped file: $$UNZIPPED_CSV_PATH"; \
-		$$CMD --csv=$$UNZIPPED_CSV_PATH; \
+		sudo -E docker compose run --build --rm --no-deps \
+			-v $$(pwd)/simulation:/simulation \
+			bot-simulate \
+			--simulate --config=config/app_config.yaml \
+			--csv=$$UNZIPPED_CSV_PATH; \
 	else \
-		# Mount the host file path and pass the container path to the command
-		HOST_CSV_PATH=$(shell realpath $(CSV_PATH))
-		CONTAINER_CSV_PATH=/simulation/$$(basename $(CSV_PATH))
-		CMD_WITH_VOLUME="sudo -E docker compose run --build --rm --no-deps -v $(HOST_CSV_PATH):$(CONTAINER_CSV_PATH) -v $(shell pwd)/simulation:/simulation bot-simulate --simulate --config=config/app_config.yaml"; \
-		$$CMD_WITH_VOLUME --csv=$(CONTAINER_CSV_PATH); \
+		HOST_CSV_PATH=$$(realpath $(CSV_PATH)); \
+		CONTAINER_CSV_PATH=/simulation/$$(basename $(CSV_PATH)); \
+		sudo -E docker compose run --build --rm --no-deps \
+			-v $$HOST_CSV_PATH:$$CONTAINER_CSV_PATH \
+			-v $$(pwd)/simulation:/simulation \
+			bot-simulate \
+			--simulate --config=config/app_config.yaml \
+			--csv=$$CONTAINER_CSV_PATH; \
 	fi
 
 export-sim-data: ## Export order book data from the database to a CSV file for simulation.
