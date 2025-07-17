@@ -616,15 +616,13 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 	logger.Info("--------------------")
 
 	orderBook := indicator.NewOrderBook()
-	// In simulation mode, override signal hold duration to 0 for instant signal confirmation.
-	cfg.Trade.Signal.HoldDurationMs = 0
-	cfg.Trade.Signal.SlopeFilter.Enabled = false
 	replayEngine := engine.NewReplayExecutionEngine(nil, orderBook)
 	var execEngine engine.ExecutionEngine = replayEngine
 	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
 	orderBookHandler, _ := setupHandlers(orderBook, nil, cfg.Trade.Pair)
 
-	obiCalculator.Start(ctx)
+	// In simulation, we do not start the periodic calculator. Instead, we manually trigger calculations.
+	// obiCalculator.Start(ctx)
 	go processSignalsAndExecute(ctx, obiCalculator, execEngine, nil)
 
 	logger.Infof("Streaming market events from %s", f.csvPath)
@@ -647,9 +645,11 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 				}
 				if e, ok := event.(datastore.OrderBookEvent); ok {
 					orderBookHandler(e.OrderBook)
+					// Manually trigger OBI calculation with the timestamp from the event
+					obiCalculator.Calculate(e.Time)
 					snapshotCount++
 					if snapshotCount%1000 == 0 {
-						logger.Infof("Processed snapshot %d", snapshotCount)
+						logger.Infof("Processed snapshot %d at time %s", snapshotCount, e.Time.Format(time.RFC3339))
 					}
 				}
 			case err := <-errCh:
