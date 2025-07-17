@@ -111,7 +111,6 @@ func setupConfig(appConfigPath string) *config.Config {
 func watchSignals(appConfigPath string) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGHUP)
-	tradeConfigPath := "config/trade_config.yaml"
 
 	for {
 		<-sigChan
