@@ -36,11 +36,11 @@ type defaultLogger struct {
 // NewLogger creates and new Logger instance, and updates the global `std` logger.
 // loglevel could be "debug", "info", "warn", "error", "fatal"
 func NewLogger(logLevel string) Logger {
-	infoHandle := os.Stdout
-	warnHandle := os.Stdout
+	infoHandle := os.Stderr
+	warnHandle := os.Stderr
 	errorHandle := os.Stderr
 	fatalHandle := os.Stderr // Typically fatal also goes to stderr
-	debugHandle := os.Stdout
+	debugHandle := os.Stderr
 
 	var dLog, iLog, wLog, eLog, fLog *log.Logger
 
