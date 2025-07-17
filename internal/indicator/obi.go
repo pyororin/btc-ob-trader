@@ -31,7 +31,27 @@ func NewOBICalculator(ob *OrderBook, interval time.Duration) *OBICalculator {
 	}
 }
 
-// Start begins the periodic calculation of OBI.
+// Calculate performs a one-time calculation of OBI with a given timestamp.
+func (c *OBICalculator) Calculate(timestamp time.Time) {
+	c.orderBook.RLock()
+	isBookReady := !c.orderBook.Time.IsZero()
+	c.orderBook.RUnlock()
+
+	if isBookReady {
+		if obiResult, ok := c.orderBook.CalculateOBI(OBILevels...); ok {
+			// Override the timestamp with the one provided, crucial for simulations
+			obiResult.Timestamp = timestamp
+			select {
+			case c.output <- obiResult:
+			default:
+				// Channel is full, indicating that the consumer is not keeping up.
+				// In a simulation, this might be fine, but in live trading, it could be an issue.
+			}
+		}
+	}
+}
+
+// Start begins the periodic calculation of OBI for live trading.
 func (c *OBICalculator) Start(ctx context.Context) {
 	c.mu.Lock()
 	if c.started {
@@ -56,19 +76,9 @@ func (c *OBICalculator) Start(ctx context.Context) {
 			case <-ctx.Done():
 				close(c.done)
 				return
-			case <-c.ticker.C:
-				c.orderBook.RLock()
-				isBookReady := !c.orderBook.Time.IsZero()
-				c.orderBook.RUnlock()
-
-				if isBookReady {
-					if obiResult, ok := c.orderBook.CalculateOBI(OBILevels...); ok {
-						select {
-						case c.output <- obiResult:
-						default:
-						}
-					}
-				}
+			case t := <-c.ticker.C:
+				// For live trading, use the ticker's time.
+				c.Calculate(t.UTC())
 			case <-c.done:
 				return
 			}
