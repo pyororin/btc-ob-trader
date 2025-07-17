@@ -92,7 +92,7 @@ SELECT add_compression_policy('trades', INTERVAL '7 days', if_not_exists => TRUE
 
 CREATE INDEX IF NOT EXISTS idx_trades_replay_id_time ON trades (replay_session_id, time DESC);
 CREATE INDEX IF NOT EXISTS idx_trades_pair_time ON trades (pair, time DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_transaction_id ON trades (transaction_id, time);
+-- CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_transaction_id ON trades (transaction_id, time);
 
 -- PnLレポートテーブル (pnl_reports)
 -- report-generatorによって生成された分析レポートの結果を格納

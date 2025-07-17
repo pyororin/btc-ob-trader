@@ -23,13 +23,15 @@ help:
 up: ## Start all services including the bot for live trading.
 	@echo "Starting all services (including trading bot)..."
 	@if [ ! -f .db_initialized ]; then \
-		echo "Database not initialized. Please run 'make init-db' first."; \
-		exit 1; \
+		$(MAKE) init-db; \
 	fi
 	sudo -E docker compose up -d --build
 
 init-db: ## Initialize the database.
 	@echo "Initializing database..."
+	@if [ -f .env ]; then \
+		export $$(cat .env | grep -v '#' | xargs); \
+	fi
 	sudo -E docker compose up -d timescaledb
 	sudo -E docker compose run --rm db-init
 	@touch .db_initialized
