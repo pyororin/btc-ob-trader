@@ -5,15 +5,16 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/your-org/obi-scalp-bot/internal/config"
 	"github.com/your-org/obi-scalp-bot/internal/dbwriter"
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
 	"github.com/your-org/obi-scalp-bot/internal/pnl"
 	"github.com/your-org/obi-scalp-bot/internal/position"
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
-	"github.com/your-org/obi-scalp-bot/internal/config"
 )
 
 // ExecutionEngine defines the interface for order execution.
@@ -29,23 +30,40 @@ type LiveExecutionEngine struct {
 	dbWriter       *dbwriter.Writer
 	position       *position.Position
 	pnlCalculator  *pnl.Calculator
+	recentPnLs     []float64
+	currentRatios  struct {
+		OrderRatio  float64
+		LotMaxRatio float64
+	}
+	partialExitMutex   sync.Mutex
+	isExitingPartially bool
 }
 
 // NewLiveExecutionEngine creates a new LiveExecutionEngine.
 func NewLiveExecutionEngine(client *coincheck.Client, cfg *config.Config, dbWriter *dbwriter.Writer) *LiveExecutionEngine {
-	return &LiveExecutionEngine{
+	engine := &LiveExecutionEngine{
 		exchangeClient: client,
 		cfg:            cfg,
 		dbWriter:       dbWriter,
 		position:       position.NewPosition(),
 		pnlCalculator:  pnl.NewCalculator(),
+		recentPnLs:     make([]float64, 0),
 	}
+	// Initialize ratios from config
+	engine.currentRatios.OrderRatio = cfg.OrderRatio
+	engine.currentRatios.LotMaxRatio = cfg.LotMaxRatio
+	return engine
 }
 
 // PlaceOrder places a new order on the exchange and monitors for execution.
 func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, orderType string, rate float64, amount float64, postOnly bool) (*coincheck.OrderResponse, error) {
 	if e.exchangeClient == nil {
 		return nil, fmt.Errorf("LiveExecutionEngine: exchange client is not initialized")
+	}
+
+	// Adjust order ratios based on recent performance
+	if e.cfg.AdaptivePositionSizing.Enabled {
+		e.adjustRatios()
 	}
 
 	// Balance check and amount adjustment logic
@@ -84,9 +102,9 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 
 	var cappedAmount float64
 	if orderType == "buy" {
-		cappedAmount = (availableJpy * e.cfg.OrderRatio) / roundedRate
+		cappedAmount = (availableJpy * e.currentRatios.OrderRatio) / roundedRate
 	} else { // sell
-		cappedAmount = availableBtc * e.cfg.OrderRatio
+		cappedAmount = availableBtc * e.currentRatios.OrderRatio
 	}
 	cappedAmount = math.Floor(cappedAmount*1e6) / 1e6
 
@@ -203,6 +221,10 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 						realizedPnL := e.position.Update(tradeAmount, trade.Price)
 						if realizedPnL != 0 {
 							e.pnlCalculator.UpdateRealizedPnL(realizedPnL)
+							// Update recent PnLs for adaptive sizing
+							if e.cfg.AdaptivePositionSizing.Enabled {
+								e.updateRecentPnLs(realizedPnL)
+							}
 						}
 						logger.Infof("[Live] Position updated: %s", e.position.String())
 
@@ -249,6 +271,124 @@ func (e *LiveExecutionEngine) CancelOrder(ctx context.Context, orderID int64) (*
 	}
 	logger.Infof("[Live] Order cancelled successfully: %+v", resp)
 	return resp, nil
+}
+
+// updateRecentPnLs adds a new PnL to the recent PnL list and keeps it at the configured size.
+func (e *LiveExecutionEngine) updateRecentPnLs(pnl float64) {
+	e.recentPnLs = append(e.recentPnLs, pnl)
+	numTrades := e.cfg.AdaptivePositionSizing.NumTrades
+	if len(e.recentPnLs) > numTrades {
+		e.recentPnLs = e.recentPnLs[len(e.recentPnLs)-numTrades:]
+	}
+	logger.Infof("[Live] Updated recent PnLs: %v", e.recentPnLs)
+}
+
+// GetPosition returns the current position size and average entry price.
+func (e *LiveExecutionEngine) GetPosition() (size float64, avgEntryPrice float64) {
+	return e.position.Get()
+}
+
+// SetPartialExitStatus sets the status of the partial exit flag.
+func (e *LiveExecutionEngine) SetPartialExitStatus(isExiting bool) {
+	e.partialExitMutex.Lock()
+	defer e.partialExitMutex.Unlock()
+	e.isExitingPartially = isExiting
+}
+
+// IsExitingPartially returns true if a partial exit is currently in progress.
+func (e *LiveExecutionEngine) IsExitingPartially() bool {
+	e.partialExitMutex.Lock()
+	defer e.partialExitMutex.Unlock()
+	return e.isExitingPartially
+}
+
+// PartialExitOrder represents the details of a partial exit order to be executed.
+type PartialExitOrder struct {
+	OrderType string
+	Size      float64
+	Price     float64
+}
+
+// CheckAndTriggerPartialExit checks for partial profit taking conditions and returns an order if triggered.
+func (e *LiveExecutionEngine) CheckAndTriggerPartialExit(currentMidPrice float64) *PartialExitOrder {
+	e.partialExitMutex.Lock()
+	defer e.partialExitMutex.Unlock()
+
+	if e.isExitingPartially || !e.cfg.Twap.PartialExitEnabled {
+		return nil
+	}
+
+	positionSize, avgEntryPrice := e.position.Get()
+	if math.Abs(positionSize) < 1e-8 { // No position
+		return nil
+	}
+
+	unrealizedPnL := (currentMidPrice - avgEntryPrice) * positionSize
+	entryValue := avgEntryPrice * math.Abs(positionSize)
+	if entryValue == 0 {
+		return nil
+	}
+	profitRatio := unrealizedPnL / entryValue * 100 // In percent
+
+	if profitRatio > e.cfg.Twap.ProfitThreshold {
+		logger.Infof("Profit threshold of %.2f%% reached (current: %.2f%%). Initiating partial exit.",
+			e.cfg.Twap.ProfitThreshold, profitRatio)
+
+		e.isExitingPartially = true // Set flag inside the lock
+
+		exitSize := positionSize * e.cfg.Twap.ExitRatio
+		orderType := "sell"
+		if positionSize < 0 { // Short position
+			orderType = "buy"
+		}
+
+		return &PartialExitOrder{
+			OrderType: orderType,
+			Size:      math.Abs(exitSize),
+			Price:     currentMidPrice,
+		}
+	}
+
+	return nil
+}
+
+// adjustRatios dynamically adjusts the order and lot max ratios based on recent PnL.
+func (e *LiveExecutionEngine) adjustRatios() {
+	if len(e.recentPnLs) < e.cfg.AdaptivePositionSizing.NumTrades {
+		// Not enough trade data yet, use default ratios
+		e.currentRatios.OrderRatio = e.cfg.OrderRatio
+		e.currentRatios.LotMaxRatio = e.cfg.LotMaxRatio
+		return
+	}
+
+	pnlSum := 0.0
+	for _, pnl := range e.recentPnLs {
+		pnlSum += pnl
+	}
+
+	if pnlSum < 0 {
+		// Reduce ratios
+		e.currentRatios.OrderRatio *= e.cfg.AdaptivePositionSizing.ReductionStep
+		e.currentRatios.LotMaxRatio *= e.cfg.AdaptivePositionSizing.ReductionStep
+
+		// Enforce minimum ratios
+		minOrderRatio := e.cfg.OrderRatio * e.cfg.AdaptivePositionSizing.MinRatio
+		minLotMaxRatio := e.cfg.LotMaxRatio * e.cfg.AdaptivePositionSizing.MinRatio
+		if e.currentRatios.OrderRatio < minOrderRatio {
+			e.currentRatios.OrderRatio = minOrderRatio
+		}
+		if e.currentRatios.LotMaxRatio < minLotMaxRatio {
+			e.currentRatios.LotMaxRatio = minLotMaxRatio
+		}
+		logger.Warnf("[Live] Negative PnL trend detected. Reducing ratios to OrderRatio: %.4f, LotMaxRatio: %.4f", e.currentRatios.OrderRatio, e.currentRatios.LotMaxRatio)
+	} else {
+		// Reset to default ratios
+		if e.currentRatios.OrderRatio != e.cfg.OrderRatio || e.currentRatios.LotMaxRatio != e.cfg.LotMaxRatio {
+			e.currentRatios.OrderRatio = e.cfg.OrderRatio
+			e.currentRatios.LotMaxRatio = e.cfg.LotMaxRatio
+			logger.Infof("[Live] Positive PnL trend. Ratios reset to default. OrderRatio: %.4f, LotMaxRatio: %.4f", e.currentRatios.OrderRatio, e.currentRatios.LotMaxRatio)
+		}
+	}
 }
 
 // ReplayExecutionEngine simulates order execution for backtesting.

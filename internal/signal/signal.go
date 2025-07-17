@@ -84,6 +84,10 @@ type SignalEngine struct {
 	shortTP                  float64
 	shortSL                  float64
 
+	// Fields for OBI slope filter
+	slopeFilterConfig config.SlopeFilterConfig
+	obiHistory        []float64
+
 	// Fields for regime detection
 	priceHistory []float64
 	maxHistory   int
@@ -114,6 +118,10 @@ func NewSignalEngine(cfg *config.Config) (*SignalEngine, error) {
 		longSL:                   cfg.Long.SL,
 		shortTP:                  cfg.Short.TP,
 		shortSL:                  cfg.Short.SL,
+
+		// Initialize OBI slope filter fields
+		slopeFilterConfig: cfg.Signal.SlopeFilter,
+		obiHistory:        make([]float64, 0, cfg.Signal.SlopeFilter.Period),
 
 		// Initialize regime detection fields
 		priceHistory: make([]float64, 0, 100),
@@ -187,6 +195,14 @@ func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, 
 // Evaluate evaluates the current OBI value against (potentially dynamic) thresholds
 // and returns a TradingSignal if a new signal is confirmed, otherwise nil.
 func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *TradingSignal {
+	// Update OBI history
+	if e.slopeFilterConfig.Enabled {
+		e.obiHistory = append(e.obiHistory, obiValue)
+		if len(e.obiHistory) > e.slopeFilterConfig.Period {
+			e.obiHistory = e.obiHistory[1:]
+		}
+	}
+
 	longThreshold := e.currentLongOBIThreshold
 	shortThreshold := e.currentShortOBIThreshold
 
@@ -204,6 +220,17 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 		rawSignal = SignalLong
 	} else if obiValue <= -shortThreshold {
 		rawSignal = SignalShort
+	}
+
+	// Apply OBI slope filter
+	if e.slopeFilterConfig.Enabled && rawSignal != SignalNone {
+		slope := e.calculateOBISlope()
+		if rawSignal == SignalLong && slope < e.slopeFilterConfig.Threshold {
+			rawSignal = SignalNone
+		}
+		if rawSignal == SignalShort && slope > -e.slopeFilterConfig.Threshold {
+			rawSignal = SignalNone
+		}
 	}
 
 	// Added for debugging
@@ -273,6 +300,32 @@ func (e *SignalEngine) GetCurrentLongOBIThreshold() float64 {
 // GetCurrentShortOBIThreshold returns the current (potentially dynamic) OBI threshold for short signals.
 func (e *SignalEngine) GetCurrentShortOBIThreshold() float64 {
 	return e.currentShortOBIThreshold
+}
+
+// calculateOBISlope calculates the slope of the OBI history using linear regression.
+func (e *SignalEngine) calculateOBISlope() float64 {
+	n := len(e.obiHistory)
+	if n < e.slopeFilterConfig.Period {
+		return 0.0 // Not enough data
+	}
+
+	var sumX, sumY, sumXY, sumX2 float64
+	for i, y := range e.obiHistory {
+		x := float64(i)
+		sumX += x
+		sumY += y
+		sumXY += x * y
+		sumX2 += x * x
+	}
+
+	floatN := float64(n)
+	denominator := floatN*sumX2 - sumX*sumX
+	if denominator == 0 {
+		return 0.0 // Avoid division by zero
+	}
+
+	slope := (floatN*sumXY - sumX*sumY) / denominator
+	return slope
 }
 
 // Helper function (can be moved to a common utility if used elsewhere)

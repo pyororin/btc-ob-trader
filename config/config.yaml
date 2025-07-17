@@ -53,6 +53,13 @@ twap:
   max_order_size_btc: 0.01
   # 注文間隔（秒）
   interval_seconds: 5
+  # --- 部分利食い設定 ---
+  # 部分利食い機能の有効化
+  partial_exit_enabled: false
+  # 利食いをトリガーする利益率 (%)
+  profit_threshold: 0.5 # 0.5% の利益でトリガー
+  # 利食いするポジションの割合
+  exit_ratio: 0.5 # ポジションの50%を利食い
 
 # シグナル設定
 signal:
@@ -61,6 +68,15 @@ signal:
   # 値を大きくするとダマシを避けやすくなりますが、エントリーは遅れます。
   # 値を小さくすると素早く反応できますが、ノイズに弱くなります。
   hold_duration_ms: 100
+
+  # OBIスロープフィルター
+  slope_filter:
+    # 有効化フラグ
+    enabled: false
+    # 傾き計算期間 (OBIの更新回数)
+    period: 10
+    # シグナルを許可するOBIの最小傾き
+    threshold: 0.01
 
 
 # --- アプリケーション設定 ---
@@ -129,3 +145,14 @@ alert:
     bot_token: "YOUR_DISCORD_BOT_TOKEN"
     # 通知を送信するユーザーのID
     user_id: "YOUR_DISCORD_USER_ID"
+
+# --- アダプティブ・ポジションサイズ設定 ---
+adaptive_position_sizing:
+  # 有効化フラグ
+  enabled: true
+  # PnLを評価する直近のトレード数
+  num_trades: 5
+  # 損失時に注文比率を縮小する係数 (例: 0.8なら20%減)
+  reduction_step: 0.8
+  # 注文比率の下限 (元の比率に対する割合)
+  min_ratio: 0.5

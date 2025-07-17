@@ -581,3 +581,95 @@ func TestSignalEngine_RegimeDetection(t *testing.T) {
 	// 	assert.Equal(t, SignalLong, signal.Type)
 	// }
 }
+
+func TestSignalEngine_SlopeFilter(t *testing.T) {
+	cfg := &config.Config{
+		Long:  config.StrategyConf{OBIThreshold: 0.25},
+		Short: config.StrategyConf{OBIThreshold: 0.27},
+		Signal: config.SignalConfig{
+			HoldDurationMs: 100,
+			SlopeFilter: config.SlopeFilterConfig{
+				Enabled:   true,
+				Period:    5,
+				Threshold: 0.02, // Expect OBI to increase by >0.02 per tick
+			},
+		},
+		Volatility: config.VolConf{
+			DynamicOBI: config.DynamicOBIConf{Enabled: false},
+		},
+	}
+
+	currentTime := time.Now()
+
+	t.Run("Long signal with sufficient slope", func(t *testing.T) {
+		engine, _ := NewSignalEngine(cfg)
+		// Set up history so that the *next* value will create the desired slope
+		engine.UpdateOBIHistoryForTest(t, []float64{0.11, 0.15, 0.19, 0.23, 0.27})
+		obiValue := 0.31 // This value makes the history [0.15, 0.19, 0.23, 0.27, 0.31], slope=0.04
+		require.True(t, obiValue > cfg.Long.OBIThreshold)
+
+		engine.Evaluate(currentTime, obiValue) // Prime signal state
+		currentTime = currentTime.Add(time.Duration(cfg.Signal.HoldDurationMs) * time.Millisecond)
+		engine.UpdateMarketData(currentTime, 7000000, 6999999, 7000001, 1, 1)
+		// The history will be updated again here, but the slope should still be positive
+		signal := engine.Evaluate(currentTime, obiValue)
+
+		assert.NotNil(t, signal, "Expected a long signal with sufficient slope")
+		if signal != nil {
+			assert.Equal(t, SignalLong, signal.Type)
+		}
+	})
+
+	t.Run("Long signal suppressed due to insufficient slope", func(t *testing.T) {
+		engine, _ := NewSignalEngine(cfg)
+		// Set up history so that the *next* value will create a flat slope
+		engine.UpdateOBIHistoryForTest(t, []float64{0.29, 0.29, 0.29, 0.29, 0.30})
+		obiValue := 0.30 // This value makes the history [0.29, 0.29, 0.29, 0.30, 0.30], slope is small
+		require.True(t, obiValue > cfg.Long.OBIThreshold)
+
+		engine.Evaluate(currentTime, obiValue)
+		currentTime = currentTime.Add(time.Duration(cfg.Signal.HoldDurationMs) * time.Millisecond)
+		engine.UpdateMarketData(currentTime, 7000000, 6999999, 7000001, 1, 1)
+		signal := engine.Evaluate(currentTime, obiValue)
+
+		assert.Nil(t, signal, "Expected long signal to be suppressed due to flat slope")
+	})
+
+	t.Run("Short signal with sufficient slope", func(t *testing.T) {
+		engine, _ := NewSignalEngine(cfg)
+		engine.UpdateOBIHistoryForTest(t, []float64{-0.11, -0.15, -0.19, -0.23, -0.27})
+		obiValue := -0.31 // This value makes the history [-0.15, -0.19, -0.23, -0.27, -0.31], slope=-0.04
+		require.True(t, obiValue < -cfg.Short.OBIThreshold)
+
+		engine.Evaluate(currentTime, obiValue)
+		currentTime = currentTime.Add(time.Duration(cfg.Signal.HoldDurationMs) * time.Millisecond)
+		engine.UpdateMarketData(currentTime, 7000000, 6999999, 7000001, 1, 1)
+		signal := engine.Evaluate(currentTime, obiValue)
+
+		assert.NotNil(t, signal, "Expected a short signal with sufficient negative slope")
+		if signal != nil {
+			assert.Equal(t, SignalShort, signal.Type)
+		}
+	})
+
+	t.Run("Short signal suppressed due to insufficient slope", func(t *testing.T) {
+		engine, _ := NewSignalEngine(cfg)
+		engine.UpdateOBIHistoryForTest(t, []float64{-0.29, -0.29, -0.29, -0.29, -0.30})
+		obiValue := -0.30 // This value makes the history [-0.29, -0.29, -0.29, -0.30, -0.30], slope is small
+		require.True(t, obiValue < -cfg.Short.OBIThreshold)
+
+		engine.Evaluate(currentTime, obiValue)
+		currentTime = currentTime.Add(time.Duration(cfg.Signal.HoldDurationMs) * time.Millisecond)
+		engine.UpdateMarketData(currentTime, 7000000, 6999999, 7000001, 1, 1)
+		signal := engine.Evaluate(currentTime, obiValue)
+
+		assert.Nil(t, signal, "Expected short signal to be suppressed due to flat slope")
+	})
+}
+
+// UpdateOBIHistoryForTest is a test helper to inject OBI data into the engine.
+func (e *SignalEngine) UpdateOBIHistoryForTest(t *testing.T, history []float64) {
+	t.Helper()
+	e.obiHistory = make([]float64, len(history))
+	copy(e.obiHistory, history)
+}

@@ -13,25 +13,34 @@ var globalConfig atomic.Value
 
 // Config defines the structure for all application configuration.
 type Config struct {
-	Pair        string         `yaml:"pair"`
-	SpreadLimit float64        `yaml:"spread_limit"`
-	LotMaxRatio float64        `yaml:"lot_max_ratio"`
-	OrderRatio  float64        `yaml:"order_ratio"`
-	Long        StrategyConf   `yaml:"long"`
-	Short       StrategyConf   `yaml:"short"`
-	Volatility  VolConf        `yaml:"volatility"`
-	Twap        TwapConfig     `yaml:"twap"`
-	Signal      SignalConfig   `yaml:"signal"`
-	APIKey      string         `yaml:"-"` // Loaded from env
-	APISecret   string         `yaml:"-"` // Loaded from env
-	LogLevel    string         `yaml:"log_level"`
-	Order       OrderConfig    `yaml:"order"`
-	Database    DatabaseConfig  `yaml:"database"`
-	DBWriter    DBWriterConfig  `yaml:"db_writer"`
-	Replay      ReplayConfig    `yaml:"replay"`
-	PnlReport   PnlReportConfig `yaml:"pnl_report"`
-	Risk        RiskConfig      `yaml:"risk"`
-	Alert       AlertConfig     `yaml:"alert"`
+	Pair                   string                 `yaml:"pair"`
+	SpreadLimit            float64                `yaml:"spread_limit"`
+	LotMaxRatio            float64                `yaml:"lot_max_ratio"`
+	OrderRatio             float64                `yaml:"order_ratio"`
+	Long                   StrategyConf           `yaml:"long"`
+	Short                  StrategyConf           `yaml:"short"`
+	Volatility             VolConf                `yaml:"volatility"`
+	Twap                   TwapConfig             `yaml:"twap"`
+	Signal                 SignalConfig           `yaml:"signal"`
+	APIKey                 string                 `yaml:"-"` // Loaded from env
+	APISecret              string                 `yaml:"-"` // Loaded from env
+	LogLevel               string                 `yaml:"log_level"`
+	Order                  OrderConfig            `yaml:"order"`
+	Database               DatabaseConfig         `yaml:"database"`
+	DBWriter               DBWriterConfig         `yaml:"db_writer"`
+	Replay                 ReplayConfig           `yaml:"replay"`
+	PnlReport              PnlReportConfig        `yaml:"pnl_report"`
+	Risk                   RiskConfig             `yaml:"risk"`
+	Alert                  AlertConfig            `yaml:"alert"`
+	AdaptivePositionSizing AdaptiveSizingConfig `yaml:"adaptive_position_sizing"`
+}
+
+// AdaptiveSizingConfig holds settings for the adaptive position sizing feature.
+type AdaptiveSizingConfig struct {
+	Enabled       bool    `yaml:"enabled"`
+	NumTrades     int     `yaml:"num_trades"`
+	ReductionStep float64 `yaml:"reduction_step"`
+	MinRatio      float64 `yaml:"min_ratio"`
 }
 
 // AlertConfig holds alert settings.
@@ -53,7 +62,15 @@ type RiskConfig struct {
 
 // SignalConfig holds configuration for signal generation.
 type SignalConfig struct {
-	HoldDurationMs int `yaml:"hold_duration_ms"`
+	HoldDurationMs int             `yaml:"hold_duration_ms"`
+	SlopeFilter    SlopeFilterConfig `yaml:"slope_filter"`
+}
+
+// SlopeFilterConfig holds settings for the OBI slope filter.
+type SlopeFilterConfig struct {
+	Enabled   bool    `yaml:"enabled"`
+	Period    int     `yaml:"period"`
+	Threshold float64 `yaml:"threshold"`
 }
 
 // OrderConfig holds configuration for the execution engine.
@@ -64,9 +81,12 @@ type OrderConfig struct {
 
 // TwapConfig holds configuration for the TWAP execution strategy.
 type TwapConfig struct {
-	Enabled         bool    `yaml:"enabled"`
-	MaxOrderSizeBtc float64 `yaml:"max_order_size_btc"`
-	IntervalSeconds int     `yaml:"interval_seconds"`
+	Enabled             bool    `yaml:"enabled"`
+	MaxOrderSizeBtc     float64 `yaml:"max_order_size_btc"`
+	IntervalSeconds     int     `yaml:"interval_seconds"`
+	PartialExitEnabled  bool    `yaml:"partial_exit_enabled"`
+	ProfitThreshold     float64 `yaml:"profit_threshold"`
+	ExitRatio           float64 `yaml:"exit_ratio"`
 }
 
 // ReplayConfig holds configuration for the replay mode.
