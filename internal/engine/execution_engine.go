@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/your-org/obi-scalp-bot/internal/config"
 	"github.com/your-org/obi-scalp-bot/internal/dbwriter"
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
@@ -464,6 +463,7 @@ type ReplayExecutionEngine struct {
 	orderBook     pnl.OrderBookProvider
 	// ExecutedTrades stores the history of simulated trades.
 	ExecutedTrades []dbwriter.Trade
+	tradeCounter  int64 // Counter for generating deterministic trade IDs
 }
 
 // NewReplayExecutionEngine creates a new ReplayExecutionEngine.
@@ -473,6 +473,7 @@ func NewReplayExecutionEngine(orderBook pnl.OrderBookProvider) *ReplayExecutionE
 		pnlCalculator:  pnl.NewCalculator(),
 		orderBook:      orderBook,
 		ExecutedTrades: make([]dbwriter.Trade, 0),
+		tradeCounter:   0, // Initialize counter
 	}
 }
 
@@ -508,11 +509,9 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 		return &coincheck.OrderResponse{Success: false, Error: "order not executed"}, nil
 	}
 
-	// Generate a fake transaction ID for the trade record.
-	fakeTxID, err := uuid.NewRandom()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate fake transaction ID: %w", err)
-	}
+	// Generate a deterministic transaction ID using the counter.
+	e.tradeCounter++
+	fakeTxID := e.tradeCounter
 
 	// Create a trade record for the simulated execution.
 	trade := dbwriter.Trade{
@@ -521,7 +520,7 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 		Side:          orderType,
 		Price:         executedPrice,
 		Size:          amount,
-		TransactionID: int64(fakeTxID.ID()),
+		TransactionID: fakeTxID,
 	}
 
 	// Update position and get realized PnL
@@ -564,7 +563,7 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 
 	return &coincheck.OrderResponse{
 		Success: true,
-		ID:      int64(fakeTxID.ID()),
+		ID:      fakeTxID,
 		Rate:    fmt.Sprintf("%f", executedPrice),
 		Amount:  fmt.Sprintf("%f", amount),
 		Pair:    pair,
