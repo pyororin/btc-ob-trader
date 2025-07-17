@@ -258,12 +258,17 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 	holdDuration := currentTime.Sub(e.currentSignalSince)
 	// logger.Debugf("Signal %s held for %v. Required: %v", e.currentSignal, holdDuration, e.config.SignalHoldDuration)
 
-	if holdDuration >= e.config.SignalHoldDuration {
+	if holdDuration >= e.config.SignalHoldDuration || e.config.SignalHoldDuration == 0 {
 		if e.lastSignal != e.currentSignal && e.currentSignal != SignalNone {
 			e.lastSignal = e.currentSignal
 			e.lastSignalTime = currentTime
 
-			logger.Infof("Signal %s confirmed. OBI: %.4f, Held for: %v", e.currentSignal, obiValue, holdDuration)
+			logMessage := fmt.Sprintf("Signal %s confirmed. OBI: %.4f", e.currentSignal, obiValue)
+			if e.config.SignalHoldDuration > 0 {
+				logMessage += fmt.Sprintf(", Held for: %v", holdDuration)
+			}
+			logger.Info(logMessage)
+
 
 			// Calculate TP/SL prices based on currentMidPrice at signal confirmation
 			var tpPrice, slPrice float64
