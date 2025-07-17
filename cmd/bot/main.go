@@ -31,10 +31,43 @@ import (
 	"go.uber.org/zap"
 )
 
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"math"
+	"math/rand"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"syscall"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/your-org/obi-scalp-bot/internal/benchmark"
+	"github.com/your-org/obi-scalp-bot/internal/config"
+	"github.com/your-org/obi-scalp-bot/internal/datastore"
+	"github.com/your-org/obi-scalp-bot/internal/dbwriter"
+	"github.com/your-org/obi-scalp-bot/internal/engine"
+	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
+	"github.com/your-org/obi-scalp-bot/internal/http/handler"
+	"sync"
+
+	"github.com/your-org/obi-scalp-bot/internal/indicator"
+	tradingsignal "github.com/your-org/obi-scalp-bot/internal/signal"
+	"github.com/your-org/obi-scalp-bot/pkg/logger"
+	"go.uber.org/zap"
+)
+
 type flags struct {
 	configPath    string
+	tradeConfigPath string
 	simulateMode  bool
 	csvPath       string
+	jsonOutput    bool
 }
 
 func main() {
@@ -44,9 +77,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cfg := setupConfig(f.configPath)
+	cfg := setupConfig(f.configPath, f.tradeConfigPath)
 	setupLogger(cfg.App.LogLevel, f.configPath, cfg.Trade.Pair)
-	go watchSignals(f.configPath)
+	go watchSignals(f.configPath, f.tradeConfigPath)
 
 	if f.simulateMode && f.csvPath == "" {
 		logger.Fatal("CSV file path must be provided in simulation mode using --csv flag")
@@ -82,20 +115,26 @@ func main() {
 // parseFlags parses command-line flags.
 func parseFlags() flags {
 	configPath := flag.String("config", "config/app_config.yaml", "Path to the application configuration file")
+	tradeConfigPath := flag.String("trade-config", "config/trade_config.yaml", "Path to the trade configuration file")
 	simulateMode := flag.Bool("simulate", false, "Enable simulation mode from CSV")
 	csvPath := flag.String("csv", "", "Path to the trade data CSV file for simulation")
+	jsonOutput := flag.Bool("json-output", false, "Output simulation summary in JSON format")
 	flag.Parse()
 	return flags{
-		configPath:   *configPath,
-		simulateMode: *simulateMode,
-		csvPath:      *csvPath,
+		configPath:      *configPath,
+		tradeConfigPath: *tradeConfigPath,
+		simulateMode:    *simulateMode,
+		csvPath:         *csvPath,
+		jsonOutput:      *jsonOutput,
 	}
 }
 
 // setupConfig loads the application configuration.
-func setupConfig(appConfigPath string) *config.Config {
-	dir := filepath.Dir(appConfigPath)
-	tradeConfigPath := filepath.Join(dir, "trade_config.yaml")
+func setupConfig(appConfigPath, tradeConfigPath string) *config.Config {
+	if tradeConfigPath == "" {
+		dir := filepath.Dir(appConfigPath)
+		tradeConfigPath = filepath.Join(dir, "trade_config.yaml")
+	}
 	cfg, err := config.LoadConfig(appConfigPath, tradeConfigPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load configuration from %s and %s: %v\n", appConfigPath, tradeConfigPath, err)
@@ -105,15 +144,17 @@ func setupConfig(appConfigPath string) *config.Config {
 }
 
 // watchSignals sets up a handler for SIGHUP to reload the configuration.
-func watchSignals(appConfigPath string) {
+func watchSignals(appConfigPath, tradeConfigPath string) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGHUP)
 
 	for {
 		<-sigChan
 		logger.Info("SIGHUP received, attempting to reload configuration...")
-		dir := filepath.Dir(appConfigPath)
-		tradeConfigPath := filepath.Join(dir, "trade_config.yaml")
+		if tradeConfigPath == "" {
+			dir := filepath.Dir(appConfigPath)
+			tradeConfigPath = filepath.Join(dir, "trade_config.yaml")
+		}
 		newCfg, err := config.ReloadConfig(appConfigPath, tradeConfigPath)
 		if err != nil {
 			logger.Errorf("Failed to reload configuration: %v", err)
@@ -548,15 +589,19 @@ func waitForShutdownSignal(sigs <-chan os.Signal) {
 }
 
 // printSimulationSummary calculates and prints the performance metrics of the simulation.
-func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine) {
+func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine, jsonOutput bool) {
 	executedTrades := replayEngine.ExecutedTrades
 	totalProfit := replayEngine.GetTotalRealizedPnL()
 	totalTrades := len(executedTrades)
 
 	if totalTrades == 0 {
-		fmt.Println("\n==== シミュレーション結果 ====")
-		fmt.Println("取引は実行されませんでした。")
-		fmt.Println("==========================")
+		if jsonOutput {
+			fmt.Println(`{"error": "No trades were executed"}`)
+		} else {
+			fmt.Println("\n==== シミュレーション結果 ====")
+			fmt.Println("取引は実行されませんでした。")
+			fmt.Println("==========================")
+		}
 		return
 	}
 
@@ -656,30 +701,62 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine) {
 		avgLosingHoldingPeriod = sum / float64(len(losingHoldingPeriods))
 	}
 
-
-	fmt.Println("\n==== シミュレーション結果 ====")
-	fmt.Printf("総損益　     : %.2f JPY\n", totalProfit)
-	fmt.Printf("取引回数     : %d回\n", totalTrades)
-	fmt.Printf("勝率         : %.2f%% (%d勝/%d敗)\n", winRate, wins, losses)
-	fmt.Printf("平均利益/損失: %.2f JPY / %.2f JPY\n", avgWin, avgLoss)
-	fmt.Printf("リスクリワードレシオ: %.2f\n", riskRewardRatio)
-	fmt.Printf("プロフィットファクター: %.2f\n", profitFactor)
-	fmt.Printf("最大ドローダウン: %.2f JPY\n", maxDrawdown)
-	fmt.Printf("最大連勝/連敗: %d回 / %d回\n", maxConsecutiveWins, maxConsecutiveLosses)
-	fmt.Printf("平均保有期間: %.2f秒 (勝ち: %.2f秒, 負け: %.2f秒)\n", avgHoldingPeriod, avgWinningHoldingPeriod, avgLosingHoldingPeriod)
-	fmt.Println("==========================")
+	if jsonOutput {
+		summary := map[string]interface{}{
+			"TotalProfit":         totalProfit,
+			"TotalTrades":         totalTrades,
+			"WinningTrades":       wins,
+			"LosingTrades":        losses,
+			"WinRate":             winRate,
+			"AverageWin":          avgWin,
+			"AverageLoss":         avgLoss,
+			"RiskRewardRatio":     riskRewardRatio,
+			"ProfitFactor":        profitFactor,
+			"MaxDrawdown":         maxDrawdown,
+			"MaxConsecutiveWins":  maxConsecutiveWins,
+			"MaxConsecutiveLosses": maxConsecutiveLosses,
+			"AverageHoldingPeriod": avgHoldingPeriod,
+			"AverageWinningHoldingPeriod": avgWinningHoldingPeriod,
+			"AverageLosingHoldingPeriod": avgLosingHoldingPeriod,
+		}
+		output, err := json.Marshal(summary)
+		if err != nil {
+			fmt.Printf(`{"error": "failed to marshal summary: %v"}`, err)
+		} else {
+			fmt.Println(string(output))
+		}
+	} else {
+		fmt.Println("\n==== シミュレーション結果 ====")
+		fmt.Printf("総損益　     : %.2f JPY\n", totalProfit)
+		fmt.Printf("取引回数     : %d回\n", totalTrades)
+		fmt.Printf("勝率         : %.2f%% (%d勝/%d敗)\n", winRate, wins, losses)
+		fmt.Printf("平均利益/損失: %.2f JPY / %.2f JPY\n", avgWin, avgLoss)
+		fmt.Printf("リスクリワードレシオ: %.2f\n", riskRewardRatio)
+		fmt.Printf("プロフィットファクター: %.2f\n", profitFactor)
+		fmt.Printf("最大ドローダウン: %.2f JPY\n", maxDrawdown)
+		fmt.Printf("最大連勝/連敗: %d回 / %d回\n", maxConsecutiveWins, maxConsecutiveLosses)
+		fmt.Printf("平均保有期間: %.2f秒 (勝ち: %.2f秒, 負け: %.2f秒)\n", avgHoldingPeriod, avgWinningHoldingPeriod, avgLosingHoldingPeriod)
+		fmt.Println("==========================")
+		// For optimizer parsing
+		fmt.Printf("\nTotalProfit: %.2f\n", totalProfit)
+	}
 }
+
 
 // runSimulation runs a backtest using data from a CSV file.
 func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 	rand.Seed(1)
 	cfg := config.GetConfig()
-	logger.Info("--- SIMULATION MODE ---")
-	logger.Infof("CSV File: %s", f.csvPath)
-	logger.Infof("Pair: %s", cfg.Trade.Pair)
-	logger.Infof("Long Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Trade.Long.OBIThreshold, cfg.Trade.Long.TP, cfg.Trade.Long.SL)
-	logger.Infof("Short Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Trade.Short.OBIThreshold, cfg.Trade.Short.TP, cfg.Trade.Short.SL)
-	logger.Info("--------------------")
+	if !f.jsonOutput {
+		logger.Info("--- SIMULATION MODE ---")
+		logger.Infof("CSV File: %s", f.csvPath)
+		logger.Infof("Config File: %s", f.configPath)
+		logger.Infof("Trade Config File: %s", f.tradeConfigPath)
+		logger.Infof("Pair: %s", cfg.Trade.Pair)
+		logger.Infof("Long Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Trade.Long.OBIThreshold, cfg.Trade.Long.TP, cfg.Trade.Long.SL)
+		logger.Infof("Short Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Trade.Short.OBIThreshold, cfg.Trade.Short.TP, cfg.Trade.Short.SL)
+		logger.Info("--------------------")
+	}
 
 	orderBook := indicator.NewOrderBook()
 	replayEngine := engine.NewReplayExecutionEngine(orderBook)
@@ -696,8 +773,10 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 
 	go func() {
 		defer func() {
-			logger.Info("Simulation finished.")
-			printSimulationSummary(replayEngine)
+			if !f.jsonOutput {
+				logger.Info("Simulation finished.")
+			}
+			printSimulationSummary(replayEngine, f.jsonOutput)
 			sigs <- syscall.SIGTERM
 		}()
 
@@ -713,7 +792,7 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 				// Manually trigger OBI calculation with the timestamp from the event
 				obiCalculator.Calculate(orderBookData.Time)
 				snapshotCount++
-				if snapshotCount%1000 == 0 {
+				if snapshotCount%1000 == 0 && !f.jsonOutput {
 					logger.Infof("Processed snapshot %d at time %s", snapshotCount, orderBookData.Time.Format(time.RFC3339))
 				}
 			case err := <-errCh:
