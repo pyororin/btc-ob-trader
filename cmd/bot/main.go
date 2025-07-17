@@ -45,7 +45,7 @@ func main() {
 	defer cancel()
 
 	cfg := setupConfig(f.configPath)
-	setupLogger(cfg.LogLevel, f.configPath, cfg.Pair)
+	setupLogger(cfg.App.LogLevel, f.configPath, cfg.Trade.Pair)
 	go watchSignals(f.configPath)
 
 	if f.simulateMode && f.csvPath == "" {
@@ -81,7 +81,7 @@ func main() {
 
 // parseFlags parses command-line flags.
 func parseFlags() flags {
-	configPath := flag.String("config", "config/config.yaml", "Path to the configuration file")
+	configPath := flag.String("config", "config/app_config.yaml", "Path to the application configuration file")
 	replayMode := flag.Bool("replay", false, "Enable replay mode")
 	simulateMode := flag.Bool("simulate", false, "Enable simulation mode from CSV")
 	csvPath := flag.String("csv", "", "Path to the trade data CSV file for simulation")
@@ -95,8 +95,9 @@ func parseFlags() flags {
 }
 
 // setupConfig loads the application configuration.
-func setupConfig(configPath string) *config.Config {
-	cfg, err := config.LoadConfig(configPath)
+func setupConfig(appConfigPath string) *config.Config {
+	tradeConfigPath := "config/trade_config.yaml"
+	cfg, err := config.LoadConfig(appConfigPath, tradeConfigPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load configuration: %v\n", err)
 		os.Exit(1)
@@ -105,18 +106,19 @@ func setupConfig(configPath string) *config.Config {
 }
 
 // watchSignals sets up a handler for SIGHUP to reload the configuration.
-func watchSignals(configPath string) {
+func watchSignals(appConfigPath string) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGHUP)
+	tradeConfigPath := "config/trade_config.yaml"
 
 	for {
 		<-sigChan
 		logger.Info("SIGHUP received, attempting to reload configuration...")
-		newCfg, err := config.ReloadConfig(configPath)
+		newCfg, err := config.ReloadConfig(appConfigPath, tradeConfigPath)
 		if err != nil {
 			logger.Errorf("Failed to reload configuration: %v", err)
 		} else {
-			logger.SetGlobalLogLevel(newCfg.LogLevel)
+			logger.SetGlobalLogLevel(newCfg.App.LogLevel)
 			logger.Info("Configuration reloaded successfully.")
 		}
 	}
@@ -144,13 +146,13 @@ func startHealthCheckServer() {
 // setupDBWriter initializes the TimescaleDB writer if enabled.
 func setupDBWriter(ctx context.Context) *dbwriter.Writer {
 	cfg := config.GetConfig()
-	if cfg.DBWriter.BatchSize <= 0 {
+	if cfg.App.DBWriter.BatchSize <= 0 {
 		return nil
 	}
 
 	var zapLogger *zap.Logger
 	var zapErr error
-	if cfg.LogLevel == "debug" {
+	if cfg.App.LogLevel == "debug" {
 		zapLogger, zapErr = zap.NewDevelopment()
 	} else {
 		zapLogger, zapErr = zap.NewProduction()
@@ -159,9 +161,9 @@ func setupDBWriter(ctx context.Context) *dbwriter.Writer {
 		logger.Fatalf("Failed to initialize Zap logger for DBWriter: %v", zapErr)
 	}
 
-	logger.Infof("Initializing DBWriter with config: BatchSize=%d, WriteIntervalSeconds=%d", cfg.DBWriter.BatchSize, cfg.DBWriter.WriteIntervalSeconds)
+	logger.Infof("Initializing DBWriter with config: BatchSize=%d, WriteIntervalSeconds=%d", cfg.App.DBWriter.BatchSize, cfg.App.DBWriter.WriteIntervalSeconds)
 
-	dbWriter, err := dbwriter.NewWriter(ctx, cfg.Database, cfg.DBWriter, zapLogger)
+	dbWriter, err := dbwriter.NewWriter(ctx, cfg.App.Database, cfg.App.DBWriter, zapLogger)
 	if err != nil {
 		logger.Fatalf("Failed to initialize TimescaleDB writer: %v", err)
 	}
@@ -247,7 +249,7 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pa
 // processSignalsAndExecute subscribes to indicators, evaluates signals, and executes trades.
 func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBICalculator, execEngine engine.ExecutionEngine, benchmarkService *benchmark.Service) {
 	cfg := config.GetConfig()
-	signalEngine, err := tradingsignal.NewSignalEngine(cfg)
+	signalEngine, err := tradingsignal.NewSignalEngine(&cfg.Trade)
 	if err != nil {
 		logger.Fatalf("Failed to create signal engine: %v", err)
 	}
@@ -310,11 +312,11 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 						logger.Infof("Executing trade for signal: %s. %s", tradingSignal.Type.String(), orderLogMsg)
 						orderAmount := 0.01
 
-						if currentCfg.Twap.Enabled && orderAmount > currentCfg.Twap.MaxOrderSizeBtc {
-							logger.Infof("Order amount %.8f exceeds max size %.8f. Executing with TWAP.", orderAmount, currentCfg.Twap.MaxOrderSizeBtc)
-							go executeTwapOrder(ctx, execEngine, currentCfg.Pair, orderType, finalPrice, orderAmount)
+						if currentCfg.Trade.Twap.Enabled && orderAmount > currentCfg.Trade.Twap.MaxOrderSizeBtc {
+							logger.Infof("Order amount %.8f exceeds max size %.8f. Executing with TWAP.", orderAmount, currentCfg.Trade.Twap.MaxOrderSizeBtc)
+							go executeTwapOrder(ctx, execEngine, currentCfg.Trade.Pair, orderType, finalPrice, orderAmount)
 						} else {
-							_, err := execEngine.PlaceOrder(ctx, currentCfg.Pair, orderType, finalPrice, orderAmount, false)
+							_, err := execEngine.PlaceOrder(ctx, currentCfg.Trade.Pair, orderType, finalPrice, orderAmount, false)
 							if err != nil {
 								logger.Errorf("Failed to place order for signal: %v", err)
 							}
@@ -333,10 +335,10 @@ func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, pa
 	}
 
 	cfg := config.GetConfig()
-	numOrders := int(math.Floor(totalAmount / cfg.Twap.MaxOrderSizeBtc))
-	lastOrderSize := totalAmount - float64(numOrders)*cfg.Twap.MaxOrderSizeBtc
-	chunkSize := cfg.Twap.MaxOrderSizeBtc
-	interval := time.Duration(cfg.Twap.IntervalSeconds) * time.Second
+	numOrders := int(math.Floor(totalAmount / cfg.Trade.Twap.MaxOrderSizeBtc))
+	lastOrderSize := totalAmount - float64(numOrders)*cfg.Trade.Twap.MaxOrderSizeBtc
+	chunkSize := cfg.Trade.Twap.MaxOrderSizeBtc
+	interval := time.Duration(cfg.Trade.Twap.IntervalSeconds) * time.Second
 
 	logger.Infof("TWAP execution started: Total=%.8f, Chunks=%d, ChunkSize=%.8f, LastChunk=%.8f, Interval=%v",
 		totalAmount, numOrders, chunkSize, lastOrderSize, interval)
@@ -386,7 +388,7 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 		var zapLogger *zap.Logger
 		// Assuming logger is already configured, but if not, initialize it.
 		// For simplicity, re-using the logic from setupDBWriter.
-		if cfg.LogLevel == "debug" {
+		if cfg.App.LogLevel == "debug" {
 			zapLogger, _ = zap.NewDevelopment()
 		} else {
 			zapLogger, _ = zap.NewProduction()
@@ -401,11 +403,11 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 	} else {
 		// Live trading setup
 		client := coincheck.NewClient(cfg.APIKey, cfg.APISecret)
-		execEngine := engine.NewLiveExecutionEngine(client, cfg, dbWriter)
+		execEngine := engine.NewLiveExecutionEngine(client, &cfg.Trade, &cfg.App.Order, dbWriter)
 
 		orderBook := indicator.NewOrderBook()
 		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
-		orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Pair)
+		orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Trade.Pair)
 
 		obiCalculator.Start(ctx)
 		go processSignalsAndExecute(ctx, obiCalculator, execEngine, benchmarkService)
@@ -434,15 +436,15 @@ func startPnlReporter(ctx context.Context) {
 	// Function to start the reporter logic
 	start := func() {
 		cfg := config.GetConfig()
-		if cfg.PnlReport.IntervalMinutes <= 0 {
+		if cfg.App.PnlReport.IntervalMinutes <= 0 {
 			logger.Info("PnL reporter is disabled.")
 			return
 		}
 
 		logger.Infof("Starting PnL reporter: interval=%d minutes, maxAge=%d hours",
-			cfg.PnlReport.IntervalMinutes, cfg.PnlReport.MaxAgeHours)
+			cfg.App.PnlReport.IntervalMinutes, cfg.App.PnlReport.MaxAgeHours)
 
-		ticker = time.NewTicker(time.Duration(cfg.PnlReport.IntervalMinutes) * time.Minute)
+		ticker = time.NewTicker(time.Duration(cfg.App.PnlReport.IntervalMinutes) * time.Minute)
 		wg.Add(1)
 
 		go func() {
@@ -450,7 +452,7 @@ func startPnlReporter(ctx context.Context) {
 			defer ticker.Stop()
 
 			dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-				cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name, cfg.Database.SSLMode)
+				cfg.App.Database.User, cfg.App.Database.Password, cfg.App.Database.Host, cfg.App.Database.Port, cfg.App.Database.Name, cfg.App.Database.SSLMode)
 			dbpool, err := pgxpool.New(ctx, dbURL)
 			if err != nil {
 				logger.Errorf("PnL reporter unable to connect to database: %v", err)
@@ -461,7 +463,7 @@ func startPnlReporter(ctx context.Context) {
 
 			// Initial run
 			generateAndSaveReport(ctx, repo)
-			deleteOldReports(ctx, repo, cfg.PnlReport.MaxAgeHours)
+			deleteOldReports(ctx, repo, cfg.App.PnlReport.MaxAgeHours)
 
 			for {
 				select {
@@ -472,7 +474,7 @@ func startPnlReporter(ctx context.Context) {
 					// Re-fetch config inside the loop to get the latest values
 					loopCfg := config.GetConfig()
 					generateAndSaveReport(ctx, repo)
-					deleteOldReports(ctx, repo, loopCfg.PnlReport.MaxAgeHours)
+					deleteOldReports(ctx, repo, loopCfg.App.PnlReport.MaxAgeHours)
 				}
 			}
 		}()
@@ -611,9 +613,9 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 	cfg := config.GetConfig()
 	logger.Info("--- SIMULATION MODE ---")
 	logger.Infof("CSV File: %s", f.csvPath)
-	logger.Infof("Pair: %s", cfg.Pair)
-	logger.Infof("Long Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Long.OBIThreshold, cfg.Long.TP, cfg.Long.SL)
-	logger.Infof("Short Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Short.OBIThreshold, cfg.Short.TP, cfg.Short.SL)
+	logger.Infof("Pair: %s", cfg.Trade.Pair)
+	logger.Infof("Long Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Trade.Long.OBIThreshold, cfg.Trade.Long.TP, cfg.Trade.Long.SL)
+	logger.Infof("Short Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Trade.Short.OBIThreshold, cfg.Trade.Short.TP, cfg.Trade.Short.SL)
 	logger.Info("--------------------")
 
 	replayEngine := engine.NewReplayExecutionEngine(nil)
@@ -621,7 +623,7 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 
 	orderBook := indicator.NewOrderBook()
 	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
-	orderBookHandler, _ := setupHandlers(orderBook, nil, cfg.Pair)
+	orderBookHandler, _ := setupHandlers(orderBook, nil, cfg.Trade.Pair)
 
 	obiCalculator.Start(ctx)
 	go processSignalsAndExecute(ctx, obiCalculator, execEngine, nil)
@@ -736,7 +738,7 @@ func orderMonitor(ctx context.Context, execEngine engine.ExecutionEngine, client
 					}
 					currentCfg := config.GetConfig()
 					logger.Infof("Re-placing order for pair %s, type %s, new rate %.2f, amount %.8f", order.Pair, order.OrderType, newRate, pendingAmount)
-					_, err = execEngine.PlaceOrder(ctx, currentCfg.Pair, order.OrderType, newRate, pendingAmount, false)
+					_, err = execEngine.PlaceOrder(ctx, currentCfg.Trade.Pair, order.OrderType, newRate, pendingAmount, false)
 					if err != nil {
 						logger.Errorf("Failed to re-place order after adjustment for original ID %d: %v", order.ID, err)
 					} else {
@@ -751,7 +753,7 @@ func orderMonitor(ctx context.Context, execEngine engine.ExecutionEngine, client
 // positionMonitor periodically checks the current position for potential partial profit taking.
 func positionMonitor(ctx context.Context, execEngine engine.ExecutionEngine, orderBook *indicator.OrderBook) {
 	cfg := config.GetConfig()
-	if !cfg.Twap.PartialExitEnabled {
+	if !cfg.Trade.Twap.PartialExitEnabled {
 		logger.Info("Position monitor (partial exit) is disabled.")
 		return
 	}
@@ -780,7 +782,7 @@ func positionMonitor(ctx context.Context, execEngine engine.ExecutionEngine, ord
 
 			if exitOrder := liveEngine.CheckAndTriggerPartialExit(midPrice); exitOrder != nil {
 				currentCfg := config.GetConfig()
-				go executeTwapOrder(ctx, execEngine, currentCfg.Pair, exitOrder.OrderType, exitOrder.Price, exitOrder.Size)
+				go executeTwapOrder(ctx, execEngine, currentCfg.Trade.Pair, exitOrder.OrderType, exitOrder.Price, exitOrder.Size)
 			}
 		}
 	}
@@ -801,22 +803,22 @@ func runReplay(ctx context.Context, dbWriter *dbwriter.Writer, sigs chan<- os.Si
 
 	logger.Info("--- REPLAY MODE ---")
 	logger.Infof("Session ID: %s", replaySessionID.String())
-	logger.Infof("Pair: %s", cfg.Pair)
-	logger.Infof("Time Range: %s -> %s", cfg.Replay.StartTime, cfg.Replay.EndTime)
-	logger.Infof("Long Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Long.OBIThreshold, cfg.Long.TP, cfg.Long.SL)
-	logger.Infof("Short Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Short.OBIThreshold, cfg.Short.TP, cfg.Short.SL)
+	logger.Infof("Pair: %s", cfg.Trade.Pair)
+	logger.Infof("Time Range: %s -> %s", cfg.App.Replay.StartTime, cfg.App.Replay.EndTime)
+	logger.Infof("Long Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Trade.Long.OBIThreshold, cfg.Trade.Long.TP, cfg.Trade.Long.SL)
+	logger.Infof("Short Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Trade.Short.OBIThreshold, cfg.Trade.Short.TP, cfg.Trade.Short.SL)
 	logger.Info("--------------------")
 
 	execEngine := engine.NewReplayExecutionEngine(dbWriter)
 
 	orderBook := indicator.NewOrderBook()
 	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
-	orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Pair)
+	orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Trade.Pair)
 
 	var benchmarkService *benchmark.Service
 	if dbWriter != nil {
 		var zapLogger *zap.Logger
-		if cfg.LogLevel == "debug" {
+		if cfg.App.LogLevel == "debug" {
 			zapLogger, _ = zap.NewDevelopment()
 		} else {
 			zapLogger, _ = zap.NewProduction()
@@ -828,7 +830,7 @@ func runReplay(ctx context.Context, dbWriter *dbwriter.Writer, sigs chan<- os.Si
 	go processSignalsAndExecute(ctx, obiCalculator, execEngine, benchmarkService)
 
 	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name, cfg.Database.SSLMode)
+		cfg.App.Database.User, cfg.App.Database.Password, cfg.App.Database.Host, cfg.App.Database.Port, cfg.App.Database.Name, cfg.App.Database.SSLMode)
 	dbpool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		logger.Fatalf("Unable to connect to database: %v", err)
@@ -837,17 +839,17 @@ func runReplay(ctx context.Context, dbWriter *dbwriter.Writer, sigs chan<- os.Si
 
 	repo := datastore.NewRepository(dbpool)
 
-	startTime, err := time.Parse(time.RFC3339, cfg.Replay.StartTime)
+	startTime, err := time.Parse(time.RFC3339, cfg.App.Replay.StartTime)
 	if err != nil {
 		logger.Fatalf("Invalid start_time format: %v", err)
 	}
-	endTime, err := time.Parse(time.RFC3339, cfg.Replay.EndTime)
+	endTime, err := time.Parse(time.RFC3339, cfg.App.Replay.EndTime)
 	if err != nil {
 		logger.Fatalf("Invalid end_time format: %v", err)
 	}
 
 	logger.Infof("Fetching market events from %s to %s", startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
-	events, err := repo.FetchMarketEvents(ctx, cfg.Pair, startTime, endTime)
+	events, err := repo.FetchMarketEvents(ctx, cfg.Trade.Pair, startTime, endTime)
 	if err != nil {
 		logger.Fatalf("Failed to fetch market events: %v", err)
 	}

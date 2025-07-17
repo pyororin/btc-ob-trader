@@ -96,38 +96,34 @@ type SignalEngine struct {
 }
 
 // NewSignalEngine creates a new SignalEngine.
-func NewSignalEngine(cfg *config.Config) (*SignalEngine, error) {
-	signalHoldDuration := time.Duration(cfg.Signal.HoldDurationMs) * time.Millisecond
+func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
+	signalHoldDuration := time.Duration(tradeCfg.Signal.HoldDurationMs) * time.Millisecond
 
 	engineCfg := EngineConfig{
-		LongOBIBaseThreshold:  cfg.Long.OBIThreshold,
-		ShortOBIBaseThreshold: cfg.Short.OBIThreshold,
+		LongOBIBaseThreshold:  tradeCfg.Long.OBIThreshold,
+		ShortOBIBaseThreshold: tradeCfg.Short.OBIThreshold,
 		SignalHoldDuration:    signalHoldDuration,
-		DynamicOBIConf:        cfg.Volatility.DynamicOBI, // Added
+		DynamicOBIConf:        tradeCfg.Volatility.DynamicOBI,
 	}
 
 	return &SignalEngine{
 		config:                   engineCfg,
-		volatilityCalc:           indicator.NewVolatilityCalculator(cfg.Volatility.EWMALambda), // Added
-		ofiCalc:                  indicator.NewOFICalculator(),                               // Added
+		volatilityCalc:           indicator.NewVolatilityCalculator(tradeCfg.Volatility.EWMALambda),
+		ofiCalc:                  indicator.NewOFICalculator(),
 		lastSignal:               SignalNone,
 		currentSignal:            SignalNone,
-		currentLongOBIThreshold:  engineCfg.LongOBIBaseThreshold,  // Initialize with base
-		currentShortOBIThreshold: engineCfg.ShortOBIBaseThreshold, // Initialize with base
-		longTP:                   cfg.Long.TP,
-		longSL:                   cfg.Long.SL,
-		shortTP:                  cfg.Short.TP,
-		shortSL:                  cfg.Short.SL,
-
-		// Initialize OBI slope filter fields
-		slopeFilterConfig: cfg.Signal.SlopeFilter,
-		obiHistory:        make([]float64, 0, cfg.Signal.SlopeFilter.Period),
-
-		// Initialize regime detection fields
-		priceHistory: make([]float64, 0, 100),
-		maxHistory:   100,
-		currentRegime: RegimeUnknown,
-		hurstExponent: 0.0,
+		currentLongOBIThreshold:  engineCfg.LongOBIBaseThreshold,
+		currentShortOBIThreshold: engineCfg.ShortOBIBaseThreshold,
+		longTP:                   tradeCfg.Long.TP,
+		longSL:                   tradeCfg.Long.SL,
+		shortTP:                  tradeCfg.Short.TP,
+		shortSL:                  tradeCfg.Short.SL,
+		slopeFilterConfig:        tradeCfg.Signal.SlopeFilter,
+		obiHistory:               make([]float64, 0, tradeCfg.Signal.SlopeFilter.Period),
+		priceHistory:             make([]float64, 0, 100),
+		maxHistory:               100,
+		currentRegime:            RegimeUnknown,
+		hurstExponent:            0.0,
 	}, nil
 }
 
