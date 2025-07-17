@@ -189,3 +189,12 @@ report: ## Generate and display the PnL report.
 	sudo -E docker compose exec report-generator go build -o build/report cmd/report/main.go
 	@echo "Running PnL report..."
 	sudo -E docker compose exec report-generator ./build/report
+
+optimize: ## Run hyperparameter optimization using Goptuna.
+	@echo "Running hyperparameter optimization..."
+	@if [ -z "$(CSV_PATH)" ]; then \
+		echo "Error: CSV_PATH environment variable is not set."; \
+		echo "Usage: make optimize CSV_PATH=/path/to/your/trades.csv"; \
+		exit 1; \
+	fi
+	sudo -E docker compose run --rm optimizer
