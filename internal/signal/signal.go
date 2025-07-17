@@ -214,7 +214,7 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 	rawSignal := SignalNone
 	if obiValue >= longThreshold {
 		rawSignal = SignalLong
-	} else if obiValue <= -shortThreshold {
+	} else if obiValue <= shortThreshold {
 		rawSignal = SignalShort
 	}
 

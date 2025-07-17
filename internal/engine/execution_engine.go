@@ -398,28 +398,56 @@ type ReplayExecutionEngine struct {
 	dbWriter      *dbwriter.Writer
 	position      *position.Position
 	pnlCalculator *pnl.Calculator
+	orderBook     pnl.OrderBookProvider
 	// ExecutedTrades stores the history of simulated trades.
 	ExecutedTrades []dbwriter.Trade
 }
 
 // NewReplayExecutionEngine creates a new ReplayExecutionEngine.
-func NewReplayExecutionEngine(dbWriter *dbwriter.Writer) *ReplayExecutionEngine {
+func NewReplayExecutionEngine(dbWriter *dbwriter.Writer, orderBook pnl.OrderBookProvider) *ReplayExecutionEngine {
 	return &ReplayExecutionEngine{
 		dbWriter:       dbWriter,
 		position:       position.NewPosition(),
 		pnlCalculator:  pnl.NewCalculator(),
+		orderBook:      orderBook,
 		ExecutedTrades: make([]dbwriter.Trade, 0),
 	}
 }
 
-// PlaceOrder simulates placing an order and records it.
-// If dbWriter is configured, it also saves the trade to the database.
+// PlaceOrder simulates placing an order and records it based on the current order book state.
 func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, orderType string, rate float64, amount float64, postOnly bool) (*coincheck.OrderResponse, error) {
 	mode := "Replay"
 	if e.dbWriter == nil {
 		mode = "Simulation"
 	}
-	logger.Infof("[%s] Simulating order placement: Pair=%s, Type=%s, Rate=%.2f, Amount=%.4f", mode, pair, orderType, rate, amount)
+
+	bestBid := e.orderBook.BestBid()
+	bestAsk := e.orderBook.BestAsk()
+
+	var executedPrice float64
+	var executed bool
+
+	if orderType == "buy" {
+		if rate >= bestAsk && bestAsk > 0 {
+			executed = true
+			executedPrice = bestAsk
+			logger.Infof("[%s] Buy order matched: Rate %.2f >= BestAsk %.2f. Executing at %.2f", mode, rate, bestAsk, executedPrice)
+		} else {
+			logger.Infof("[%s] Buy order NOT matched: Rate %.2f < BestAsk %.2f. Order would be on book.", mode, rate, bestAsk)
+		}
+	} else if orderType == "sell" {
+		if rate <= bestBid && bestBid > 0 {
+			executed = true
+			executedPrice = bestBid
+			logger.Infof("[%s] Sell order matched: Rate %.2f <= BestBid %.2f. Executing at %.2f", mode, rate, bestBid, executedPrice)
+		} else {
+			logger.Infof("[%s] Sell order NOT matched: Rate %.2f > BestBid %.2f. Order would be on book.", mode, rate, bestBid)
+		}
+	}
+
+	if !executed {
+		return &coincheck.OrderResponse{Success: false, Error: "order not executed"}, nil
+	}
 
 	// Generate a fake transaction ID for the trade record.
 	fakeTxID, err := uuid.NewRandom()
@@ -431,14 +459,11 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 	trade := dbwriter.Trade{
 		Time:          time.Now().UTC(),
 		Pair:          pair,
-		Side:          orderType, // "buy" or "sell"
-		Price:         rate,
+		Side:          orderType,
+		Price:         executedPrice,
 		Size:          amount,
 		TransactionID: int64(fakeTxID.ID()),
 	}
-
-	// Store the executed trade in memory for later analysis.
-	e.ExecutedTrades = append(e.ExecutedTrades, trade)
 
 	// Update position and get realized PnL
 	tradeAmount := trade.Size
@@ -450,18 +475,17 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 		e.pnlCalculator.UpdateRealizedPnL(realizedPnL)
 	}
 	trade.RealizedPnL = realizedPnL
+	e.ExecutedTrades = append(e.ExecutedTrades, trade) // Append after PnL calculation
 	logger.Infof("[%s] Position updated: %s", mode, e.position.String())
 
 	// Calculate PnL
 	positionSize, avgEntryPrice := e.position.Get()
-	unrealizedPnL := e.pnlCalculator.CalculateUnrealizedPnL(positionSize, avgEntryPrice, rate)
+	unrealizedPnL := e.pnlCalculator.CalculateUnrealizedPnL(positionSize, avgEntryPrice, executedPrice)
 	totalRealizedPnL := e.pnlCalculator.GetRealizedPnL()
 	totalPnL := totalRealizedPnL + unrealizedPnL
 
-	// If dbWriter is available, save the trade and PnL summary.
 	if e.dbWriter != nil {
 		e.dbWriter.SaveTrade(trade)
-
 		pnlSummary := dbwriter.PnLSummary{
 			Time:          trade.Time,
 			StrategyID:    "default",
@@ -475,17 +499,15 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 		if err := e.dbWriter.SavePnLSummary(ctx, pnlSummary); err != nil {
 			logger.Errorf("[%s] Error saving PnL summary: %v", mode, err)
 		}
-
 		logger.Infof("[%s] Saved simulated trade and PnL summary to DB.", mode)
 	} else {
 		logger.Infof("[%s] PnL Update: Realized=%.2f, Unrealized=%.2f, Total=%.2f", mode, realizedPnL, unrealizedPnL, totalPnL)
 	}
 
-	// Return a mock OrderResponse
 	return &coincheck.OrderResponse{
 		Success: true,
 		ID:      int64(fakeTxID.ID()),
-		Rate:    fmt.Sprintf("%f", rate),
+		Rate:    fmt.Sprintf("%f", executedPrice),
 		Amount:  fmt.Sprintf("%f", amount),
 		Pair:    pair,
 	}, nil
