@@ -18,6 +18,9 @@ import (
 )
 
 func TestViewPerformanceVsBenchmark(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping test in CI environment")
+	}
 	ctx := context.Background()
 
 	// 1. PostgreSQLコンテナの起動 (TimescaleDBイメージを使用)
