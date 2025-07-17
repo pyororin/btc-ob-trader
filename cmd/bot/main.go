@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"math"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
@@ -678,6 +679,7 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine) {
 
 // runSimulation runs a backtest using data from a CSV file.
 func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
+	rand.Seed(1)
 	cfg := config.GetConfig()
 	logger.Info("--- SIMULATION MODE ---")
 	logger.Infof("CSV File: %s", f.csvPath)
