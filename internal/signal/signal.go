@@ -54,23 +54,40 @@ type EngineConfig struct {
 	DynamicOBIConf        config.DynamicOBIConf // Added
 }
 
+// Regime represents the market regime.
+type Regime int
+
+const (
+	// RegimeTrending indicates a trending market.
+	RegimeTrending Regime = iota
+	// RegimeMeanReverting indicates a mean-reverting market.
+	RegimeMeanReverting
+	// RegimeUnknown indicates an unknown market regime.
+	RegimeUnknown
+)
+
 // SignalEngine evaluates market data and generates trading signals.
 type SignalEngine struct {
 	config                   EngineConfig
-	volatilityCalc           *indicator.VolatilityCalculator // Added
-	ofiCalc                  *indicator.OFICalculator      // Added for T-13 integration
+	volatilityCalc           *indicator.VolatilityCalculator
+	ofiCalc                  *indicator.OFICalculator
 	lastSignal               SignalType
 	lastSignalTime           time.Time
 	currentSignal            SignalType
 	currentSignalSince       time.Time
-	currentLongOBIThreshold  float64 // Added
-	currentShortOBIThreshold float64 // Added
-	currentMidPrice          float64 // Added to store the latest mid-price for TP/SL calculation
-	// Add config fields for TP/SL values from main config
-	longTP  float64
-	longSL  float64
-	shortTP float64
-	shortSL float64
+	currentLongOBIThreshold  float64
+	currentShortOBIThreshold float64
+	currentMidPrice          float64
+	longTP                   float64
+	longSL                   float64
+	shortTP                  float64
+	shortSL                  float64
+
+	// Fields for regime detection
+	priceHistory []float64
+	maxHistory   int
+	currentRegime Regime
+	hurstExponent float64
 }
 
 // NewSignalEngine creates a new SignalEngine.
@@ -96,6 +113,12 @@ func NewSignalEngine(cfg *config.Config) (*SignalEngine, error) {
 		longSL:                   cfg.Long.SL,
 		shortTP:                  cfg.Short.TP,
 		shortSL:                  cfg.Short.SL,
+
+		// Initialize regime detection fields
+		priceHistory: make([]float64, 0, 100),
+		maxHistory:   100,
+		currentRegime: RegimeUnknown,
+		hurstExponent: 0.0,
 	}, nil
 }
 
@@ -105,6 +128,27 @@ func NewSignalEngine(cfg *config.Config) (*SignalEngine, error) {
 // currentMidPrice is for volatility and for TP/SL calculation base.
 func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, bestBid, bestAsk, bestBidSize, bestAskSize float64) {
 	e.currentMidPrice = currentMidPrice // Store for Evaluate method
+
+	// Update price history
+	e.priceHistory = append(e.priceHistory, currentMidPrice)
+	if len(e.priceHistory) > e.maxHistory {
+		e.priceHistory = e.priceHistory[1:]
+	}
+
+	// Update regime
+	if len(e.priceHistory) == e.maxHistory {
+		hurst, err := indicator.CalculateHurstExponent(e.priceHistory, 2, 20)
+		if err == nil {
+			e.hurstExponent = hurst
+			if hurst > 0.55 {
+				e.currentRegime = RegimeTrending
+			} else if hurst < 0.45 {
+				e.currentRegime = RegimeMeanReverting
+			} else {
+				e.currentRegime = RegimeUnknown
+			}
+		}
+	}
 
 	// Update Volatility and dynamic OBI thresholds
 	if e.config.DynamicOBIConf.Enabled {
@@ -142,10 +186,22 @@ func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, 
 // Evaluate evaluates the current OBI value against (potentially dynamic) thresholds
 // and returns a TradingSignal if a new signal is confirmed, otherwise nil.
 func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *TradingSignal {
+	longThreshold := e.currentLongOBIThreshold
+	shortThreshold := e.currentShortOBIThreshold
+
+	switch e.currentRegime {
+	case RegimeTrending:
+		longThreshold *= 0.9
+		shortThreshold *= 0.9
+	case RegimeMeanReverting:
+		longThreshold *= 1.1
+		shortThreshold *= 1.1
+	}
+
 	rawSignal := SignalNone
-	if obiValue >= e.currentLongOBIThreshold {
+	if obiValue >= longThreshold {
 		rawSignal = SignalLong
-	} else if obiValue <= -e.currentShortOBIThreshold {
+	} else if obiValue <= -shortThreshold {
 		rawSignal = SignalShort
 	}
 
@@ -166,7 +222,7 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 	}
 
 	if currentTime.Sub(e.currentSignalSince) >= e.config.SignalHoldDuration {
-		if e.lastSignal != e.currentSignal {
+		if e.lastSignal != e.currentSignal && e.currentSignal != SignalNone {
 			e.lastSignal = e.currentSignal
 			e.lastSignalTime = currentTime
 
