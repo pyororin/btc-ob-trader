@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"time"
-	"math"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
@@ -381,7 +381,11 @@ func analyzeTrades(ctx context.Context, dbpool *pgxpool.Pool, trades []Trade) (R
 			diff := pnl.Sub(mean)
 			stdDev = stdDev.Add(diff.Mul(diff))
 		}
-		stdDev = stdDev.Div(decimal.NewFromInt(int64(len(pnlHistory) - 1))).Sqrt()
+		variance := stdDev.Div(decimal.NewFromInt(int64(len(pnlHistory) - 1)))
+		varianceF, _ := variance.Float64()
+		stdDevF := math.Sqrt(varianceF)
+		stdDev = decimal.NewFromFloat(stdDevF)
+
 		if stdDev.IsPositive() {
 			sharpeRatio = mean.Div(stdDev).InexactFloat64()
 		}
@@ -401,7 +405,10 @@ func analyzeTrades(ctx context.Context, dbpool *pgxpool.Pool, trades []Trade) (R
 			}
 		}
 		if downsideCount > 1 {
-			downsideStdDev := negativeVariance.Div(decimal.NewFromInt(int64(downsideCount - 1))).Sqrt()
+			downsideVariance := negativeVariance.Div(decimal.NewFromInt(int64(downsideCount - 1)))
+			downsideVarianceF, _ := downsideVariance.Float64()
+			downsideStdDevF := math.Sqrt(downsideVarianceF)
+			downsideStdDev := decimal.NewFromFloat(downsideStdDevF)
 			if downsideStdDev.IsPositive() {
 				sortinoRatio = mean.Div(downsideStdDev).InexactFloat64()
 			}

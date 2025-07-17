@@ -87,17 +87,17 @@ func (c *Client) newRequest(method, endpoint string, body io.Reader) (*http.Requ
 }
 
 // NewOrder sends a new order request to Coincheck.
-func (c *Client) NewOrder(reqBody OrderRequest) (*OrderResponse, error) {
+func (c *Client) NewOrder(reqBody OrderRequest) (*OrderResponse, time.Time, error) {
 	endpoint := "/api/exchange/orders"
 
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal order request: %w", err)
+		return nil, time.Time{}, fmt.Errorf("failed to marshal order request: %w", err)
 	}
 
 	httpReq, err := c.newRequest(http.MethodPost, endpoint, bytes.NewBuffer(jsonBody))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create new order request: %w", err)
+		return nil, time.Time{}, fmt.Errorf("failed to create new order request: %w", err)
 	}
 	// After newRequest, the body of httpReq is already set with bytes.NewBuffer(jsonBody)
 	// If newRequest consumes the body for signature generation, it should also reset it.
@@ -105,20 +105,21 @@ func (c *Client) NewOrder(reqBody OrderRequest) (*OrderResponse, error) {
 	// For POST, we definitely need the body.
 	httpReq.Body = io.NopCloser(bytes.NewBuffer(jsonBody))
 
+	orderSentTime := time.Now().UTC()
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute new order request: %w", err)
+		return nil, orderSentTime, fmt.Errorf("failed to execute new order request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	var orderResp OrderResponse
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read new order response body (status: %d): %w", resp.StatusCode, err)
+		return nil, orderSentTime, fmt.Errorf("failed to read new order response body (status: %d): %w", resp.StatusCode, err)
 	}
 
 	if err := json.Unmarshal(bodyBytes, &orderResp); err != nil {
-		return nil, fmt.Errorf("failed to decode new order response (status: %d, body: %s): %w. Raw request body for POST: %s", resp.StatusCode, string(bodyBytes), err, string(jsonBody))
+		return nil, orderSentTime, fmt.Errorf("failed to decode new order response (status: %d, body: %s): %w. Raw request body for POST: %s", resp.StatusCode, string(bodyBytes), err, string(jsonBody))
 	}
 
 	// Check for API-level errors if success is false
@@ -127,15 +128,15 @@ func (c *Client) NewOrder(reqBody OrderRequest) (*OrderResponse, error) {
 		if orderResp.Error != "" {
 			// Handle cases where error_description might be available
 			if orderResp.ErrorDescription != "" {
-				return &orderResp, fmt.Errorf("coincheck API error on new order: %s - %s", orderResp.Error, orderResp.ErrorDescription)
+				return &orderResp, orderSentTime, fmt.Errorf("coincheck API error on new order: %s - %s", orderResp.Error, orderResp.ErrorDescription)
 			}
-			return &orderResp, fmt.Errorf("coincheck API error on new order: %s", orderResp.Error)
+			return &orderResp, orderSentTime, fmt.Errorf("coincheck API error on new order: %s", orderResp.Error)
 		}
 		// Fallback error message if no specific error field is populated
-		return &orderResp, fmt.Errorf("coincheck API returned success=false for new order, status: %d, ID: %d", resp.StatusCode, orderResp.ID)
+		return &orderResp, orderSentTime, fmt.Errorf("coincheck API returned success=false for new order, status: %d, ID: %d", resp.StatusCode, orderResp.ID)
 	}
 
-	return &orderResp, nil
+	return &orderResp, orderSentTime, nil
 }
 
 // CancelOrder sends a cancel order request to Coincheck.

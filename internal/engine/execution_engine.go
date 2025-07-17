@@ -29,7 +29,7 @@ type LiveExecutionEngine struct {
 	tradeCfg       *config.TradeConfig
 	orderCfg       *config.OrderConfig
 	riskCfg        *config.RiskConfig // Add risk config
-	dbWriter       *dbwriter.Writer
+	dbWriter       dbwriter.DBWriter
 	position       *position.Position
 	pnlCalculator  *pnl.Calculator
 	recentPnLs     []float64
@@ -42,7 +42,7 @@ type LiveExecutionEngine struct {
 }
 
 // NewLiveExecutionEngine creates a new LiveExecutionEngine.
-func NewLiveExecutionEngine(client *coincheck.Client, tradeCfg *config.TradeConfig, orderCfg *config.OrderConfig, riskCfg *config.RiskConfig, dbWriter *dbwriter.Writer) *LiveExecutionEngine {
+func NewLiveExecutionEngine(client *coincheck.Client, tradeCfg *config.TradeConfig, orderCfg *config.OrderConfig, riskCfg *config.RiskConfig, dbWriter dbwriter.DBWriter) *LiveExecutionEngine {
 	engine := &LiveExecutionEngine{
 		exchangeClient: client,
 		tradeCfg:       tradeCfg,
@@ -171,7 +171,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	}
 
 	logger.Infof("[Live] Placing order: %+v", req)
-	orderResp, err := e.exchangeClient.NewOrder(req)
+	orderResp, orderSentTime, err := e.exchangeClient.NewOrder(req)
 	if err != nil {
 		logger.Errorf("[Live] Error placing order: %v, Response: %+v", err, orderResp)
 		return orderResp, err
@@ -237,8 +237,25 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 
 					// Save the confirmed trade to the database
 					if e.dbWriter != nil {
+						// 約定時刻をパース
+						filledTime, err := time.Parse(time.RFC3339, tx.CreatedAt)
+						if err != nil {
+							logger.Errorf("[Live] Failed to parse transaction timestamp: %v. Using current time as fallback.", err)
+							filledTime = time.Now().UTC()
+						}
+
+						// レイテンシを計算して保存
+						latency := filledTime.Sub(orderSentTime)
+						latencyMs := latency.Milliseconds()
+						e.dbWriter.SaveLatency(dbwriter.Latency{
+							Time:      filledTime,
+							OrderID:   orderResp.ID,
+							LatencyMs: latencyMs,
+						})
+						logger.Infof("[Live] Order ID %d latency: %d ms", orderResp.ID, latencyMs)
+
 						trade := dbwriter.Trade{
-							Time:          time.Now().UTC(),
+							Time:          filledTime,
 							Pair:          tx.Pair,
 							Side:          tx.Side,
 							Price:         price,
