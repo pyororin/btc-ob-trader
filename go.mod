@@ -18,6 +18,7 @@ require (
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.5
+	github.com/rodrigo-brito/hurst v1.0.0
 	github.com/shopspring/decimal v1.4.0
 	github.com/testcontainers/testcontainers-go v0.38.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.38.0
@@ -63,7 +64,6 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
-	github.com/rodrigo-brito/hurst v1.0.0 // indirect
 	github.com/shirou/gopsutil/v4 v4.25.5 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect

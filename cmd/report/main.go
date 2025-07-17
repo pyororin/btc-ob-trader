@@ -24,6 +24,13 @@ type Trade struct {
 	IsCancelled     bool            `json:"is_cancelled"`
 }
 
+// TradePnl は個々のトレードの損益情報を保持します。
+type TradePnl struct {
+	TradeID       int64
+	Pnl           decimal.Decimal
+	CumulativePnl decimal.Decimal
+}
+
 func main() {
 	// 環境変数からデータベース接続情報を取得
 	dbHost := os.Getenv("DB_HOST")
@@ -53,20 +60,20 @@ func main() {
 	}
 	defer dbpool.Close()
 
-	// すべてのトレードを取得
-	trades, err := fetchAllTrades(context.Background(), dbpool)
+	// 新しいトレードを取得
+	trades, err := fetchNewTrades(context.Background(), dbpool)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error fetching trades: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error fetching new trades: %v\n", err)
 		os.Exit(1)
 	}
 
 	if len(trades) == 0 {
-		fmt.Println("No trades found.")
+		fmt.Println("No new trades found.")
 		return
 	}
 
 	// 損益分析
-	report, err := analyzeTrades(trades)
+	report, err := analyzeTrades(context.Background(), dbpool, trades)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error analyzing trades: %v\n", err)
 		os.Exit(1)
@@ -96,12 +103,14 @@ func main() {
 	fmt.Println("Report successfully saved to database.")
 }
 
-// fetchAllTrades はデータベースからすべてのトレードを取得します。
-func fetchAllTrades(ctx context.Context, dbpool *pgxpool.Pool) ([]Trade, error) {
+// fetchNewTrades はまだ処理されていない新しいトレードを取得します。
+func fetchNewTrades(ctx context.Context, dbpool *pgxpool.Pool) ([]Trade, error) {
 	query := `
-        SELECT time, replay_session_id, pair, side, price, size, transaction_id, is_cancelled
-        FROM trades
-        ORDER BY time ASC;
+        SELECT t.time, t.replay_session_id, t.pair, t.side, t.price, t.size, t.transaction_id, t.is_cancelled
+        FROM trades t
+        LEFT JOIN trades_pnl tp ON t.transaction_id = tp.trade_id
+        WHERE tp.trade_id IS NULL
+        ORDER BY t.time ASC;
     `
 	rows, err := dbpool.Query(ctx, query)
 	if err != nil {
@@ -123,29 +132,32 @@ func fetchAllTrades(ctx context.Context, dbpool *pgxpool.Pool) ([]Trade, error) 
 
 // Report は損益分析の結果を保持します。
 type Report struct {
-	ReplaySessionID    *string         `json:"replay_session_id"`
-	StartDate          time.Time       `json:"start_date"`
-	EndDate            time.Time       `json:"end_date"`
-	TotalTrades        int             `json:"total_trades"`        // Executed trades
-	CancelledTrades    int             `json:"cancelled_trades"`    // Cancelled trades
-	CancellationRate   float64         `json:"cancellation_rate"`   // Cancellation rate
-	WinningTrades      int             `json:"winning_trades"`
-	LosingTrades       int             `json:"losing_trades"`
-	WinRate            float64         `json:"win_rate"`
-	LongWinningTrades  int             `json:"long_winning_trades"`
-	LongLosingTrades   int             `json:"long_losing_trades"`
-	LongWinRate        float64         `json:"long_win_rate"`
-	ShortWinningTrades int             `json:"short_winning_trades"`
-	ShortLosingTrades  int             `json:"short_losing_trades"`
-	ShortWinRate       float64         `json:"short_win_rate"`
-	TotalPnL           decimal.Decimal `json:"total_pnl"`
-	AverageProfit      decimal.Decimal `json:"average_profit"`
-	AverageLoss        decimal.Decimal `json:"average_loss"`
-	RiskRewardRatio    float64         `json:"risk_reward_ratio"`
+	ReplaySessionID         *string         `json:"replay_session_id"`
+	StartDate               time.Time       `json:"start_date"`
+	EndDate                 time.Time       `json:"end_date"`
+	TotalTrades             int             `json:"total_trades"`        // Executed trades
+	CancelledTrades         int             `json:"cancelled_trades"`    // Cancelled trades
+	CancellationRate        float64         `json:"cancellation_rate"`   // Cancellation rate
+	WinningTrades           int             `json:"winning_trades"`
+	LosingTrades            int             `json:"losing_trades"`
+	WinRate                 float64         `json:"win_rate"`
+	LongWinningTrades       int             `json:"long_winning_trades"`
+	LongLosingTrades        int             `json:"long_losing_trades"`
+	LongWinRate             float64         `json:"long_win_rate"`
+	ShortWinningTrades      int             `json:"short_winning_trades"`
+	ShortLosingTrades       int             `json:"short_losing_trades"`
+	ShortWinRate            float64         `json:"short_win_rate"`
+	TotalPnL                decimal.Decimal `json:"total_pnl"`
+	AverageProfit           decimal.Decimal `json:"average_profit"`
+	AverageLoss             decimal.Decimal `json:"average_loss"`
+	RiskRewardRatio         float64         `json:"risk_reward_ratio"`
+	CumulativeTotalPnl      decimal.Decimal `json:"cumulative_total_pnl"`
+	CumulativeWinningTrades int             `json:"cumulative_winning_trades"`
+	CumulativeLosingTrades  int             `json:"cumulative_losing_trades"`
 }
 
 // analyzeTrades はトレードリストを分析してレポートを作成します。
-func analyzeTrades(trades []Trade) (Report, error) {
+func analyzeTrades(ctx context.Context, dbpool *pgxpool.Pool, trades []Trade) (Report, error) {
 	if len(trades) == 0 {
 		return Report{}, fmt.Errorf("no trades to analyze")
 	}
@@ -179,6 +191,15 @@ func analyzeTrades(trades []Trade) (Report, error) {
 	var longWinningTrades, longLosingTrades int
 	var shortWinningTrades, shortLosingTrades int
 	var totalProfit, totalLoss decimal.Decimal
+	var tradesPnl []TradePnl
+
+	// Get the last cumulative PNL
+	var lastCumulativePnl decimal.Decimal
+	err := dbpool.QueryRow(ctx, "SELECT cumulative_pnl FROM trades_pnl ORDER BY created_at DESC LIMIT 1").Scan(&lastCumulativePnl)
+	if err != nil {
+		// If there are no previous trades, start with zero
+		lastCumulativePnl = decimal.Zero
+	}
 
 	startDate := executedTrades[0].Time
 	endDate := executedTrades[len(executedTrades)-1].Time
@@ -190,6 +211,9 @@ func analyzeTrades(trades []Trade) (Report, error) {
 				matchSize := decimal.Min(sell.Size, trade.Size)
 				pnl := sell.Price.Sub(trade.Price).Mul(matchSize)
 				totalPnL = totalPnL.Add(pnl)
+				lastCumulativePnl = lastCumulativePnl.Add(pnl)
+				tradesPnl = append(tradesPnl, TradePnl{TradeID: trade.TransactionID, Pnl: pnl, CumulativePnl: lastCumulativePnl})
+
 				if pnl.IsPositive() {
 					shortWinningTrades++
 					totalProfit = totalProfit.Add(pnl)
@@ -214,6 +238,8 @@ func analyzeTrades(trades []Trade) (Report, error) {
 				matchSize := decimal.Min(buy.Size, trade.Size)
 				pnl := trade.Price.Sub(buy.Price).Mul(matchSize)
 				totalPnL = totalPnL.Add(pnl)
+				lastCumulativePnl = lastCumulativePnl.Add(pnl)
+				tradesPnl = append(tradesPnl, TradePnl{TradeID: trade.TransactionID, Pnl: pnl, CumulativePnl: lastCumulativePnl})
 				if pnl.IsPositive() {
 					longWinningTrades++
 					totalProfit = totalProfit.Add(pnl)
@@ -232,6 +258,14 @@ func analyzeTrades(trades []Trade) (Report, error) {
 			if trade.Size.IsPositive() {
 				sells = append(sells, trade)
 			}
+		}
+	}
+
+	// Insert trade PNLs into the database
+	for _, tp := range tradesPnl {
+		_, err := dbpool.Exec(ctx, "INSERT INTO trades_pnl (trade_id, pnl, cumulative_pnl) VALUES ($1, $2, $3)", tp.TradeID, tp.Pnl, tp.CumulativePnl)
+		if err != nil {
+			return Report{}, fmt.Errorf("failed to insert trade pnl: %w", err)
 		}
 	}
 
@@ -274,26 +308,39 @@ func analyzeTrades(trades []Trade) (Report, error) {
 		riskRewardRatio = avgProfit.Div(avgLoss).InexactFloat64()
 	}
 
+	// Get latest cumulative stats
+	var cumulativeTotalPnl decimal.Decimal
+	var cumulativeWinningTrades, cumulativeLosingTrades int
+	err = dbpool.QueryRow(ctx, "SELECT cumulative_total_pnl, cumulative_winning_trades, cumulative_losing_trades FROM pnl_reports ORDER BY time DESC LIMIT 1").Scan(&cumulativeTotalPnl, &cumulativeWinningTrades, &cumulativeLosingTrades)
+	if err != nil {
+		cumulativeTotalPnl = decimal.Zero
+		cumulativeWinningTrades = 0
+		cumulativeLosingTrades = 0
+	}
+
 	return Report{
-		ReplaySessionID:    replaySessionID,
-		StartDate:          startDate,
-		EndDate:            endDate,
-		TotalTrades:        totalExecutedTrades,
-		CancelledTrades:    cancelledCount,
-		CancellationRate:   cancellationRate,
-		WinningTrades:      winningTrades,
-		LosingTrades:       losingTrades,
-		WinRate:            winRate,
-		LongWinningTrades:  longWinningTrades,
-		LongLosingTrades:   longLosingTrades,
-		LongWinRate:        longWinRate,
-		ShortWinningTrades: shortWinningTrades,
-		ShortLosingTrades:  shortLosingTrades,
-		ShortWinRate:       shortWinRate,
-		TotalPnL:           totalPnL,
-		AverageProfit:      avgProfit,
-		AverageLoss:        avgLoss,
-		RiskRewardRatio:    riskRewardRatio,
+		ReplaySessionID:         replaySessionID,
+		StartDate:               startDate,
+		EndDate:                 endDate,
+		TotalTrades:             totalExecutedTrades,
+		CancelledTrades:         cancelledCount,
+		CancellationRate:        cancellationRate,
+		WinningTrades:           winningTrades,
+		LosingTrades:            losingTrades,
+		WinRate:                 winRate,
+		LongWinningTrades:       longWinningTrades,
+		LongLosingTrades:        longLosingTrades,
+		LongWinRate:             longWinRate,
+		ShortWinningTrades:      shortWinningTrades,
+		ShortLosingTrades:       shortLosingTrades,
+		ShortWinRate:            shortWinRate,
+		TotalPnL:                totalPnL,
+		AverageProfit:           avgProfit,
+		AverageLoss:             avgLoss,
+		RiskRewardRatio:         riskRewardRatio,
+		CumulativeTotalPnl:      cumulativeTotalPnl.Add(totalPnL),
+		CumulativeWinningTrades: cumulativeWinningTrades + winningTrades,
+		CumulativeLosingTrades:  cumulativeLosingTrades + losingTrades,
 	}, nil
 }
 
@@ -329,6 +376,10 @@ func printReport(r Report) {
 	} else {
 		fmt.Println("約定済みの取引はありません。")
 	}
+	fmt.Println("--- 累積 ---")
+	fmt.Printf("累積合計損益: %s\n", r.CumulativeTotalPnl.StringFixed(2))
+	fmt.Printf("累積勝ちトレード数: %d\n", r.CumulativeWinningTrades)
+	fmt.Printf("累積負けトレード数: %d\n", r.CumulativeLosingTrades)
 	fmt.Println("----------------------")
 }
 
@@ -361,9 +412,10 @@ func saveReportToDB(ctx context.Context, dbpool *pgxpool.Pool, r Report) error {
             cancellation_rate, winning_trades, losing_trades, win_rate,
             long_winning_trades, long_losing_trades, long_win_rate,
             short_winning_trades, short_losing_trades, short_win_rate,
-            total_pnl, average_profit, average_loss, risk_reward_ratio
+            total_pnl, average_profit, average_loss, risk_reward_ratio,
+            cumulative_total_pnl, cumulative_winning_trades, cumulative_losing_trades
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
         );
     `
 	_, err := dbpool.Exec(ctx, query,
@@ -372,6 +424,7 @@ func saveReportToDB(ctx context.Context, dbpool *pgxpool.Pool, r Report) error {
 		r.LongWinningTrades, r.LongLosingTrades, r.LongWinRate,
 		r.ShortWinningTrades, r.ShortLosingTrades, r.ShortWinRate,
 		r.TotalPnL, r.AverageProfit, r.AverageLoss, r.RiskRewardRatio,
+		r.CumulativeTotalPnl, r.CumulativeWinningTrades, r.CumulativeLosingTrades,
 	)
 	return err
 }

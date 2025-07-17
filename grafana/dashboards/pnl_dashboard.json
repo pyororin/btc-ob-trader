@@ -334,10 +334,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 4,
-        "w": 12,
-        "x": 12,
-        "y": 0
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 12
       },
       "id": 4,
       "options": {
@@ -387,13 +387,13 @@
             "22": "n",
             "23": ")"
           },
-          "format": "table",
-          "rawSql": "SELECT total_pnl FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "format": "time_series",
+          "rawSql": "SELECT created_at AS time, cumulative_pnl FROM trades_pnl ORDER BY created_at",
           "refId": "A"
         }
       ],
-      "title": "合計損益",
-      "type": "stat"
+      "title": "累積損益",
+      "type": "timeseries"
     },
     {
       "datasource": "TimescaleDB",
@@ -466,7 +466,7 @@
             "23": ")"
           },
           "format": "table",
-          "rawSql": "SELECT winning_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT cumulative_winning_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "refId": "A"
         }
       ],
@@ -544,7 +544,7 @@
             "23": ")"
           },
           "format": "table",
-          "rawSql": "SELECT losing_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "rawSql": "SELECT cumulative_losing_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "refId": "A"
         }
       ],
