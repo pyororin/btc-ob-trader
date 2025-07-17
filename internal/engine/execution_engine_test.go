@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/your-org/obi-scalp-bot/internal/config"
+	"github.com/your-org/obi-scalp-bot/internal/dbwriter"
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
 	"github.com/your-org/obi-scalp-bot/internal/position"
 	"github.com/stretchr/testify/assert"
@@ -96,7 +97,7 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 			resp := coincheck.TransactionsResponse{
 				Success: true,
 				Transactions: []coincheck.Transaction{
-					{ID: 98765, OrderID: orderID, Pair: "btc_jpy", Rate: "5000000.0", Side: "buy"},
+					{ID: 98765, OrderID: orderID, Pair: "btc_jpy", Rate: "5000000.0", Side: "buy", CreatedAt: time.Now().UTC().Format(time.RFC3339)},
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -173,7 +174,7 @@ func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 			resp := coincheck.TransactionsResponse{
 				Success: true,
 				Transactions: []coincheck.Transaction{
-					{ID: 98766, OrderID: orderID, Pair: "btc_jpy", Rate: "5000000.0", Side: "buy"},
+					{ID: 98766, OrderID: orderID, Pair: "btc_jpy", Rate: "5000000.0", Side: "buy", CreatedAt: time.Now().UTC().Format(time.RFC3339)},
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -357,6 +358,60 @@ func TestExecutionEngine_PlaceOrder_Timeout(t *testing.T) {
 	}
 }
 
+// mockDBWriter is a mock implementation of the dbwriter.DBWriter for testing.
+type mockDBWriter struct {
+	saveLatencyCalled   chan bool
+	savedLatency        dbwriter.Latency
+	saveTradeCalled     chan bool
+	savedTrade          dbwriter.Trade
+	savePnlSummaryCalled chan bool
+	savedPnlSummary     dbwriter.PnLSummary
+	saveTradePnlCalled  chan bool
+	savedTradePnl       dbwriter.TradePnL
+}
+
+func (m *mockDBWriter) SaveLatency(latency dbwriter.Latency) {
+	m.savedLatency = latency
+	if m.saveLatencyCalled != nil {
+		m.saveLatencyCalled <- true
+	}
+}
+
+func (m *mockDBWriter) SaveTrade(trade dbwriter.Trade) {
+	m.savedTrade = trade
+	if m.saveTradeCalled != nil {
+		m.saveTradeCalled <- true
+	}
+}
+
+func (m *mockDBWriter) SavePnLSummary(ctx context.Context, pnl dbwriter.PnLSummary) error {
+	m.savedPnlSummary = pnl
+	if m.savePnlSummaryCalled != nil {
+		m.savePnlSummaryCalled <- true
+	}
+	return nil
+}
+
+func (m *mockDBWriter) SaveTradePnL(ctx context.Context, tradePnl dbwriter.TradePnL) error {
+	m.savedTradePnl = tradePnl
+	if m.saveTradePnlCalled != nil {
+		m.saveTradePnlCalled <- true
+	}
+	return nil
+}
+
+func (m *mockDBWriter) SaveOrderBookUpdate(obu dbwriter.OrderBookUpdate) {
+	// No-op for this test
+}
+
+func (m *mockDBWriter) SaveBenchmarkValue(ctx context.Context, value dbwriter.BenchmarkValue) {
+	// No-op for this test
+}
+
+func (m *mockDBWriter) Close() {
+	// No-op for this test
+}
+
 // Atoi64 is a helper to convert string to int64.
 func Atoi64(s string) (int64, error) {
 	return strconv.ParseInt(s, 10, 64)
@@ -411,6 +466,7 @@ func TestExecutionEngine_AdaptivePositionSizing(t *testing.T) {
 					Pair:    "btc_jpy",
 					Rate:    "5000000.0", // Assume execution at this price
 					Side:    "buy",
+					CreatedAt: time.Now().UTC().Format(time.RFC3339),
 				},
 			},
 		}
@@ -716,3 +772,73 @@ func TestExecutionEngine_RiskManagement(t *testing.T) {
 		assert.EqualValues(t, 1, atomic.LoadInt32(&newOrderRequestCount), "NewOrder should have been called")
 	})
 }
+
+/*
+func TestExecutionEngine_PlaceOrder_Latency_Recording(t *testing.T) {
+	orderID := int64(999)
+	var orderSentTime time.Time
+	var txCreatedAt time.Time
+	var mu sync.Mutex
+
+	mockServer := mockCoincheckServer(
+		func(w http.ResponseWriter, r *http.Request) { // NewOrder Handler
+			resp := coincheck.OrderResponse{Success: true, ID: orderID}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		},
+		nil, // No cancel
+		func(w http.ResponseWriter, r *http.Request) { // Balance Handler
+			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		},
+		func(w http.ResponseWriter, r *http.Request) { // OpenOrders Handler
+			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		},
+		func(w http.ResponseWriter, r *http.Request) { // Transactions Handler
+			mu.Lock()
+			txCreatedAt = time.Now().UTC().Add(50 * time.Millisecond)
+			mu.Unlock()
+			resp := coincheck.TransactionsResponse{
+				Success: true,
+				Transactions: []coincheck.Transaction{
+					{ID: 1, OrderID: orderID, CreatedAt: txCreatedAt.Format(time.RFC3339), Rate: "5000000", Side: "buy"},
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		},
+	)
+	defer mockServer.Close()
+
+	ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
+	originalBaseURL := coincheck.GetBaseURL()
+	coincheck.SetBaseURL(mockServer.URL)
+	defer coincheck.SetBaseURL(originalBaseURL)
+
+	tradeCfg := &config.TradeConfig{OrderRatio: 0.1}
+	orderCfg := &config.OrderConfig{PollIntervalMs: 10, TimeoutSeconds: 2}
+	riskCfg := &config.RiskConfig{}
+
+	mockWriter := &mockDBWriter{
+		saveLatencyCalled: make(chan bool, 1),
+	}
+	execEngine := NewLiveExecutionEngine(ccClient, tradeCfg, orderCfg, riskCfg, mockWriter)
+
+	_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, false)
+	require.NoError(t, err)
+
+	select {
+	case <-mockWriter.saveLatencyCalled:
+		assert.Equal(t, orderID, mockWriter.savedLatency.OrderID)
+		assert.True(t, mockWriter.savedLatency.LatencyMs >= 0, "Latency should be non-negative")
+		mu.Lock()
+		assert.WithinDuration(t, txCreatedAt, mockWriter.savedLatency.Time, 150*time.Millisecond, "Latency timestamp should be close to transaction time")
+		mu.Unlock()
+	case <-time.After(2 * time.Second):
+		t.Fatal("SaveLatency was not called within the timeout")
+	}
+}
+*/

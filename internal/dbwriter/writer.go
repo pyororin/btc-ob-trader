@@ -59,6 +59,13 @@ type PnLSummary struct {
 	AvgEntryPrice   float64   `db:"avg_entry_price"`
 }
 
+// Latency は約定レイテンシの情報を格納する構造体です。
+type Latency struct {
+	Time       time.Time `db:"time"`
+	OrderID    int64     `db:"order_id"`
+	LatencyMs  int64     `db:"latency_ms"`
+}
+
 // BenchmarkValue はデータベースに保存するベンチマーク情報の構造体です。
 type BenchmarkValue struct {
 	Time  time.Time `db:"time"`
@@ -74,6 +81,7 @@ type Writer struct {
 	orderBookBuffer  []OrderBookUpdate
 	tradeBuffer      []Trade
 	benchmarkBuffer  []BenchmarkValue
+	latencyBuffer    []Latency
 	bufferMutex      sync.Mutex
 	flushTicker      *time.Ticker
 	shutdownChan     chan struct{}
@@ -125,6 +133,7 @@ func NewWriter(ctx context.Context, dbConfig config.DatabaseConfig, writerConfig
 		orderBookBuffer: make([]OrderBookUpdate, 0, writerConfig.BatchSize),
 		tradeBuffer:     make([]Trade, 0, writerConfig.BatchSize),
 		benchmarkBuffer: make([]BenchmarkValue, 0, writerConfig.BatchSize),
+		latencyBuffer:   make([]Latency, 0, writerConfig.BatchSize),
 		shutdownChan:    make(chan struct{}),
 	}
 
@@ -237,6 +246,11 @@ func (w *Writer) flushBuffers() {
 		w.batchInsertBenchmarkValues(context.Background(), w.benchmarkBuffer)
 		w.benchmarkBuffer = w.benchmarkBuffer[:0]
 	}
+
+	if len(w.latencyBuffer) > 0 {
+		w.batchInsertLatencies(context.Background(), w.latencyBuffer)
+		w.latencyBuffer = w.latencyBuffer[:0]
+	}
 }
 
 func (w *Writer) batchInsertOrderBookUpdates(ctx context.Context, updates []OrderBookUpdate) {
@@ -269,6 +283,38 @@ func (w *Writer) batchInsertTrades(ctx context.Context, trades []Trade) {
 	)
 	if err != nil {
 		w.logger.Error("Failed to batch insert trades", zap.Error(err))
+	}
+}
+
+// SaveLatency は約定レイテンシをバッファに追加します。
+func (w *Writer) SaveLatency(latency Latency) {
+	if w.pool == nil {
+		return
+	}
+
+	w.bufferMutex.Lock()
+	w.latencyBuffer = append(w.latencyBuffer, latency)
+	shouldFlush := len(w.latencyBuffer) >= w.config.BatchSize
+	w.bufferMutex.Unlock()
+
+	if shouldFlush {
+		w.flushBuffers()
+	}
+}
+
+func (w *Writer) batchInsertLatencies(ctx context.Context, latencies []Latency) {
+	if w.pool == nil || len(latencies) == 0 {
+		return
+	}
+	w.logger.Info("Flushing latencies", zap.Int("count", len(latencies)))
+	_, err := w.pool.CopyFrom(
+		ctx,
+		pgx.Identifier{"latencies"},
+		[]string{"time", "order_id", "latency_ms"},
+		pgx.CopyFromRows(toLatencyInterfaces(latencies)),
+	)
+	if err != nil {
+		w.logger.Error("Failed to batch insert latencies", zap.Error(err))
 	}
 }
 
@@ -308,6 +354,14 @@ func toOrderBookInterfaces(updates []OrderBookUpdate) [][]interface{} {
 	rows := make([][]interface{}, len(updates))
 	for i, u := range updates {
 		rows[i] = []interface{}{u.Time, u.Pair, u.Side, u.Price, u.Size, u.IsSnapshot}
+	}
+	return rows
+}
+
+func toLatencyInterfaces(latencies []Latency) [][]interface{} {
+	rows := make([][]interface{}, len(latencies))
+	for i, l := range latencies {
+		rows[i] = []interface{}{l.Time, l.OrderID, l.LatencyMs}
 	}
 	return rows
 }
