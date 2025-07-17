@@ -6,9 +6,8 @@ services:
       target: builder
     volumes:
       - .:/app
+      - ./.env:/app/.env:ro
     working_dir: /app
-    env_file:
-      - .env
     environment:
       - DB_HOST=timescaledb
     networks:
