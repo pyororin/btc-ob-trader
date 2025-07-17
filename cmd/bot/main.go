@@ -328,6 +328,10 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 
 // executeTwapOrder executes a large order by splitting it into smaller chunks over time.
 func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, pair, orderType string, price, totalAmount float64) {
+	if liveEngine, ok := execEngine.(*engine.LiveExecutionEngine); ok {
+		defer liveEngine.SetPartialExitStatus(false)
+	}
+
 	cfg := config.GetConfig()
 	numOrders := int(math.Floor(totalAmount / cfg.Twap.MaxOrderSizeBtc))
 	lastOrderSize := totalAmount - float64(numOrders)*cfg.Twap.MaxOrderSizeBtc
@@ -406,6 +410,7 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 		obiCalculator.Start(ctx)
 		go processSignalsAndExecute(ctx, obiCalculator, execEngine, benchmarkService)
 		go orderMonitor(ctx, execEngine, client, orderBook)
+		go positionMonitor(ctx, execEngine, orderBook) // Added for partial exit
 		go startPnlReporter(ctx)
 
 		wsClient := coincheck.NewWebSocketClient(orderBookHandler, tradeHandler)
@@ -738,6 +743,44 @@ func orderMonitor(ctx context.Context, execEngine engine.ExecutionEngine, client
 						logger.Infof("Successfully re-placed order for original ID %d with new rate.", order.ID)
 					}
 				}
+			}
+		}
+	}
+}
+
+// positionMonitor periodically checks the current position for potential partial profit taking.
+func positionMonitor(ctx context.Context, execEngine engine.ExecutionEngine, orderBook *indicator.OrderBook) {
+	cfg := config.GetConfig()
+	if !cfg.Twap.PartialExitEnabled {
+		logger.Info("Position monitor (partial exit) is disabled.")
+		return
+	}
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	logger.Info("Starting position monitor for partial exits.")
+
+	liveEngine, ok := execEngine.(*engine.LiveExecutionEngine)
+	if !ok {
+		logger.Info("Position monitor only works with LiveExecutionEngine, exiting.")
+		return
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("Stopping position monitor.")
+			return
+		case <-ticker.C:
+			midPrice := (orderBook.BestBid() + orderBook.BestAsk()) / 2
+			if midPrice == 0 {
+				logger.Warn("Position monitor: Invalid mid-price, skipping check.")
+				continue
+			}
+
+			if exitOrder := liveEngine.CheckAndTriggerPartialExit(midPrice); exitOrder != nil {
+				currentCfg := config.GetConfig()
+				go executeTwapOrder(ctx, execEngine, currentCfg.Pair, exitOrder.OrderType, exitOrder.Price, exitOrder.Size)
 			}
 		}
 	}
