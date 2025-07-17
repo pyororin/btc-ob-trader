@@ -11,8 +11,19 @@ import (
 // globalConfig holds the current configuration, accessible atomically.
 var globalConfig atomic.Value
 
-// Config defines the structure for all application configuration.
-type Config struct {
+// AppConfig defines the structure for application-level configuration.
+type AppConfig struct {
+	LogLevel  string          `yaml:"log_level"`
+	Order     OrderConfig     `yaml:"order"`
+	Database  DatabaseConfig  `yaml:"database"`
+	DBWriter  DBWriterConfig  `yaml:"db_writer"`
+	Replay    ReplayConfig    `yaml:"replay"`
+	PnlReport PnlReportConfig `yaml:"pnl_report"`
+	Alert     AlertConfig     `yaml:"alert"`
+}
+
+// TradeConfig defines the structure for trading strategy configuration.
+type TradeConfig struct {
 	Pair                   string                 `yaml:"pair"`
 	SpreadLimit            float64                `yaml:"spread_limit"`
 	LotMaxRatio            float64                `yaml:"lot_max_ratio"`
@@ -22,17 +33,16 @@ type Config struct {
 	Volatility             VolConf                `yaml:"volatility"`
 	Twap                   TwapConfig             `yaml:"twap"`
 	Signal                 SignalConfig           `yaml:"signal"`
-	APIKey                 string                 `yaml:"-"` // Loaded from env
-	APISecret              string                 `yaml:"-"` // Loaded from env
-	LogLevel               string                 `yaml:"log_level"`
-	Order                  OrderConfig            `yaml:"order"`
-	Database               DatabaseConfig         `yaml:"database"`
-	DBWriter               DBWriterConfig         `yaml:"db_writer"`
-	Replay                 ReplayConfig           `yaml:"replay"`
-	PnlReport              PnlReportConfig        `yaml:"pnl_report"`
 	Risk                   RiskConfig             `yaml:"risk"`
-	Alert                  AlertConfig            `yaml:"alert"`
 	AdaptivePositionSizing AdaptiveSizingConfig `yaml:"adaptive_position_sizing"`
+}
+
+// Config wraps both application and trading configurations.
+type Config struct {
+	App   AppConfig
+	Trade TradeConfig
+	APIKey    string `yaml:"-"` // Loaded from env
+	APISecret string `yaml:"-"` // Loaded from env
 }
 
 // AdaptiveSizingConfig holds settings for the adaptive position sizing feature.
@@ -139,20 +149,33 @@ type DynamicOBIConf struct {
 	MaxThresholdFactor float64 `yaml:"max_threshold_factor"`
 }
 
-// loadFromFile loads configuration from a YAML file and environment variables.
-// It does not store the config globally, allowing it to be used for reloading.
-func loadFromFile(configPath string) (*Config, error) {
-	cfg := &Config{
+// loadFromFiles loads configuration from app and trade YAML files and environment variables.
+func loadFromFiles(appConfigPath, tradeConfigPath string) (*Config, error) {
+	// Load app config
+	appCfg := AppConfig{
 		LogLevel: "info",
 	}
-
-	file, err := os.ReadFile(configPath)
+	appFile, err := os.ReadFile(appConfigPath)
 	if err != nil {
 		return nil, err
 	}
-	err = yaml.Unmarshal(file, cfg)
+	if err := yaml.Unmarshal(appFile, &appCfg); err != nil {
+		return nil, err
+	}
+
+	// Load trade config
+	var tradeCfg TradeConfig
+	tradeFile, err := os.ReadFile(tradeConfigPath)
 	if err != nil {
 		return nil, err
+	}
+	if err := yaml.Unmarshal(tradeFile, &tradeCfg); err != nil {
+		return nil, err
+	}
+
+	cfg := &Config{
+		App:   appCfg,
+		Trade: tradeCfg,
 	}
 
 	// Preserve API keys from the currently active config if they are not re-set by env vars
@@ -169,30 +192,30 @@ func loadFromFile(configPath string) (*Config, error) {
 		cfg.APISecret = apiSecret
 	}
 	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
-		cfg.LogLevel = logLevel
+		cfg.App.LogLevel = logLevel
 	}
 	if dbHost := os.Getenv("DB_HOST"); dbHost != "" {
-		cfg.Database.Host = dbHost
+		cfg.App.Database.Host = dbHost
 	}
 	if dbUser := os.Getenv("DB_USER"); dbUser != "" {
-		cfg.Database.User = dbUser
+		cfg.App.Database.User = dbUser
 	}
 	if dbPassword := os.Getenv("DB_PASSWORD"); dbPassword != "" {
-		cfg.Database.Password = dbPassword
+		cfg.App.Database.Password = dbPassword
 	}
 	if dbName := os.Getenv("DB_NAME"); dbName != "" {
-		cfg.Database.Name = dbName
+		cfg.App.Database.Name = dbName
 	}
 	if dbSSLMode := os.Getenv("DB_SSLMODE"); dbSSLMode != "" {
-		cfg.Database.SSLMode = dbSSLMode
+		cfg.App.Database.SSLMode = dbSSLMode
 	}
 
 	return cfg, nil
 }
 
 // LoadConfig loads the configuration for the first time and stores it globally.
-func LoadConfig(configPath string) (*Config, error) {
-	cfg, err := loadFromFile(configPath)
+func LoadConfig(appConfigPath, tradeConfigPath string) (*Config, error) {
+	cfg, err := loadFromFiles(appConfigPath, tradeConfigPath)
 	if err != nil {
 		return nil, err
 	}
@@ -202,8 +225,8 @@ func LoadConfig(configPath string) (*Config, error) {
 
 // ReloadConfig reloads the configuration from the given path and atomically
 // updates the global configuration.
-func ReloadConfig(configPath string) (*Config, error) {
-	cfg, err := loadFromFile(configPath)
+func ReloadConfig(appConfigPath, tradeConfigPath string) (*Config, error) {
+	cfg, err := loadFromFiles(appConfigPath, tradeConfigPath)
 	if err != nil {
 		return nil, err
 	}

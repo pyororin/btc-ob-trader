@@ -1,7 +1,10 @@
 package signal
 
 import (
+	"fmt"
 	"math" // Added for almostEqual comparison
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -10,6 +13,30 @@ import (
 	"github.com/your-org/obi-scalp-bot/internal/config"
 )
 
+// createTestAppConfigFile creates a dummy app config file for testing.
+func createTestAppConfigFile(path, logLevel string) {
+	yamlContent := fmt.Sprintf(`
+log_level: "%s"
+`, logLevel)
+	err := os.WriteFile(path, []byte(yamlContent), 0644)
+	if err != nil {
+		panic(err)
+	}
+}
+
+// createTestTradeConfigFile creates a dummy trade config file for testing.
+func createTestTradeConfigFile(path string, obiThreshold float64) {
+	yamlContent := fmt.Sprintf(`
+pair: "btc_jpy"
+long:
+  obi_threshold: %.2f
+`, obiThreshold)
+	err := os.WriteFile(path, []byte(yamlContent), 0644)
+	if err != nil {
+		panic(err)
+	}
+}
+
 const floatEqualityThreshold = 1e-9
 
 func almostEqual(a, b float64) bool {
@@ -17,14 +44,15 @@ func almostEqual(a, b float64) bool {
 }
 
 func TestSignalEngine_Evaluate_LongSignal_Persists(t *testing.T) {
-	cfg := &config.Config{
+	tradeCfg := &config.TradeConfig{
 		Long:  config.StrategyConf{OBIThreshold: 0.25},
 		Short: config.StrategyConf{OBIThreshold: 0.27}, // Short OBI threshold magnitude
 		Volatility: config.VolConf{ // Ensure Volatility config is present
 			DynamicOBI: config.DynamicOBIConf{Enabled: false}, // Dynamic disabled for this classic test
 		},
+		Signal: config.SignalConfig{HoldDurationMs: 300},
 	}
-	engine, err := NewSignalEngine(cfg)
+	engine, err := NewSignalEngine(tradeCfg)
 	if err != nil {
 		t.Fatalf("NewSignalEngine() error = %v", err)
 	}
@@ -73,8 +101,8 @@ func TestSignalEngine_Evaluate_LongSignal_Persists(t *testing.T) {
 		t.Errorf("Expected SignalLong, got %v at actual persistence time (duration %v)", sigType, currentTime.Sub(engine.currentSignalSince))
 	} else {
 		// Check TP/SL values
-		expectedTP := currentPrice + cfg.Long.TP
-		expectedSL := currentPrice + cfg.Long.SL
+		expectedTP := currentPrice + tradeCfg.Long.TP
+		expectedSL := currentPrice + tradeCfg.Long.SL
 		if !almostEqual(ts.TakeProfit, expectedTP) || !almostEqual(ts.StopLoss, expectedSL) {
 			t.Errorf("Long signal TP/SL mismatch: got TP %v, SL %v; want TP %v, SL %v. Entry: %v", ts.TakeProfit, ts.StopLoss, expectedTP, expectedSL, ts.EntryPrice)
 		}
@@ -92,15 +120,15 @@ func TestSignalEngine_Evaluate_LongSignal_Persists(t *testing.T) {
 }
 
 func TestSignalEngine_Evaluate_LongSignal_DoesNotPersist(t *testing.T) {
-	cfg := &config.Config{
+	tradeCfg := &config.TradeConfig{
 		Long:  config.StrategyConf{OBIThreshold: 0.25},
 		Short: config.StrategyConf{OBIThreshold: 0.27},
 		Volatility: config.VolConf{
 			DynamicOBI: config.DynamicOBIConf{Enabled: false},
 		},
+		Signal: config.SignalConfig{HoldDurationMs: 300},
 	}
-	engine, _ := NewSignalEngine(cfg)
-	engine.config.SignalHoldDuration = 300 * time.Millisecond
+	engine, _ := NewSignalEngine(tradeCfg)
 
 	currentTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	obiStrongBuy := 0.30
@@ -126,15 +154,15 @@ func TestSignalEngine_Evaluate_LongSignal_DoesNotPersist(t *testing.T) {
 }
 
 func TestSignalEngine_Evaluate_ShortSignal_Persists(t *testing.T) {
-	cfg := &config.Config{
+	tradeCfg := &config.TradeConfig{
 		Long:  config.StrategyConf{OBIThreshold: 0.25, TP: 200, SL: -100},
 		Short: config.StrategyConf{OBIThreshold: 0.27, TP: 250, SL: -120},
 		Volatility: config.VolConf{
 			DynamicOBI: config.DynamicOBIConf{Enabled: false},
 		},
+		Signal: config.SignalConfig{HoldDurationMs: 300},
 	}
-	engine, _ := NewSignalEngine(cfg)
-	engine.config.SignalHoldDuration = 300 * time.Millisecond
+	engine, _ := NewSignalEngine(tradeCfg)
 
 	currentTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	obiStrongSell := -0.30
@@ -163,8 +191,8 @@ func TestSignalEngine_Evaluate_ShortSignal_Persists(t *testing.T) {
 		if ts != nil { sigType = ts.Type }
 		t.Errorf("Expected SignalShort, got %v (short should persist, duration %v)", sigType, currentTime.Sub(engine.currentSignalSince))
 	} else {
-		expectedTP := currentPrice - cfg.Short.TP
-		expectedSL := currentPrice - cfg.Short.SL // SL is negative, so currentPrice - (-val) = currentPrice + val
+		expectedTP := currentPrice - tradeCfg.Short.TP
+		expectedSL := currentPrice - tradeCfg.Short.SL // SL is negative, so currentPrice - (-val) = currentPrice + val
 		if !almostEqual(ts.TakeProfit, expectedTP) || !almostEqual(ts.StopLoss, expectedSL) {
 			t.Errorf("Short signal TP/SL mismatch: got TP %v, SL %v; want TP %v, SL %v. Entry: %v", ts.TakeProfit, ts.StopLoss, expectedTP, expectedSL, ts.EntryPrice)
 		}
@@ -172,15 +200,15 @@ func TestSignalEngine_Evaluate_ShortSignal_Persists(t *testing.T) {
 }
 
 func TestSignalEngine_Evaluate_ShortSignal_DoesNotPersist(t *testing.T) {
-	cfg := &config.Config{
+	tradeCfg := &config.TradeConfig{
 		Long:  config.StrategyConf{OBIThreshold: 0.25},
 		Short: config.StrategyConf{OBIThreshold: 0.27},
 		Volatility: config.VolConf{
 			DynamicOBI: config.DynamicOBIConf{Enabled: false},
 		},
+		Signal: config.SignalConfig{HoldDurationMs: 300},
 	}
-	engine, _ := NewSignalEngine(cfg)
-	engine.config.SignalHoldDuration = 300 * time.Millisecond
+	engine, _ := NewSignalEngine(tradeCfg)
 
 	currentTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	obiStrongSell := -0.30
@@ -203,15 +231,15 @@ func TestSignalEngine_Evaluate_ShortSignal_DoesNotPersist(t *testing.T) {
 
 
 func TestSignalEngine_Evaluate_NoSignal(t *testing.T) {
-	cfg := &config.Config{
+	tradeCfg := &config.TradeConfig{
 		Long:  config.StrategyConf{OBIThreshold: 0.25},
 		Short: config.StrategyConf{OBIThreshold: 0.27},
 		Volatility: config.VolConf{
 			DynamicOBI: config.DynamicOBIConf{Enabled: false},
 		},
+		Signal: config.SignalConfig{HoldDurationMs: 300},
 	}
-	engine, _ := NewSignalEngine(cfg)
-	engine.config.SignalHoldDuration = 300 * time.Millisecond
+	engine, _ := NewSignalEngine(tradeCfg)
 
 	currentTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	obiNeutral := 0.10
@@ -228,15 +256,15 @@ func TestSignalEngine_Evaluate_NoSignal(t *testing.T) {
 }
 
 func TestSignalEngine_Evaluate_SignalRecovery(t *testing.T) {
-	cfg := &config.Config{
+	tradeCfg := &config.TradeConfig{
 		Long:  config.StrategyConf{OBIThreshold: 0.25, TP: 10, SL: -10},
 		Short: config.StrategyConf{OBIThreshold: 0.27, TP: 10, SL: -10},
 		Volatility: config.VolConf{
 			DynamicOBI: config.DynamicOBIConf{Enabled: false},
 		},
+		Signal: config.SignalConfig{HoldDurationMs: 100},
 	}
-	engine, _ := NewSignalEngine(cfg)
-	engine.config.SignalHoldDuration = 100 * time.Millisecond
+	engine, _ := NewSignalEngine(tradeCfg)
 
 	currentTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	obiBuy := 0.30
@@ -282,15 +310,15 @@ func TestSignalEngine_Evaluate_SignalRecovery(t *testing.T) {
 
 
 func TestSignalEngine_DoD_Long5_Short5_Signals(t *testing.T) {
-	cfg := &config.Config{
+	tradeCfg := &config.TradeConfig{
 		Long:  config.StrategyConf{OBIThreshold: 0.25, TP: 10, SL: -10},
 		Short: config.StrategyConf{OBIThreshold: 0.27, TP: 10, SL: -10},
 		Volatility: config.VolConf{
 			DynamicOBI: config.DynamicOBIConf{Enabled: false},
 		},
+		Signal: config.SignalConfig{HoldDurationMs: 100},
 	}
-	engine, _ := NewSignalEngine(cfg)
-	engine.config.SignalHoldDuration = 100 * time.Millisecond
+	engine, _ := NewSignalEngine(tradeCfg)
 
 	currentTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	obiBuy := 0.30
@@ -359,7 +387,7 @@ func TestSignalEngine_DynamicOBIThresholds(t *testing.T) {
 	minFactor := 0.5
 	maxFactor := 2.0
 
-	cfg := &config.Config{
+	tradeCfg := &config.TradeConfig{
 		Long:  config.StrategyConf{OBIThreshold: baseLongOBI},
 		Short: config.StrategyConf{OBIThreshold: baseShortOBI},
 		Volatility: config.VolConf{
@@ -371,12 +399,12 @@ func TestSignalEngine_DynamicOBIThresholds(t *testing.T) {
 				MaxThresholdFactor: maxFactor,
 			},
 		},
+		Signal: config.SignalConfig{HoldDurationMs: 100},
 	}
-	engine, err := NewSignalEngine(cfg)
+	engine, err := NewSignalEngine(tradeCfg)
 	if err != nil {
 		t.Fatalf("NewSignalEngine() error = %v", err)
 	}
-	engine.config.SignalHoldDuration = 100 * time.Millisecond
 
 	currentTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	initialMidPrice := 7000000.0
@@ -509,9 +537,22 @@ func TestSignalEngine_DynamicOBIThresholds(t *testing.T) {
 }
 
 func TestSignalEngine_RegimeDetection(t *testing.T) {
-	cfg, err := config.LoadConfig("../../config/config.yaml")
+	// Note: This test loads the actual config files. Ensure they exist or adapt the test.
+	// For CI/CD, it might be better to create dummy files here.
+	appConfigPath := "../../config/app_config.yaml"
+	tradeConfigPath := "../../config/trade_config.yaml"
+
+	// Create dummy files to ensure test is self-contained
+	tmpDir := t.TempDir()
+	appConfigPath = filepath.Join(tmpDir, "app_config.yaml")
+	tradeConfigPath = filepath.Join(tmpDir, "trade_config.yaml")
+	createTestAppConfigFile(appConfigPath, "info")
+	createTestTradeConfigFile(tradeConfigPath, 0.25)
+
+
+	cfg, err := config.LoadConfig(appConfigPath, tradeConfigPath)
 	require.NoError(t, err)
-	engine, err := NewSignalEngine(cfg)
+	engine, err := NewSignalEngine(&cfg.Trade)
 	require.NoError(t, err)
 
 	// 1. Test Trending Regime
@@ -526,7 +567,7 @@ func TestSignalEngine_RegimeDetection(t *testing.T) {
 
 
 	// Reset engine state for this sub-test
-	engine, err = NewSignalEngine(cfg)
+	engine, err = NewSignalEngine(&cfg.Trade)
 	require.NoError(t, err)
 	engine.config.SignalHoldDuration = 10 * time.Millisecond // shorter for test
 
@@ -583,7 +624,7 @@ func TestSignalEngine_RegimeDetection(t *testing.T) {
 }
 
 func TestSignalEngine_SlopeFilter(t *testing.T) {
-	cfg := &config.Config{
+	tradeCfg := &config.TradeConfig{
 		Long:  config.StrategyConf{OBIThreshold: 0.25},
 		Short: config.StrategyConf{OBIThreshold: 0.27},
 		Signal: config.SignalConfig{
@@ -602,14 +643,14 @@ func TestSignalEngine_SlopeFilter(t *testing.T) {
 	currentTime := time.Now()
 
 	t.Run("Long signal with sufficient slope", func(t *testing.T) {
-		engine, _ := NewSignalEngine(cfg)
+		engine, _ := NewSignalEngine(tradeCfg)
 		// Set up history so that the *next* value will create the desired slope
 		engine.UpdateOBIHistoryForTest(t, []float64{0.11, 0.15, 0.19, 0.23, 0.27})
 		obiValue := 0.31 // This value makes the history [0.15, 0.19, 0.23, 0.27, 0.31], slope=0.04
-		require.True(t, obiValue > cfg.Long.OBIThreshold)
+		require.True(t, obiValue > tradeCfg.Long.OBIThreshold)
 
 		engine.Evaluate(currentTime, obiValue) // Prime signal state
-		currentTime = currentTime.Add(time.Duration(cfg.Signal.HoldDurationMs) * time.Millisecond)
+		currentTime = currentTime.Add(time.Duration(tradeCfg.Signal.HoldDurationMs) * time.Millisecond)
 		engine.UpdateMarketData(currentTime, 7000000, 6999999, 7000001, 1, 1)
 		// The history will be updated again here, but the slope should still be positive
 		signal := engine.Evaluate(currentTime, obiValue)
@@ -621,14 +662,14 @@ func TestSignalEngine_SlopeFilter(t *testing.T) {
 	})
 
 	t.Run("Long signal suppressed due to insufficient slope", func(t *testing.T) {
-		engine, _ := NewSignalEngine(cfg)
+		engine, _ := NewSignalEngine(tradeCfg)
 		// Set up history so that the *next* value will create a flat slope
 		engine.UpdateOBIHistoryForTest(t, []float64{0.29, 0.29, 0.29, 0.29, 0.30})
 		obiValue := 0.30 // This value makes the history [0.29, 0.29, 0.29, 0.30, 0.30], slope is small
-		require.True(t, obiValue > cfg.Long.OBIThreshold)
+		require.True(t, obiValue > tradeCfg.Long.OBIThreshold)
 
 		engine.Evaluate(currentTime, obiValue)
-		currentTime = currentTime.Add(time.Duration(cfg.Signal.HoldDurationMs) * time.Millisecond)
+		currentTime = currentTime.Add(time.Duration(tradeCfg.Signal.HoldDurationMs) * time.Millisecond)
 		engine.UpdateMarketData(currentTime, 7000000, 6999999, 7000001, 1, 1)
 		signal := engine.Evaluate(currentTime, obiValue)
 
@@ -636,13 +677,13 @@ func TestSignalEngine_SlopeFilter(t *testing.T) {
 	})
 
 	t.Run("Short signal with sufficient slope", func(t *testing.T) {
-		engine, _ := NewSignalEngine(cfg)
+		engine, _ := NewSignalEngine(tradeCfg)
 		engine.UpdateOBIHistoryForTest(t, []float64{-0.11, -0.15, -0.19, -0.23, -0.27})
 		obiValue := -0.31 // This value makes the history [-0.15, -0.19, -0.23, -0.27, -0.31], slope=-0.04
-		require.True(t, obiValue < -cfg.Short.OBIThreshold)
+		require.True(t, obiValue < -tradeCfg.Short.OBIThreshold)
 
 		engine.Evaluate(currentTime, obiValue)
-		currentTime = currentTime.Add(time.Duration(cfg.Signal.HoldDurationMs) * time.Millisecond)
+		currentTime = currentTime.Add(time.Duration(tradeCfg.Signal.HoldDurationMs) * time.Millisecond)
 		engine.UpdateMarketData(currentTime, 7000000, 6999999, 7000001, 1, 1)
 		signal := engine.Evaluate(currentTime, obiValue)
 
@@ -653,13 +694,13 @@ func TestSignalEngine_SlopeFilter(t *testing.T) {
 	})
 
 	t.Run("Short signal suppressed due to insufficient slope", func(t *testing.T) {
-		engine, _ := NewSignalEngine(cfg)
+		engine, _ := NewSignalEngine(tradeCfg)
 		engine.UpdateOBIHistoryForTest(t, []float64{-0.29, -0.29, -0.29, -0.29, -0.30})
 		obiValue := -0.30 // This value makes the history [-0.29, -0.29, -0.29, -0.30, -0.30], slope is small
-		require.True(t, obiValue < -cfg.Short.OBIThreshold)
+		require.True(t, obiValue < -tradeCfg.Short.OBIThreshold)
 
 		engine.Evaluate(currentTime, obiValue)
-		currentTime = currentTime.Add(time.Duration(cfg.Signal.HoldDurationMs) * time.Millisecond)
+		currentTime = currentTime.Add(time.Duration(tradeCfg.Signal.HoldDurationMs) * time.Millisecond)
 		engine.UpdateMarketData(currentTime, 7000000, 6999999, 7000001, 1, 1)
 		signal := engine.Evaluate(currentTime, obiValue)
 

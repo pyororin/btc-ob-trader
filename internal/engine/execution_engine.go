@@ -26,7 +26,8 @@ type ExecutionEngine interface {
 // LiveExecutionEngine handles real order placement with the exchange.
 type LiveExecutionEngine struct {
 	exchangeClient *coincheck.Client
-	cfg            *config.Config
+	tradeCfg       *config.TradeConfig
+	orderCfg       *config.OrderConfig
 	dbWriter       *dbwriter.Writer
 	position       *position.Position
 	pnlCalculator  *pnl.Calculator
@@ -40,18 +41,19 @@ type LiveExecutionEngine struct {
 }
 
 // NewLiveExecutionEngine creates a new LiveExecutionEngine.
-func NewLiveExecutionEngine(client *coincheck.Client, cfg *config.Config, dbWriter *dbwriter.Writer) *LiveExecutionEngine {
+func NewLiveExecutionEngine(client *coincheck.Client, tradeCfg *config.TradeConfig, orderCfg *config.OrderConfig, dbWriter *dbwriter.Writer) *LiveExecutionEngine {
 	engine := &LiveExecutionEngine{
 		exchangeClient: client,
-		cfg:            cfg,
+		tradeCfg:       tradeCfg,
+		orderCfg:       orderCfg,
 		dbWriter:       dbWriter,
 		position:       position.NewPosition(),
 		pnlCalculator:  pnl.NewCalculator(),
 		recentPnLs:     make([]float64, 0),
 	}
 	// Initialize ratios from config
-	engine.currentRatios.OrderRatio = cfg.OrderRatio
-	engine.currentRatios.LotMaxRatio = cfg.LotMaxRatio
+	engine.currentRatios.OrderRatio = tradeCfg.OrderRatio
+	engine.currentRatios.LotMaxRatio = tradeCfg.LotMaxRatio
 	return engine
 }
 
@@ -62,7 +64,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	}
 
 	// Adjust order ratios based on recent performance
-	if e.cfg.AdaptivePositionSizing.Enabled {
+	if e.tradeCfg.AdaptivePositionSizing.Enabled {
 		e.adjustRatios()
 	}
 
@@ -146,8 +148,8 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	logger.Infof("[Live] Order placed successfully: ID=%d", orderResp.ID)
 
 	// Monitor for execution
-	pollInterval := time.Duration(e.cfg.Order.PollIntervalMs) * time.Millisecond
-	timeout := time.Duration(e.cfg.Order.TimeoutSeconds) * time.Second
+	pollInterval := time.Duration(e.orderCfg.PollIntervalMs) * time.Millisecond
+	timeout := time.Duration(e.orderCfg.TimeoutSeconds) * time.Second
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -222,7 +224,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 						if realizedPnL != 0 {
 							e.pnlCalculator.UpdateRealizedPnL(realizedPnL)
 							// Update recent PnLs for adaptive sizing
-							if e.cfg.AdaptivePositionSizing.Enabled {
+							if e.tradeCfg.AdaptivePositionSizing.Enabled {
 								e.updateRecentPnLs(realizedPnL)
 							}
 						}
@@ -276,7 +278,7 @@ func (e *LiveExecutionEngine) CancelOrder(ctx context.Context, orderID int64) (*
 // updateRecentPnLs adds a new PnL to the recent PnL list and keeps it at the configured size.
 func (e *LiveExecutionEngine) updateRecentPnLs(pnl float64) {
 	e.recentPnLs = append(e.recentPnLs, pnl)
-	numTrades := e.cfg.AdaptivePositionSizing.NumTrades
+	numTrades := e.tradeCfg.AdaptivePositionSizing.NumTrades
 	if len(e.recentPnLs) > numTrades {
 		e.recentPnLs = e.recentPnLs[len(e.recentPnLs)-numTrades:]
 	}
@@ -314,7 +316,7 @@ func (e *LiveExecutionEngine) CheckAndTriggerPartialExit(currentMidPrice float64
 	e.partialExitMutex.Lock()
 	defer e.partialExitMutex.Unlock()
 
-	if e.isExitingPartially || !e.cfg.Twap.PartialExitEnabled {
+	if e.isExitingPartially || !e.tradeCfg.Twap.PartialExitEnabled {
 		return nil
 	}
 
@@ -330,13 +332,13 @@ func (e *LiveExecutionEngine) CheckAndTriggerPartialExit(currentMidPrice float64
 	}
 	profitRatio := unrealizedPnL / entryValue * 100 // In percent
 
-	if profitRatio > e.cfg.Twap.ProfitThreshold {
+	if profitRatio > e.tradeCfg.Twap.ProfitThreshold {
 		logger.Infof("Profit threshold of %.2f%% reached (current: %.2f%%). Initiating partial exit.",
-			e.cfg.Twap.ProfitThreshold, profitRatio)
+			e.tradeCfg.Twap.ProfitThreshold, profitRatio)
 
 		e.isExitingPartially = true // Set flag inside the lock
 
-		exitSize := positionSize * e.cfg.Twap.ExitRatio
+		exitSize := positionSize * e.tradeCfg.Twap.ExitRatio
 		orderType := "sell"
 		if positionSize < 0 { // Short position
 			orderType = "buy"
@@ -354,10 +356,10 @@ func (e *LiveExecutionEngine) CheckAndTriggerPartialExit(currentMidPrice float64
 
 // adjustRatios dynamically adjusts the order and lot max ratios based on recent PnL.
 func (e *LiveExecutionEngine) adjustRatios() {
-	if len(e.recentPnLs) < e.cfg.AdaptivePositionSizing.NumTrades {
+	if len(e.recentPnLs) < e.tradeCfg.AdaptivePositionSizing.NumTrades {
 		// Not enough trade data yet, use default ratios
-		e.currentRatios.OrderRatio = e.cfg.OrderRatio
-		e.currentRatios.LotMaxRatio = e.cfg.LotMaxRatio
+		e.currentRatios.OrderRatio = e.tradeCfg.OrderRatio
+		e.currentRatios.LotMaxRatio = e.tradeCfg.LotMaxRatio
 		return
 	}
 
@@ -368,12 +370,12 @@ func (e *LiveExecutionEngine) adjustRatios() {
 
 	if pnlSum < 0 {
 		// Reduce ratios
-		e.currentRatios.OrderRatio *= e.cfg.AdaptivePositionSizing.ReductionStep
-		e.currentRatios.LotMaxRatio *= e.cfg.AdaptivePositionSizing.ReductionStep
+		e.currentRatios.OrderRatio *= e.tradeCfg.AdaptivePositionSizing.ReductionStep
+		e.currentRatios.LotMaxRatio *= e.tradeCfg.AdaptivePositionSizing.ReductionStep
 
 		// Enforce minimum ratios
-		minOrderRatio := e.cfg.OrderRatio * e.cfg.AdaptivePositionSizing.MinRatio
-		minLotMaxRatio := e.cfg.LotMaxRatio * e.cfg.AdaptivePositionSizing.MinRatio
+		minOrderRatio := e.tradeCfg.OrderRatio * e.tradeCfg.AdaptivePositionSizing.MinRatio
+		minLotMaxRatio := e.tradeCfg.LotMaxRatio * e.tradeCfg.AdaptivePositionSizing.MinRatio
 		if e.currentRatios.OrderRatio < minOrderRatio {
 			e.currentRatios.OrderRatio = minOrderRatio
 		}
@@ -383,9 +385,9 @@ func (e *LiveExecutionEngine) adjustRatios() {
 		logger.Warnf("[Live] Negative PnL trend detected. Reducing ratios to OrderRatio: %.4f, LotMaxRatio: %.4f", e.currentRatios.OrderRatio, e.currentRatios.LotMaxRatio)
 	} else {
 		// Reset to default ratios
-		if e.currentRatios.OrderRatio != e.cfg.OrderRatio || e.currentRatios.LotMaxRatio != e.cfg.LotMaxRatio {
-			e.currentRatios.OrderRatio = e.cfg.OrderRatio
-			e.currentRatios.LotMaxRatio = e.cfg.LotMaxRatio
+		if e.currentRatios.OrderRatio != e.tradeCfg.OrderRatio || e.currentRatios.LotMaxRatio != e.tradeCfg.LotMaxRatio {
+			e.currentRatios.OrderRatio = e.tradeCfg.OrderRatio
+			e.currentRatios.LotMaxRatio = e.tradeCfg.LotMaxRatio
 			logger.Infof("[Live] Positive PnL trend. Ratios reset to default. OrderRatio: %.4f, LotMaxRatio: %.4f", e.currentRatios.OrderRatio, e.currentRatios.LotMaxRatio)
 		}
 	}

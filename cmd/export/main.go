@@ -24,17 +24,24 @@ func main() {
 	}
 
 	// --- Config and Logger Setup ---
-	// We need a dummy config path to load the DB settings from .env
-	cfg, err := config.LoadConfig("config/config.yaml")
+	// We need dummy config paths to load the DB settings from .env
+	cfg, err := config.LoadConfig("config/app_config.yaml", "config/trade_config.yaml")
 	if err != nil {
-		logger.Fatalf("Failed to load configuration to get DB settings: %v", err)
+		// If files don't exist, we can still proceed if env vars are set.
+		// Create a dummy config to hold env vars.
+		logger.Warnf("Could not load config files, relying on environment variables: %v", err)
+		cfg = config.GetConfig()
+		if cfg == nil {
+			// If GetConfig is also nil, we must exit.
+			logger.Fatal("Failed to initialize any configuration.")
+		}
 	}
 	logger.SetGlobalLogLevel("info")
 
 	// --- Database Connection ---
 	ctx := context.Background()
 	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name, cfg.Database.SSLMode)
+		cfg.App.Database.User, cfg.App.Database.Password, cfg.App.Database.Host, cfg.App.Database.Port, cfg.App.Database.Name, cfg.App.Database.SSLMode)
 	dbpool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		logger.Fatalf("Unable to connect to database: %v", err)
