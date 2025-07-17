@@ -234,13 +234,18 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 	// 	obiValue, longThreshold, -shortThreshold, rawSignal, e.currentSignal)
 
 	if rawSignal != e.currentSignal {
-		logger.Infof("Signal changed from %s to %s. Resetting hold timer.", e.currentSignal, rawSignal)
+		if e.config.SignalHoldDuration > 0 {
+			logger.Infof("Signal changed from %s to %s. Resetting hold timer.", e.currentSignal, rawSignal)
+			e.currentSignal = rawSignal
+			e.currentSignalSince = currentTime
+			if rawSignal == SignalNone {
+				e.lastSignal = SignalNone
+			}
+			return nil // Not confirmed yet, or just ended.
+		}
+		// If hold duration is zero, we can proceed with the new signal immediately.
 		e.currentSignal = rawSignal
 		e.currentSignalSince = currentTime
-		if rawSignal == SignalNone {
-			e.lastSignal = SignalNone
-		}
-		return nil // Not confirmed yet, or just ended.
 	}
 
 	if e.currentSignal == SignalNone {

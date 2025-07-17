@@ -68,7 +68,7 @@ simulate: ## Run a backtest using trade data from a local CSV file.
 		echo "Usage: make simulate CSV_PATH=/path/to/your/trades.csv"; \
 		exit 1; \
 	fi
-	@CMD="sudo -E docker compose run --rm --no-deps -v /tmp:/tmp bot-simulate --simulate --config=config/app_config.yaml"; \
+	@CMD="sudo -E docker compose run --build --rm --no-deps -v /tmp:/tmp bot-simulate --simulate --config=config/app_config.yaml"; \
 	if [ $$(echo "$(CSV_PATH)" | grep -c ".zip$$") -gt 0 ]; then \
 		echo "Unzipping $(CSV_PATH) to /tmp..."; \
 		unzip -o $(CSV_PATH) -d /tmp; \

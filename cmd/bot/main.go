@@ -657,7 +657,10 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 					}
 				}
 			case err := <-errCh:
-				logger.Fatalf("Error while streaming market events: %v", err)
+				if err != nil {
+					logger.Fatalf("Error while streaming market events: %v", err)
+				}
+				// If err is nil, the channel was closed, which is a success signal here.
 				return
 			case <-ctx.Done():
 				logger.Info("Simulation cancelled.")
