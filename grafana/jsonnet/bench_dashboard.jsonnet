@@ -3,6 +3,14 @@ local dashboard = grafana.dashboard;
 local row = grafana.row;
 local graphPanel = grafana.graphPanel;
 local table = grafana.table;
+local template = grafana.template;
+
+local commonTarget(query) = {
+  datasource: 'TimescaleDB',
+  format: 'table',
+  rawSql: query,
+  refId: std.strSubst('%s', [std.uuid()]),
+};
 
 dashboard.new(
   'Performance vs. Benchmark',
@@ -17,18 +25,10 @@ dashboard.new(
     description='Bot Total PnL vs. Normalized Benchmark Price (starts at 100).',
   )
   .addTarget(
-    grafana.prometheus.target(
-      'SELECT bucket AS time, last_pnl FROM v_performance_vs_benchmark ORDER BY bucket',
-      format='time_series',
-      legendFormat='Bot PnL',
-    )
+    commonTarget('SELECT bucket AS "time", last_pnl FROM v_performance_vs_benchmark ORDER BY bucket')
   )
   .addTarget(
-    grafana.prometheus.target(
-      'SELECT bucket AS time, normalized_price FROM v_performance_vs_benchmark ORDER BY bucket',
-      format='time_series',
-      legendFormat='Benchmark (Normalized)',
-    )
+    commonTarget('SELECT bucket AS "time", normalized_price FROM v_performance_vs_benchmark ORDER BY bucket')
   ),
   gridPos={ x: 0, y: 0, w: 24, h: 12 }
 )
@@ -39,11 +39,7 @@ dashboard.new(
     description='Difference between PnL and normalized benchmark.',
   )
   .addTarget(
-    grafana.prometheus.target(
-      'SELECT bucket AS time, alpha FROM v_performance_vs_benchmark ORDER BY bucket',
-      format='time_series',
-      legendFormat='Alpha',
-    )
+    commonTarget('SELECT bucket AS "time", alpha FROM v_performance_vs_benchmark ORDER BY bucket')
   ),
   gridPos={ x: 0, y: 12, w: 24, h: 12 }
 )
