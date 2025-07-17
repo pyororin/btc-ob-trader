@@ -20,6 +20,13 @@ func (bl *BookLevel) AmountFloat64() (float64, error) {
 	return strconv.ParseFloat(bl.Amount, 64)
 }
 
+// OrderBookLevel represents a single price level with float values, used for processing.
+type OrderBookLevel struct {
+	Side  string
+	Price float64
+	Size  float64
+}
+
 // OrderBookData contains the bids and asks arrays.
 type OrderBookData struct {
 	PairStr      string     `json:"pair"`
