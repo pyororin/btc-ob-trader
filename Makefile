@@ -22,20 +22,15 @@ help:
 # ==============================================================================
 up: ## Start all services including the bot for live trading.
 	@echo "Starting all services (including trading bot)..."
-	@if [ ! -f .db_initialized ]; then \
-		$(MAKE) init-db; \
-	fi
 	sudo -E docker compose up -d --build
+	$(MAKE) migrate
 
-init-db: ## Initialize the database.
-	@echo "Initializing database..."
+migrate: ## Run database migrations
+	@echo "Running database migrations..."
 	@if [ -f .env ]; then \
 		export $$(cat .env | grep -v '#' | xargs); \
 	fi
-	sudo -E docker compose up -d timescaledb
-	sudo -E docker compose run --rm db-init
-	@touch .db_initialized
-	@echo "Database initialized."
+	sudo -E docker compose exec -T timescaledb sh -c "for f in /docker-entrypoint-initdb.d/02_migrations/*.sql; do psql -v ON_ERROR_STOP=1 --username \"$$POSTGRES_USER\" --dbname \"$$POSTGRES_DB\" -f \"$$f\"; done"
 
 monitor: ## Start monitoring services (DB, Grafana) without the bot.
 	@echo "Starting monitoring services (TimescaleDB, Grafana)..."
