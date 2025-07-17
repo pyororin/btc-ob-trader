@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"time"
+	"math"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
@@ -154,6 +155,21 @@ type Report struct {
 	CumulativeTotalPnl      decimal.Decimal `json:"cumulative_total_pnl"`
 	CumulativeWinningTrades int             `json:"cumulative_winning_trades"`
 	CumulativeLosingTrades  int             `json:"cumulative_losing_trades"`
+
+	// 追加指標
+	ProfitFactor                   float64         `json:"profit_factor"`
+	SharpeRatio                    float64         `json:"sharpe_ratio"`
+	SortinoRatio                   float64         `json:"sortino_ratio"`
+	CalmarRatio                    float64         `json:"calmar_ratio"`
+	MaxDrawdown                    decimal.Decimal `json:"max_drawdown"`
+	RecoveryFactor                 float64         `json:"recovery_factor"`
+	AvgHoldingPeriodSeconds        float64         `json:"avg_holding_period_seconds"`
+	AvgWinningHoldingPeriodSeconds float64         `json:"avg_winning_holding_period_seconds"`
+	AvgLosingHoldingPeriodSeconds  float64         `json:"avg_losing_holding_period_seconds"`
+	MaxConsecutiveWins             int             `json:"max_consecutive_wins"`
+	MaxConsecutiveLosses           int             `json:"max_consecutive_losses"`
+	BuyAndHoldReturn               decimal.Decimal `json:"buy_and_hold_return"`
+	ReturnVsBuyAndHold             decimal.Decimal `json:"return_vs_buy_and_hold"`
 }
 
 // analyzeTrades はトレードリストを分析してレポートを作成します。
@@ -192,12 +208,14 @@ func analyzeTrades(ctx context.Context, dbpool *pgxpool.Pool, trades []Trade) (R
 	var shortWinningTrades, shortLosingTrades int
 	var totalProfit, totalLoss decimal.Decimal
 	var tradesPnl []TradePnl
+	var pnlHistory []decimal.Decimal
+	var holdingPeriods, winningHoldingPeriods, losingHoldingPeriods []float64
+	var consecutiveWins, consecutiveLosses, maxConsecutiveWins, maxConsecutiveLosses int
 
 	// Get the last cumulative PNL
 	var lastCumulativePnl decimal.Decimal
 	err := dbpool.QueryRow(ctx, "SELECT cumulative_pnl FROM trades_pnl ORDER BY created_at DESC LIMIT 1").Scan(&lastCumulativePnl)
 	if err != nil {
-		// If there are no previous trades, start with zero
 		lastCumulativePnl = decimal.Zero
 	}
 
@@ -205,28 +223,22 @@ func analyzeTrades(ctx context.Context, dbpool *pgxpool.Pool, trades []Trade) (R
 	endDate := executedTrades[len(executedTrades)-1].Time
 
 	for _, trade := range executedTrades {
+		var pnl decimal.Decimal
+		var holdingPeriod float64
+		isMatched := false
+
 		if trade.Side == "buy" {
 			for len(sells) > 0 && trade.Size.IsPositive() {
+				isMatched = true
 				sell := sells[0]
 				matchSize := decimal.Min(sell.Size, trade.Size)
-				pnl := sell.Price.Sub(trade.Price).Mul(matchSize)
-				totalPnL = totalPnL.Add(pnl)
-				lastCumulativePnl = lastCumulativePnl.Add(pnl)
-				tradesPnl = append(tradesPnl, TradePnl{TradeID: trade.TransactionID, Pnl: pnl, CumulativePnl: lastCumulativePnl})
+				pnl = sell.Price.Sub(trade.Price).Mul(matchSize)
+				holdingPeriod = trade.Time.Sub(sell.Time).Seconds()
 
-				if pnl.IsPositive() {
-					shortWinningTrades++
-					totalProfit = totalProfit.Add(pnl)
-				} else {
-					shortLosingTrades++
-					totalLoss = totalLoss.Add(pnl.Abs())
-				}
-				sell.Size = sell.Size.Sub(matchSize)
+				sells[0].Size = sells[0].Size.Sub(matchSize)
 				trade.Size = trade.Size.Sub(matchSize)
-				if sell.Size.IsZero() {
+				if sells[0].Size.IsZero() {
 					sells = sells[1:]
-				} else {
-					sells[0] = sell
 				}
 			}
 			if trade.Size.IsPositive() {
@@ -234,34 +246,60 @@ func analyzeTrades(ctx context.Context, dbpool *pgxpool.Pool, trades []Trade) (R
 			}
 		} else if trade.Side == "sell" {
 			for len(buys) > 0 && trade.Size.IsPositive() {
+				isMatched = true
 				buy := buys[0]
 				matchSize := decimal.Min(buy.Size, trade.Size)
-				pnl := trade.Price.Sub(buy.Price).Mul(matchSize)
-				totalPnL = totalPnL.Add(pnl)
-				lastCumulativePnl = lastCumulativePnl.Add(pnl)
-				tradesPnl = append(tradesPnl, TradePnl{TradeID: trade.TransactionID, Pnl: pnl, CumulativePnl: lastCumulativePnl})
-				if pnl.IsPositive() {
-					longWinningTrades++
-					totalProfit = totalProfit.Add(pnl)
-				} else {
-					longLosingTrades++
-					totalLoss = totalLoss.Add(pnl.Abs())
-				}
-				buy.Size = buy.Size.Sub(matchSize)
+				pnl = trade.Price.Sub(buy.Price).Mul(matchSize)
+				holdingPeriod = trade.Time.Sub(buy.Time).Seconds()
+
+				buys[0].Size = buys[0].Size.Sub(matchSize)
 				trade.Size = trade.Size.Sub(matchSize)
-				if buy.Size.IsZero() {
+				if buys[0].Size.IsZero() {
 					buys = buys[1:]
-				} else {
-					buys[0] = buy
 				}
 			}
 			if trade.Size.IsPositive() {
 				sells = append(sells, trade)
 			}
 		}
+
+		if isMatched {
+			totalPnL = totalPnL.Add(pnl)
+			lastCumulativePnl = lastCumulativePnl.Add(pnl)
+			tradesPnl = append(tradesPnl, TradePnl{TradeID: trade.TransactionID, Pnl: pnl, CumulativePnl: lastCumulativePnl})
+			pnlHistory = append(pnlHistory, pnl)
+			holdingPeriods = append(holdingPeriods, holdingPeriod)
+
+			if pnl.IsPositive() {
+				if trade.Side == "sell" {
+					longWinningTrades++
+				} else {
+					shortWinningTrades++
+				}
+				totalProfit = totalProfit.Add(pnl)
+				winningHoldingPeriods = append(winningHoldingPeriods, holdingPeriod)
+				consecutiveWins++
+				consecutiveLosses = 0
+				if consecutiveWins > maxConsecutiveWins {
+					maxConsecutiveWins = consecutiveWins
+				}
+			} else {
+				if trade.Side == "sell" {
+					longLosingTrades++
+				} else {
+					shortLosingTrades++
+				}
+				totalLoss = totalLoss.Add(pnl.Abs())
+				losingHoldingPeriods = append(losingHoldingPeriods, holdingPeriod)
+				consecutiveLosses++
+				consecutiveWins = 0
+				if consecutiveLosses > maxConsecutiveLosses {
+					maxConsecutiveLosses = consecutiveLosses
+				}
+			}
+		}
 	}
 
-	// Insert trade PNLs into the database
 	for _, tp := range tradesPnl {
 		_, err := dbpool.Exec(ctx, "INSERT INTO trades_pnl (trade_id, pnl, cumulative_pnl) VALUES ($1, $2, $3)", tp.TradeID, tp.Pnl, tp.CumulativePnl)
 		if err != nil {
@@ -308,6 +346,114 @@ func analyzeTrades(ctx context.Context, dbpool *pgxpool.Pool, trades []Trade) (R
 		riskRewardRatio = avgProfit.Div(avgLoss).InexactFloat64()
 	}
 
+	// Calculate additional metrics
+	profitFactor := 0.0
+	if totalLoss.IsPositive() {
+		profitFactor = totalProfit.Div(totalLoss).InexactFloat64()
+	}
+
+	// Max Drawdown
+	var peakPnl = decimal.Zero
+	var maxDrawdown = decimal.Zero
+	var currentCumulativePnl = decimal.Zero
+	for _, pnl := range pnlHistory {
+		currentCumulativePnl = currentCumulativePnl.Add(pnl)
+		if currentCumulativePnl.GreaterThan(peakPnl) {
+			peakPnl = currentCumulativePnl
+		}
+		drawdown := peakPnl.Sub(currentCumulativePnl)
+		if drawdown.GreaterThan(maxDrawdown) {
+			maxDrawdown = drawdown
+		}
+	}
+
+	recoveryFactor := 0.0
+	if maxDrawdown.IsPositive() {
+		recoveryFactor = totalPnL.Div(maxDrawdown).InexactFloat64()
+	}
+
+	// Sharpe Ratio (assuming risk-free rate is 0)
+	var sharpeRatio float64
+	if len(pnlHistory) > 1 {
+		mean := totalPnL.Div(decimal.NewFromInt(int64(len(pnlHistory))))
+		stdDev := decimal.Zero
+		for _, pnl := range pnlHistory {
+			diff := pnl.Sub(mean)
+			stdDev = stdDev.Add(diff.Mul(diff))
+		}
+		stdDev = stdDev.Div(decimal.NewFromInt(int64(len(pnlHistory) - 1))).Sqrt()
+		if stdDev.IsPositive() {
+			sharpeRatio = mean.Div(stdDev).InexactFloat64()
+		}
+	}
+
+	// Sortino Ratio
+	var sortinoRatio float64
+	if len(pnlHistory) > 1 {
+		mean := totalPnL.Div(decimal.NewFromInt(int64(len(pnlHistory))))
+		negativeVariance := decimal.Zero
+		downsideCount := 0
+		for _, pnl := range pnlHistory {
+			if pnl.LessThan(mean) {
+				diff := pnl.Sub(mean)
+				negativeVariance = negativeVariance.Add(diff.Mul(diff))
+				downsideCount++
+			}
+		}
+		if downsideCount > 1 {
+			downsideStdDev := negativeVariance.Div(decimal.NewFromInt(int64(downsideCount - 1))).Sqrt()
+			if downsideStdDev.IsPositive() {
+				sortinoRatio = mean.Div(downsideStdDev).InexactFloat64()
+			}
+		}
+	}
+
+	// Calmar Ratio
+	calmarRatio := 0.0
+	if maxDrawdown.IsPositive() {
+		// Assuming annualization is not necessary for this report
+		calmarRatio = totalPnL.Div(maxDrawdown).InexactFloat64()
+	}
+
+	// Holding Period
+	avgHoldingPeriod := 0.0
+	if len(holdingPeriods) > 0 {
+		sum := 0.0
+		for _, hp := range holdingPeriods {
+			sum += hp
+		}
+		avgHoldingPeriod = sum / float64(len(holdingPeriods))
+	}
+
+	avgWinningHoldingPeriod := 0.0
+	if len(winningHoldingPeriods) > 0 {
+		sum := 0.0
+		for _, hp := range winningHoldingPeriods {
+			sum += hp
+		}
+		avgWinningHoldingPeriod = sum / float64(len(winningHoldingPeriods))
+	}
+
+	avgLosingHoldingPeriod := 0.0
+	if len(losingHoldingPeriods) > 0 {
+		sum := 0.0
+		for _, hp := range losingHoldingPeriods {
+			sum += hp
+		}
+		avgLosingHoldingPeriod = sum / float64(len(losingHoldingPeriods))
+	}
+
+	// Buy & Hold Return
+	buyAndHoldReturn := decimal.Zero
+	if len(executedTrades) > 0 {
+		initialPrice := executedTrades[0].Price
+		finalPrice := executedTrades[len(executedTrades)-1].Price
+		// Assuming we buy 1 unit at the start and sell at the end
+		buyAndHoldReturn = finalPrice.Sub(initialPrice)
+	}
+
+	returnVsBuyAndHold := totalPnL.Sub(buyAndHoldReturn)
+
 	// Get latest cumulative stats
 	var cumulativeTotalPnl decimal.Decimal
 	var cumulativeWinningTrades, cumulativeLosingTrades int
@@ -319,28 +465,41 @@ func analyzeTrades(ctx context.Context, dbpool *pgxpool.Pool, trades []Trade) (R
 	}
 
 	return Report{
-		ReplaySessionID:         replaySessionID,
-		StartDate:               startDate,
-		EndDate:                 endDate,
-		TotalTrades:             totalExecutedTrades,
-		CancelledTrades:         cancelledCount,
-		CancellationRate:        cancellationRate,
-		WinningTrades:           winningTrades,
-		LosingTrades:            losingTrades,
-		WinRate:                 winRate,
-		LongWinningTrades:       longWinningTrades,
-		LongLosingTrades:        longLosingTrades,
-		LongWinRate:             longWinRate,
-		ShortWinningTrades:      shortWinningTrades,
-		ShortLosingTrades:       shortLosingTrades,
-		ShortWinRate:            shortWinRate,
-		TotalPnL:                totalPnL,
-		AverageProfit:           avgProfit,
-		AverageLoss:             avgLoss,
-		RiskRewardRatio:         riskRewardRatio,
-		CumulativeTotalPnl:      cumulativeTotalPnl.Add(totalPnL),
-		CumulativeWinningTrades: cumulativeWinningTrades + winningTrades,
-		CumulativeLosingTrades:  cumulativeLosingTrades + losingTrades,
+		ReplaySessionID:                replaySessionID,
+		StartDate:                      startDate,
+		EndDate:                        endDate,
+		TotalTrades:                    totalExecutedTrades,
+		CancelledTrades:                cancelledCount,
+		CancellationRate:               cancellationRate,
+		WinningTrades:                  winningTrades,
+		LosingTrades:                   losingTrades,
+		WinRate:                        winRate,
+		LongWinningTrades:              longWinningTrades,
+		LongLosingTrades:               longLosingTrades,
+		LongWinRate:                    longWinRate,
+		ShortWinningTrades:             shortWinningTrades,
+		ShortLosingTrades:              shortLosingTrades,
+		ShortWinRate:                   shortWinRate,
+		TotalPnL:                       totalPnL,
+		AverageProfit:                  avgProfit,
+		AverageLoss:                    avgLoss,
+		RiskRewardRatio:                riskRewardRatio,
+		CumulativeTotalPnl:             cumulativeTotalPnl.Add(totalPnL),
+		CumulativeWinningTrades:        cumulativeWinningTrades + winningTrades,
+		CumulativeLosingTrades:         cumulativeLosingTrades + losingTrades,
+		ProfitFactor:                   profitFactor,
+		SharpeRatio:                    sharpeRatio,
+		SortinoRatio:                   sortinoRatio,
+		CalmarRatio:                    calmarRatio,
+		MaxDrawdown:                    maxDrawdown,
+		RecoveryFactor:                 recoveryFactor,
+		AvgHoldingPeriodSeconds:        avgHoldingPeriod,
+		AvgWinningHoldingPeriodSeconds: avgWinningHoldingPeriod,
+		AvgLosingHoldingPeriodSeconds:  avgLosingHoldingPeriod,
+		MaxConsecutiveWins:             maxConsecutiveWins,
+		MaxConsecutiveLosses:           maxConsecutiveLosses,
+		BuyAndHoldReturn:               buyAndHoldReturn,
+		ReturnVsBuyAndHold:             returnVsBuyAndHold,
 	}, nil
 }
 
@@ -376,6 +535,24 @@ func printReport(r Report) {
 	} else {
 		fmt.Println("約定済みの取引はありません。")
 	}
+	fmt.Println()
+	fmt.Println("--- パフォーマンス指標 ---")
+	if r.TotalTrades > 0 {
+		fmt.Printf("プロフィットファクター: %.2f\n", r.ProfitFactor)
+		fmt.Printf("シャープレシオ: %.2f\n", r.SharpeRatio)
+		fmt.Printf("ソルティノレシオ: %.2f\n", r.SortinoRatio)
+		fmt.Printf("カルマーレシオ: %.2f\n", r.CalmarRatio)
+		fmt.Printf("最大ドローダウン: %s\n", r.MaxDrawdown.StringFixed(2))
+		fmt.Printf("リカバリーファクター: %.2f\n", r.RecoveryFactor)
+		fmt.Printf("平均保有期間: %.2f 秒\n", r.AvgHoldingPeriodSeconds)
+		fmt.Printf("勝ちトレードの平均保有期間: %.2f 秒\n", r.AvgWinningHoldingPeriodSeconds)
+		fmt.Printf("負けトレードの平均保有期間: %.2f 秒\n", r.AvgLosingHoldingPeriodSeconds)
+		fmt.Printf("最大連勝数: %d\n", r.MaxConsecutiveWins)
+		fmt.Printf("最大連敗数: %d\n", r.MaxConsecutiveLosses)
+		fmt.Printf("バイ・アンド・ホールドリターン: %s\n", r.BuyAndHoldReturn.StringFixed(2))
+		fmt.Printf("リターン vs バイ・アンド・ホールド: %s\n", r.ReturnVsBuyAndHold.StringFixed(2))
+	}
+	fmt.Println()
 	fmt.Println("--- 累積 ---")
 	fmt.Printf("累積合計損益: %s\n", r.CumulativeTotalPnl.StringFixed(2))
 	fmt.Printf("累積勝ちトレード数: %d\n", r.CumulativeWinningTrades)
@@ -413,9 +590,13 @@ func saveReportToDB(ctx context.Context, dbpool *pgxpool.Pool, r Report) error {
             long_winning_trades, long_losing_trades, long_win_rate,
             short_winning_trades, short_losing_trades, short_win_rate,
             total_pnl, average_profit, average_loss, risk_reward_ratio,
-            cumulative_total_pnl, cumulative_winning_trades, cumulative_losing_trades
+            cumulative_total_pnl, cumulative_winning_trades, cumulative_losing_trades,
+            profit_factor, sharpe_ratio, sortino_ratio, calmar_ratio, max_drawdown, recovery_factor,
+            avg_holding_period_seconds, avg_winning_holding_period_seconds, avg_losing_holding_period_seconds,
+            max_consecutive_wins, max_consecutive_losses, buy_and_hold_return, return_vs_buy_and_hold
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+            $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36
         );
     `
 	_, err := dbpool.Exec(ctx, query,
@@ -425,6 +606,9 @@ func saveReportToDB(ctx context.Context, dbpool *pgxpool.Pool, r Report) error {
 		r.ShortWinningTrades, r.ShortLosingTrades, r.ShortWinRate,
 		r.TotalPnL, r.AverageProfit, r.AverageLoss, r.RiskRewardRatio,
 		r.CumulativeTotalPnl, r.CumulativeWinningTrades, r.CumulativeLosingTrades,
+		r.ProfitFactor, r.SharpeRatio, r.SortinoRatio, r.CalmarRatio, r.MaxDrawdown, r.RecoveryFactor,
+		r.AvgHoldingPeriodSeconds, r.AvgWinningHoldingPeriodSeconds, r.AvgLosingHoldingPeriodSeconds,
+		r.MaxConsecutiveWins, r.MaxConsecutiveLosses, r.BuyAndHoldReturn, r.ReturnVsBuyAndHold,
 	)
 	return err
 }
