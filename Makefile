@@ -68,7 +68,7 @@ simulate: ## Run a backtest using trade data from a local CSV file.
 		echo "Usage: make simulate CSV_PATH=/path/to/your/trades.csv"; \
 		exit 1; \
 	fi
-	sudo -E docker compose run --build --rm bot-simulate --simulate --csv=$(CSV_PATH) --config=config/config.yaml
+	sudo -E docker compose run --rm --no-deps bot-simulate --simulate --csv=$(CSV_PATH) --config=config/config.yaml
 
 export-sim-data: ## Export order book data from the database to a CSV file for simulation.
 	@echo "Exporting simulation data..."
