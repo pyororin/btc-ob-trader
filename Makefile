@@ -27,9 +27,14 @@ up: ## Start all services including the bot for live trading.
 
 migrate: ## Run database migrations
 	@echo "Running database migrations..."
-	sudo -E docker compose exec -T timescaledb sh -c '\
-	for f in /docker-entrypoint-initdb.d/02_migrations/*.sql; do \
-	psql -v ON_ERROR_STOP=1 --username="$(DB_USER)" --dbname="$(DB_NAME)" -f "$$f"; \
+	@sudo -E docker compose exec -T timescaledb sh -c '\
+	for dir in /docker-entrypoint-initdb.d/01_schema /docker-entrypoint-initdb.d/02_migrations; do \
+		for f in $$dir/*.sql; do \
+			if [ -f "$$f" ]; then \
+				echo "Applying $$f..."; \
+				psql -v ON_ERROR_STOP=1 --username="bot" --dbname="coincheck_data" -f "$$f"; \
+			fi; \
+		done; \
 	done'
 
 monitor: ## Start monitoring services (DB, Grafana) without the bot.
