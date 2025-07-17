@@ -3,36 +3,6 @@ package main
 
 import (
 	"context"
-	"flag"
-	"fmt"
-	"math"
-	"math/rand"
-	"net/http"
-	"os"
-	"os/signal"
-	"path/filepath"
-	"strconv"
-	"syscall"
-	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/your-org/obi-scalp-bot/internal/benchmark"
-	"github.com/your-org/obi-scalp-bot/internal/config"
-	"github.com/your-org/obi-scalp-bot/internal/datastore"
-	"github.com/your-org/obi-scalp-bot/internal/dbwriter"
-	"github.com/your-org/obi-scalp-bot/internal/engine"
-	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
-	"github.com/your-org/obi-scalp-bot/internal/http/handler"
-	"sync"
-
-	"github.com/your-org/obi-scalp-bot/internal/indicator"
-	tradingsignal "github.com/your-org/obi-scalp-bot/internal/signal"
-	"github.com/your-org/obi-scalp-bot/pkg/logger"
-	"go.uber.org/zap"
-)
-
-import (
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
