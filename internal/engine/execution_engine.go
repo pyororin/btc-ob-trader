@@ -28,6 +28,7 @@ type LiveExecutionEngine struct {
 	exchangeClient *coincheck.Client
 	tradeCfg       *config.TradeConfig
 	orderCfg       *config.OrderConfig
+	riskCfg        *config.RiskConfig // Add risk config
 	dbWriter       *dbwriter.Writer
 	position       *position.Position
 	pnlCalculator  *pnl.Calculator
@@ -41,11 +42,12 @@ type LiveExecutionEngine struct {
 }
 
 // NewLiveExecutionEngine creates a new LiveExecutionEngine.
-func NewLiveExecutionEngine(client *coincheck.Client, tradeCfg *config.TradeConfig, orderCfg *config.OrderConfig, dbWriter *dbwriter.Writer) *LiveExecutionEngine {
+func NewLiveExecutionEngine(client *coincheck.Client, tradeCfg *config.TradeConfig, orderCfg *config.OrderConfig, riskCfg *config.RiskConfig, dbWriter *dbwriter.Writer) *LiveExecutionEngine {
 	engine := &LiveExecutionEngine{
 		exchangeClient: client,
 		tradeCfg:       tradeCfg,
 		orderCfg:       orderCfg,
+		riskCfg:        riskCfg, // Add risk config
 		dbWriter:       dbWriter,
 		position:       position.NewPosition(),
 		pnlCalculator:  pnl.NewCalculator(),
@@ -63,17 +65,49 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 		return nil, fmt.Errorf("LiveExecutionEngine: exchange client is not initialized")
 	}
 
+	// Balance check and amount adjustment logic
+	balance, err := e.exchangeClient.GetBalance()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get balance for risk check: %w", err)
+	}
+	currentJpy, _ := strconv.ParseFloat(balance.Jpy, 64)
+
+	// --- Risk Management Check ---
+	// 1. Max Position Check
+	positionSize, avgEntryPrice := e.position.Get()
+	positionValueJPY := math.Abs(positionSize) * rate // Use current rate for valuation
+	if e.riskCfg.MaxPositionJPY > 0 && positionValueJPY >= e.riskCfg.MaxPositionJPY {
+		err := fmt.Errorf("risk check failed: current position value %.2f JPY exceeds max_position_jpy %.2f", positionValueJPY, e.riskCfg.MaxPositionJPY)
+		logger.Error(err)
+		return nil, err
+	}
+
+	// 2. Max Drawdown Check
+	unrealizedPnL := e.pnlCalculator.CalculateUnrealizedPnL(positionSize, avgEntryPrice, rate)
+	totalRealizedPnL := e.pnlCalculator.GetRealizedPnL()
+	totalPnL := unrealizedPnL + totalRealizedPnL
+
+	if totalPnL < 0 {
+		drawdownPercent := 0.0
+		// Use current JPY balance as the capital base for drawdown percentage.
+		// This is a simplification. A more robust implementation might track initial capital.
+		if currentJpy > 0 {
+			drawdownPercent = (-totalPnL / currentJpy) * 100
+		}
+		if e.riskCfg.MaxDrawdownPercent > 0 && drawdownPercent >= e.riskCfg.MaxDrawdownPercent {
+			err := fmt.Errorf("risk check failed: current drawdown %.2f%% exceeds max_drawdown_percent %.2f%% (PnL: %.2f, Capital: %.2f)", drawdownPercent, e.riskCfg.MaxDrawdownPercent, totalPnL, currentJpy)
+			logger.Error(err)
+			return nil, err
+		}
+	}
+	// --- End Risk Management Check ---
+
 	// Adjust order ratios based on recent performance
 	if e.tradeCfg.AdaptivePositionSizing.Enabled {
 		e.adjustRatios()
 	}
 
 	// Balance check and amount adjustment logic
-	balance, err := e.exchangeClient.GetBalance()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get balance for order placement: %w", err)
-	}
-	currentJpy, _ := strconv.ParseFloat(balance.Jpy, 64)
 	currentBtc, _ := strconv.ParseFloat(balance.Btc, 64)
 
 	openOrders, err := e.exchangeClient.GetOpenOrders()
@@ -483,7 +517,24 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 	if trade.Side == "sell" {
 		tradeAmount = -tradeAmount
 	}
+
+	previousPositionSize, _ := e.position.Get()
 	realizedPnL := e.position.Update(tradeAmount, trade.Price)
+	newPositionSize, _ := e.position.Get()
+
+	// Set entry and exit times
+	if math.Abs(previousPositionSize) > 1e-8 && math.Abs(newPositionSize) < 1e-8 { // Position closed
+		// Find the entry trade and set the exit time for all trades in that position
+		for i := len(e.ExecutedTrades) - 1; i >= 0; i-- {
+			if e.ExecutedTrades[i].ExitTime.IsZero() {
+				e.ExecutedTrades[i].ExitTime = trade.Time
+			} else {
+				break // Stop when we hit a trade that was already part of a closed position
+			}
+		}
+	}
+	trade.EntryTime = trade.Time
+
 	if realizedPnL != 0 {
 		e.pnlCalculator.UpdateRealizedPnL(realizedPnL)
 	}

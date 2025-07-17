@@ -400,7 +400,7 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 	} else {
 		// Live trading setup
 		client := coincheck.NewClient(cfg.APIKey, cfg.APISecret)
-		execEngine := engine.NewLiveExecutionEngine(client, &cfg.Trade, &cfg.App.Order, dbWriter)
+		execEngine := engine.NewLiveExecutionEngine(client, &cfg.Trade, &cfg.App.Order, &cfg.Trade.Risk, dbWriter)
 
 		orderBook := indicator.NewOrderBook()
 		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
@@ -568,16 +568,41 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine) {
 
 	var wins, losses, closingTrades int
 	var totalWinAmount, totalLossAmount float64
+	var pnlHistory []float64
+	var holdingPeriods, winningHoldingPeriods, losingHoldingPeriods []float64
+	var consecutiveWins, consecutiveLosses, maxConsecutiveWins, maxConsecutiveLosses int
 
 	for _, trade := range executedTrades {
 		if trade.RealizedPnL != 0 {
 			closingTrades++
+			pnlHistory = append(pnlHistory, trade.RealizedPnL)
+			// A simple approximation of holding period for simulation
+			if !trade.EntryTime.IsZero() && !trade.ExitTime.IsZero() {
+				holdingPeriod := trade.ExitTime.Sub(trade.EntryTime).Seconds()
+				holdingPeriods = append(holdingPeriods, holdingPeriod)
+				if trade.RealizedPnL > 0 {
+					winningHoldingPeriods = append(winningHoldingPeriods, holdingPeriod)
+				} else {
+					losingHoldingPeriods = append(losingHoldingPeriods, holdingPeriod)
+				}
+			}
+
 			if trade.RealizedPnL > 0 {
 				wins++
 				totalWinAmount += trade.RealizedPnL
+				consecutiveWins++
+				consecutiveLosses = 0
+				if consecutiveWins > maxConsecutiveWins {
+					maxConsecutiveWins = consecutiveWins
+				}
 			} else {
 				losses++
 				totalLossAmount += trade.RealizedPnL
+				consecutiveLosses++
+				consecutiveWins = 0
+				if consecutiveLosses > maxConsecutiveLosses {
+					maxConsecutiveLosses = consecutiveLosses
+				}
 			}
 		}
 	}
@@ -596,12 +621,58 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine) {
 		avgLoss = totalLossAmount / float64(losses)
 	}
 
+	riskRewardRatio := 0.0
+	if avgLoss != 0 {
+		riskRewardRatio = math.Abs(avgWin / avgLoss)
+	}
+
+	profitFactor := 0.0
+	if totalLossAmount != 0 {
+		profitFactor = math.Abs(totalWinAmount / totalLossAmount)
+	}
+
+	// Max Drawdown
+	var peakPnl, maxDrawdown float64
+	var currentCumulativePnl float64
+	for _, pnl := range pnlHistory {
+		currentCumulativePnl += pnl
+		if currentCumulativePnl > peakPnl {
+			peakPnl = currentCumulativePnl
+		}
+		drawdown := peakPnl - currentCumulativePnl
+		if drawdown > maxDrawdown {
+			maxDrawdown = drawdown
+		}
+	}
+
+	avgHoldingPeriod, avgWinningHoldingPeriod, avgLosingHoldingPeriod := 0.0, 0.0, 0.0
+	if len(holdingPeriods) > 0 {
+		sum := 0.0
+		for _, hp := range holdingPeriods { sum += hp }
+		avgHoldingPeriod = sum / float64(len(holdingPeriods))
+	}
+	if len(winningHoldingPeriods) > 0 {
+		sum := 0.0
+		for _, hp := range winningHoldingPeriods { sum += hp }
+		avgWinningHoldingPeriod = sum / float64(len(winningHoldingPeriods))
+	}
+	if len(losingHoldingPeriods) > 0 {
+		sum := 0.0
+		for _, hp := range losingHoldingPeriods { sum += hp }
+		avgLosingHoldingPeriod = sum / float64(len(losingHoldingPeriods))
+	}
+
+
 	fmt.Println("\n==== シミュレーション結果 ====")
 	fmt.Printf("総損益　     : %.2f JPY\n", totalProfit)
 	fmt.Printf("取引回数     : %d回\n", totalTrades)
 	fmt.Printf("勝率         : %.2f%% (%d勝/%d敗)\n", winRate, wins, losses)
 	fmt.Printf("平均利益/損失: %.2f JPY / %.2f JPY\n", avgWin, avgLoss)
-	fmt.Println("最大ドローダウン: N/A")
+	fmt.Printf("リスクリワードレシオ: %.2f\n", riskRewardRatio)
+	fmt.Printf("プロフィットファクター: %.2f\n", profitFactor)
+	fmt.Printf("最大ドローダウン: %.2f JPY\n", maxDrawdown)
+	fmt.Printf("最大連勝/連敗: %d回 / %d回\n", maxConsecutiveWins, maxConsecutiveLosses)
+	fmt.Printf("平均保有期間: %.2f秒 (勝ち: %.2f秒, 負け: %.2f秒)\n", avgHoldingPeriod, avgWinningHoldingPeriod, avgLosingHoldingPeriod)
 	fmt.Println("==========================")
 }
 
@@ -616,15 +687,13 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 	logger.Info("--------------------")
 
 	orderBook := indicator.NewOrderBook()
-	// In simulation mode, override signal hold duration to 0 for instant signal confirmation.
-	cfg.Trade.Signal.HoldDurationMs = 0
-	cfg.Trade.Signal.SlopeFilter.Enabled = false
 	replayEngine := engine.NewReplayExecutionEngine(nil, orderBook)
 	var execEngine engine.ExecutionEngine = replayEngine
 	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
 	orderBookHandler, _ := setupHandlers(orderBook, nil, cfg.Trade.Pair)
 
-	obiCalculator.Start(ctx)
+	// In simulation, we do not start the periodic calculator. Instead, we manually trigger calculations.
+	// obiCalculator.Start(ctx)
 	go processSignalsAndExecute(ctx, obiCalculator, execEngine, nil)
 
 	logger.Infof("Streaming market events from %s", f.csvPath)
@@ -647,9 +716,11 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 				}
 				if e, ok := event.(datastore.OrderBookEvent); ok {
 					orderBookHandler(e.OrderBook)
+					// Manually trigger OBI calculation with the timestamp from the event
+					obiCalculator.Calculate(e.Time)
 					snapshotCount++
 					if snapshotCount%1000 == 0 {
-						logger.Infof("Processed snapshot %d", snapshotCount)
+						logger.Infof("Processed snapshot %d at time %s", snapshotCount, e.Time.Format(time.RFC3339))
 					}
 				}
 			case err := <-errCh:
