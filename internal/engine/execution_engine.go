@@ -27,6 +27,8 @@ type LiveExecutionEngine struct {
 	exchangeClient *coincheck.Client
 	cfg            *config.Config
 	dbWriter       *dbwriter.Writer
+	position       *position.Position
+	pnlCalculator  *pnl.Calculator
 }
 
 // NewLiveExecutionEngine creates a new LiveExecutionEngine.
@@ -35,6 +37,8 @@ func NewLiveExecutionEngine(client *coincheck.Client, cfg *config.Config, dbWrit
 		exchangeClient: client,
 		cfg:            cfg,
 		dbWriter:       dbWriter,
+		position:       position.NewPosition(),
+		pnlCalculator:  pnl.NewCalculator(),
 	}
 }
 
@@ -190,6 +194,38 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 						}
 						e.dbWriter.SaveTrade(trade)
 						logger.Infof("[Live] Confirmed trade for Order ID %d saved to DB.", orderResp.ID)
+
+						// PnL Calculation and Saving
+						tradeAmount := trade.Size
+						if trade.Side == "sell" {
+							tradeAmount = -tradeAmount
+						}
+						realizedPnL := e.position.Update(tradeAmount, trade.Price)
+						if realizedPnL != 0 {
+							e.pnlCalculator.UpdateRealizedPnL(realizedPnL)
+						}
+						logger.Infof("[Live] Position updated: %s", e.position.String())
+
+						positionSize, avgEntryPrice := e.position.Get()
+						unrealizedPnL := e.pnlCalculator.CalculateUnrealizedPnL(positionSize, avgEntryPrice, price)
+						totalRealizedPnL := e.pnlCalculator.GetRealizedPnL()
+						totalPnL := totalRealizedPnL + unrealizedPnL
+
+						pnlSummary := dbwriter.PnLSummary{
+							Time:          trade.Time,
+							StrategyID:    "default", // Or from config
+							Pair:          pair,
+							RealizedPnL:   realizedPnL,
+							UnrealizedPnL: unrealizedPnL,
+							TotalPnL:      totalPnL,
+							PositionSize:  positionSize,
+							AvgEntryPrice: avgEntryPrice,
+						}
+						if err := e.dbWriter.SavePnLSummary(ctx, pnlSummary); err != nil {
+							logger.Errorf("[Live] Error saving PnL summary: %v", err)
+						} else {
+							logger.Infof("[Live] Saved PnL summary to DB.")
+						}
 					}
 					return orderResp, nil // Order filled
 				}

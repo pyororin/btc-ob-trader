@@ -72,9 +72,7 @@ services:
     container_name: obi-scalp-bot-simulate
     entrypoint: ["/usr/local/bin/obi-scalp-bot"]
     volumes:
-      - ./config:/app/config:ro
-      - ./pkg:/app/pkg:ro
-      - ./simulation:/app/simulation:ro
+      - .:/app
     networks:
       - bot_network
 
