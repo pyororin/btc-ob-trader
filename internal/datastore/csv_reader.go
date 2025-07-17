@@ -77,56 +77,59 @@ func StreamMarketEventsFromCSV(ctx context.Context, filePath string) (<-chan Mar
 		}
 
 		for {
-			record, err := reader.Read()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				errCh <- fmt.Errorf("failed to read csv record: %w", err)
+			select {
+			case <-ctx.Done():
+				logger.Info("CSV streaming cancelled by context.")
 				return
-			}
+			default:
+				record, err := reader.Read()
+				if err == io.EOF {
+					flushSnapshot()
+					logger.Infof("Successfully streamed %d order book snapshots from %s", totalSnapshots, filePath)
+					return // End of file, successful completion
+				}
+				if err != nil {
+					errCh <- fmt.Errorf("failed to read csv record: %w", err)
+					return
+				}
 
-			if len(record) != 6 {
-				logger.Warnf("Skipping record due to invalid number of columns: expected 6, got %d", len(record))
-				continue
-			}
+				if len(record) != 6 {
+					logger.Warnf("Skipping record due to invalid number of columns: expected 6, got %d", len(record))
+					continue
+				}
 
-			eventTime, err := parseTime(record[0])
-			if err != nil {
-				logger.Warnf("Skipping record due to time parse error: %v", err)
-				continue
-			}
+				eventTime, err := parseTime(record[0])
+				if err != nil {
+					logger.Warnf("Skipping record due to time parse error: %v", err)
+					continue
+				}
 
-			if !currentTime.IsZero() && eventTime != currentTime {
-				flushSnapshot()
-				currentUpdates = nil
-			}
+				if !currentTime.IsZero() && eventTime != currentTime {
+					flushSnapshot()
+					currentUpdates = nil
+				}
 
-			currentTime = eventTime
-			currentPair = record[1]
-			side := record[2]
-			price, err := strconv.ParseFloat(record[3], 64)
-			if err != nil {
-				logger.Warnf("Skipping record due to price parse error: %v", err)
-				continue
-			}
-			size, err := strconv.ParseFloat(record[4], 64)
-			if err != nil {
-				logger.Warnf("Skipping record due to size parse error: %v", err)
-				continue
-			}
+				currentTime = eventTime
+				currentPair = record[1]
+				side := record[2]
+				price, err := strconv.ParseFloat(record[3], 64)
+				if err != nil {
+					logger.Warnf("Skipping record due to price parse error: %v", err)
+					continue
+				}
+				size, err := strconv.ParseFloat(record[4], 64)
+				if err != nil {
+					logger.Warnf("Skipping record due to size parse error: %v", err)
+					continue
+				}
 
-			currentUpdates = append(currentUpdates, coincheck.OrderBookLevel{
-				Side:  side,
-				Price: price,
-				Size:  size,
-			})
+				currentUpdates = append(currentUpdates, coincheck.OrderBookLevel{
+					Side:  side,
+					Price: price,
+					Size:  size,
+				})
+			}
 		}
-
-		// Flush the last snapshot
-		flushSnapshot()
-
-		logger.Infof("Successfully streamed %d order book snapshots from %s", totalSnapshots, filePath)
 	}()
 
 	return eventCh, errCh
