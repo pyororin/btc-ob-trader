@@ -621,17 +621,8 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 	obiCalculator.Start(ctx)
 	go processSignalsAndExecute(ctx, obiCalculator, execEngine, nil)
 
-	logger.Infof("Fetching market events from %s", f.csvPath)
-	events, err := datastore.FetchMarketEventsFromCSV(ctx, f.csvPath)
-	if err != nil {
-		logger.Fatalf("Failed to fetch market events from CSV: %v", err)
-	}
-	if len(events) == 0 {
-		logger.Info("No market events found in the CSV file.")
-		sigs <- syscall.SIGTERM
-		return
-	}
-	logger.Infof("Fetched %d market snapshots.", len(events))
+	logger.Infof("Streaming market events from %s", f.csvPath)
+	eventCh, errCh := datastore.StreamMarketEventsFromCSV(ctx, f.csvPath)
 
 	go func() {
 		defer func() {
@@ -640,21 +631,29 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 			sigs <- syscall.SIGTERM
 		}()
 
-		for i, event := range events {
+		var snapshotCount int
+		for {
 			select {
+			case event, ok := <-eventCh:
+				if !ok {
+					logger.Infof("Finished processing all %d snapshots.", snapshotCount)
+					return
+				}
+				if e, ok := event.(datastore.OrderBookEvent); ok {
+					orderBookHandler(e.OrderBook)
+					snapshotCount++
+					if snapshotCount%1000 == 0 {
+						logger.Infof("Processed snapshot %d", snapshotCount)
+					}
+				}
+			case err := <-errCh:
+				logger.Fatalf("Error while streaming market events: %v", err)
+				return
 			case <-ctx.Done():
 				logger.Info("Simulation cancelled.")
 				return
-			default:
-				if e, ok := event.(datastore.OrderBookEvent); ok {
-					orderBookHandler(e.OrderBook)
-				}
-				if (i+1)%100 == 0 {
-					logger.Infof("Processed snapshot %d/%d", i+1, len(events))
-				}
 			}
 		}
-		logger.Infof("Finished processing all %d snapshots.", len(events))
 	}()
 }
 

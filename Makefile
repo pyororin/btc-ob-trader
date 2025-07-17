@@ -68,7 +68,16 @@ simulate: ## Run a backtest using trade data from a local CSV file.
 		echo "Usage: make simulate CSV_PATH=/path/to/your/trades.csv"; \
 		exit 1; \
 	fi
-	sudo -E docker compose run --rm --no-deps bot-simulate --simulate --csv=$(CSV_PATH) --config=config/config.yaml
+	@CMD="sudo -E docker compose run --rm --no-deps -v /tmp:/tmp bot-simulate --simulate --config=config/config.yaml"; \
+	if [ $$(echo "$(CSV_PATH)" | grep -c ".zip$$") -gt 0 ]; then \
+		echo "Unzipping $(CSV_PATH) to /tmp..."; \
+		unzip -o $(CSV_PATH) -d /tmp; \
+		UNZIPPED_CSV_PATH=/tmp/$$(basename $(CSV_PATH) .zip).csv; \
+		echo "Using unzipped file: $$UNZIPPED_CSV_PATH"; \
+		$$CMD --csv=$$UNZIPPED_CSV_PATH; \
+	else \
+		$$CMD --csv=$(CSV_PATH); \
+	fi
 
 export-sim-data: ## Export order book data from the database to a CSV file for simulation.
 	@echo "Exporting simulation data..."

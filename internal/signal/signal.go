@@ -8,6 +8,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/your-org/obi-scalp-bot/internal/config"
 	"github.com/your-org/obi-scalp-bot/internal/indicator" // Added
+	"github.com/your-org/obi-scalp-bot/pkg/logger"
 )
 
 // SignalType represents the type of trading signal.
@@ -205,7 +206,12 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 		rawSignal = SignalShort
 	}
 
+	// Added for debugging
+	// logger.Debugf("OBI: %.4f, LongThr: %.4f, ShortThr: %.4f, RawSignal: %s, CurrentSignal: %s",
+	// 	obiValue, longThreshold, -shortThreshold, rawSignal, e.currentSignal)
+
 	if rawSignal != e.currentSignal {
+		logger.Infof("Signal changed from %s to %s. Resetting hold timer.", e.currentSignal, rawSignal)
 		e.currentSignal = rawSignal
 		e.currentSignalSince = currentTime
 		if rawSignal == SignalNone {
@@ -221,10 +227,15 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 		return nil
 	}
 
-	if currentTime.Sub(e.currentSignalSince) >= e.config.SignalHoldDuration {
+	holdDuration := currentTime.Sub(e.currentSignalSince)
+	// logger.Debugf("Signal %s held for %v. Required: %v", e.currentSignal, holdDuration, e.config.SignalHoldDuration)
+
+	if holdDuration >= e.config.SignalHoldDuration {
 		if e.lastSignal != e.currentSignal && e.currentSignal != SignalNone {
 			e.lastSignal = e.currentSignal
 			e.lastSignalTime = currentTime
+
+			logger.Infof("Signal %s confirmed. OBI: %.4f, Held for: %v", e.currentSignal, obiValue, holdDuration)
 
 			// Calculate TP/SL prices based on currentMidPrice at signal confirmation
 			var tpPrice, slPrice float64
@@ -239,16 +250,18 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 			}
 
 			return &TradingSignal{
-				Type:        e.currentSignal,
-				EntryPrice:  entryPrice,
-				TakeProfit:  tpPrice,
-				StopLoss:    slPrice,
+				Type:               e.currentSignal,
+				EntryPrice:         entryPrice,
+				TakeProfit:         tpPrice,
+				StopLoss:           slPrice,
 				TriggerOBIOBIValue: obiValue,
-				TriggerTime: currentTime,
+				TriggerTime:        currentTime,
 			}
 		}
+		// logger.Debugf("Signal %s already triggered. Ignoring.", e.currentSignal)
 		return nil // Already reported or no new signal state
 	}
+	// logger.Debugf("Signal %s not held long enough. Current hold: %v, Required: %v", e.currentSignal, holdDuration, e.config.SignalHoldDuration)
 	return nil // Active and stable, but not yet persisted long enough.
 }
 
