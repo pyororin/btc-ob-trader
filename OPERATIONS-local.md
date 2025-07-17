@@ -10,6 +10,7 @@
 -   **Go**: ローカルで `go test` を実行したり、IDEの補完機能を最大限活用するために、WSL2内にGo言語環境をセットアップしてください。
 -   **VS Code**: [Remote - WSL](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-wsl) 拡張機能の利用を強く推奨します。`code .` コマンドでWSL2内のプロジェクトを直接開くことで、快適な開発体験が得られます。
 -   **データベースクライアント**: DBeaver, DataGrip, pgAdmin など、PostgreSQLに接続できるGUIクライアントを用意すると、DB内のデータ（取引履歴、指標など）の確認が容易になります。`make monitor` 実行後、`localhost:5432` で接続できます。
+-   **Adminer (Web UI)**: 本プロジェクトには、Webブラウザベースの軽量データベース管理ツール「Adminer」が含まれています。`make monitor` 実行後、 http://localhost:8888 にアクセスすることで、DBのテーブル構造やレコードを簡単に確認できます。
 
 ## 2. ローカルでの開発・テストサイクル
 
