@@ -1,7 +1,10 @@
 // Package coincheck handles interactions with the Coincheck exchange.
 package coincheck
 
-import "strconv"
+import (
+	"strconv"
+	"time"
+)
 
 // BookLevel represents a single price level in the order book.
 // Rate and Amount are strings as received from the WebSocket API.
@@ -33,6 +36,7 @@ type OrderBookData struct {
 	Bids         [][]string `json:"bids"`
 	Asks         [][]string `json:"asks"`
 	LastUpdateAt string     `json:"last_update_at"`
+	Time         time.Time
 }
 
 // OrderBookUpdate represents an update to the order book received via WebSocket.

@@ -14,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/your-org/obi-scalp-bot/internal/benchmark"
 	"github.com/your-org/obi-scalp-bot/internal/config"
@@ -33,7 +32,6 @@ import (
 
 type flags struct {
 	configPath    string
-	replayMode    bool
 	simulateMode  bool
 	csvPath       string
 }
@@ -53,7 +51,7 @@ func main() {
 		logger.Fatal("CSV file path must be provided in simulation mode using --csv flag")
 	}
 
-	if !f.replayMode && !f.simulateMode {
+	if !f.simulateMode {
 		startHealthCheckServer()
 	}
 
@@ -83,13 +81,11 @@ func main() {
 // parseFlags parses command-line flags.
 func parseFlags() flags {
 	configPath := flag.String("config", "config/app_config.yaml", "Path to the application configuration file")
-	replayMode := flag.Bool("replay", false, "Enable replay mode")
 	simulateMode := flag.Bool("simulate", false, "Enable simulation mode from CSV")
 	csvPath := flag.String("csv", "", "Path to the trade data CSV file for simulation")
 	flag.Parse()
 	return flags{
 		configPath:   *configPath,
-		replayMode:   *replayMode,
 		simulateMode: *simulateMode,
 		csvPath:      *csvPath,
 	}
@@ -380,25 +376,22 @@ func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, pa
 func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs chan<- os.Signal) {
 	cfg := config.GetConfig()
 
-	var benchmarkService *benchmark.Service
-	if dbWriter != nil {
-		var zapLogger *zap.Logger
-		// Assuming logger is already configured, but if not, initialize it.
-		// For simplicity, re-using the logic from setupDBWriter.
-		if cfg.App.LogLevel == "debug" {
-			zapLogger, _ = zap.NewDevelopment()
-		} else {
-			zapLogger, _ = zap.NewProduction()
-		}
-		benchmarkService = benchmark.NewService(zapLogger, dbWriter)
-	}
-
-	if f.replayMode {
-		go runReplay(ctx, dbWriter, sigs)
-	} else if f.simulateMode {
+	if f.simulateMode {
 		go runSimulation(ctx, f, sigs)
 	} else {
 		// Live trading setup
+		var benchmarkService *benchmark.Service
+		if dbWriter != nil {
+			var zapLogger *zap.Logger
+			// Assuming logger is already configured, but if not, initialize it.
+			// For simplicity, re-using the logic from setupDBWriter.
+			if cfg.App.LogLevel == "debug" {
+				zapLogger, _ = zap.NewDevelopment()
+			} else {
+				zapLogger, _ = zap.NewProduction()
+			}
+			benchmarkService = benchmark.NewService(zapLogger, dbWriter)
+		}
 		client := coincheck.NewClient(cfg.APIKey, cfg.APISecret)
 		execEngine := engine.NewLiveExecutionEngine(client, &cfg.Trade, &cfg.App.Order, &cfg.Trade.Risk, dbWriter)
 
@@ -687,7 +680,7 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 	logger.Info("--------------------")
 
 	orderBook := indicator.NewOrderBook()
-	replayEngine := engine.NewReplayExecutionEngine(nil, orderBook)
+	replayEngine := engine.NewReplayExecutionEngine(orderBook)
 	var execEngine engine.ExecutionEngine = replayEngine
 	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
 	orderBookHandler, _ := setupHandlers(orderBook, nil, cfg.Trade.Pair)
@@ -709,19 +702,17 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 		var snapshotCount int
 		for {
 			select {
-			case event, ok := <-eventCh:
+			case orderBookData, ok := <-eventCh:
 				if !ok {
 					logger.Infof("Finished processing all %d snapshots.", snapshotCount)
 					return
 				}
-				if e, ok := event.(datastore.OrderBookEvent); ok {
-					orderBookHandler(e.OrderBook)
-					// Manually trigger OBI calculation with the timestamp from the event
-					obiCalculator.Calculate(e.Time)
-					snapshotCount++
-					if snapshotCount%1000 == 0 {
-						logger.Infof("Processed snapshot %d at time %s", snapshotCount, e.Time.Format(time.RFC3339))
-					}
+				orderBookHandler(orderBookData)
+				// Manually trigger OBI calculation with the timestamp from the event
+				obiCalculator.Calculate(orderBookData.Time)
+				snapshotCount++
+				if snapshotCount%1000 == 0 {
+					logger.Infof("Processed snapshot %d at time %s", snapshotCount, orderBookData.Time.Format(time.RFC3339))
 				}
 			case err := <-errCh:
 				if err != nil {
@@ -859,102 +850,4 @@ func positionMonitor(ctx context.Context, execEngine engine.ExecutionEngine, ord
 			}
 		}
 	}
-}
-
-// runReplay runs the backtest simulation using data from the database.
-func runReplay(ctx context.Context, dbWriter *dbwriter.Writer, sigs chan<- os.Signal) {
-	cfg := config.GetConfig()
-	replaySessionID, err := uuid.NewRandom()
-	if err != nil {
-		logger.Fatalf("Failed to generate replay session ID: %v", err)
-	}
-	logger.SetReplayMode(replaySessionID.String())
-
-	if dbWriter != nil {
-		dbWriter.SetReplaySessionID(replaySessionID.String())
-	}
-
-	logger.Info("--- REPLAY MODE ---")
-	logger.Infof("Session ID: %s", replaySessionID.String())
-	logger.Infof("Pair: %s", cfg.Trade.Pair)
-	logger.Infof("Time Range: %s -> %s", cfg.App.Replay.StartTime, cfg.App.Replay.EndTime)
-	logger.Infof("Long Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Trade.Long.OBIThreshold, cfg.Trade.Long.TP, cfg.Trade.Long.SL)
-	logger.Infof("Short Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Trade.Short.OBIThreshold, cfg.Trade.Short.TP, cfg.Trade.Short.SL)
-	logger.Info("--------------------")
-
-	orderBook := indicator.NewOrderBook()
-	execEngine := engine.NewReplayExecutionEngine(dbWriter, orderBook)
-	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
-	orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Trade.Pair)
-
-	var benchmarkService *benchmark.Service
-	if dbWriter != nil {
-		var zapLogger *zap.Logger
-		if cfg.App.LogLevel == "debug" {
-			zapLogger, _ = zap.NewDevelopment()
-		} else {
-			zapLogger, _ = zap.NewProduction()
-		}
-		benchmarkService = benchmark.NewService(zapLogger, dbWriter)
-	}
-
-	obiCalculator.Start(ctx)
-	go processSignalsAndExecute(ctx, obiCalculator, execEngine, benchmarkService)
-
-	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		cfg.App.Database.User, cfg.App.Database.Password, cfg.App.Database.Host, cfg.App.Database.Port, cfg.App.Database.Name, cfg.App.Database.SSLMode)
-	dbpool, err := pgxpool.New(ctx, dbURL)
-	if err != nil {
-		logger.Fatalf("Unable to connect to database: %v", err)
-	}
-	defer dbpool.Close()
-
-	repo := datastore.NewRepository(dbpool)
-
-	startTime, err := time.Parse(time.RFC3339, cfg.App.Replay.StartTime)
-	if err != nil {
-		logger.Fatalf("Invalid start_time format: %v", err)
-	}
-	endTime, err := time.Parse(time.RFC3339, cfg.App.Replay.EndTime)
-	if err != nil {
-		logger.Fatalf("Invalid end_time format: %v", err)
-	}
-
-	logger.Infof("Fetching market events from %s to %s", startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
-	events, err := repo.FetchMarketEvents(ctx, cfg.Trade.Pair, startTime, endTime)
-	if err != nil {
-		logger.Fatalf("Failed to fetch market events: %v", err)
-	}
-	if len(events) == 0 {
-		logger.Info("No market events found in the specified time range.")
-		sigs <- syscall.SIGTERM
-		return
-	}
-	logger.Infof("Fetched %d market events.", len(events))
-
-	go func() {
-		defer func() {
-			logger.Info("Replay finished.")
-			sigs <- syscall.SIGTERM
-		}()
-
-		for i, event := range events {
-			select {
-			case <-ctx.Done():
-				logger.Info("Replay cancelled.")
-				return
-			default:
-				switch e := event.(type) {
-				case datastore.TradeEvent:
-					tradeHandler(e.Trade)
-				case datastore.OrderBookEvent:
-					orderBookHandler(e.OrderBook)
-				}
-				if (i+1)%1000 == 0 {
-					logger.Infof("Processed event %d/%d", i+1, len(events))
-				}
-			}
-		}
-		logger.Infof("Finished processing all %d events.", len(events))
-	}()
 }
