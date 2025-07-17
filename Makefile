@@ -27,7 +27,7 @@ up: ## Start all services including the bot for live trading.
 
 migrate: ## Run database migrations
 	@echo "Running database migrations..."
-	sudo -E docker compose exec -T timescaledb sh -c "for f in /docker-entrypoint-initdb.d/02_migrations/*.sql; do psql -v ON_ERROR_STOP=1 --username \"$$POSTGRES_USER\" --dbname \"$$POSTGRES_DB\" -f \"$$f\"; done"
+	sudo -E docker compose exec -T -e POSTGRES_USER=$(DB_USER) -e POSTGRES_DB=$(DB_NAME) timescaledb sh -c 'for f in /docker-entrypoint-initdb.d/02_migrations/*.sql; do psql -v ON_ERROR_STOP=1 --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" -f "$$f"; done'
 
 monitor: ## Start monitoring services (DB, Grafana) without the bot.
 	@echo "Starting monitoring services (TimescaleDB, Grafana)..."
