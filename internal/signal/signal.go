@@ -236,7 +236,7 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 
 	if rawSignal != e.currentSignal {
 		if e.config.SignalHoldDuration > 0 {
-			logger.Infof("Signal changed from %s to %s. Resetting hold timer.", e.currentSignal, rawSignal)
+			logger.Debugf("Signal changed from %s to %s. Resetting hold timer.", e.currentSignal, rawSignal)
 			e.currentSignal = rawSignal
 			e.currentSignalSince = currentTime
 			if rawSignal == SignalNone {
@@ -268,7 +268,7 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 			if e.config.SignalHoldDuration > 0 {
 				logMessage += fmt.Sprintf(", Held for: %v", holdDuration)
 			}
-			logger.Info(logMessage)
+			logger.Debug(logMessage)
 
 
 			// Calculate TP/SL prices based on currentMidPrice at signal confirmation

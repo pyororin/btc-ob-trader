@@ -1,5 +1,5 @@
 # Stage 1: Build the Go application
-FROM golang:1.24.3-alpine AS builder
+FROM public.ecr.aws/docker/library/golang:1.24.3-alpine AS builder
 
 WORKDIR /app
 
@@ -20,7 +20,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-s -w" -o /go/bin/obi-scalp-bot cmd/bot/main.go
 
 # Stage 2: Create the final lightweight image
-FROM alpine:latest
+FROM public.ecr.aws/docker/library/alpine:latest
 
 WORKDIR /app
 

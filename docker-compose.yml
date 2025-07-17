@@ -45,9 +45,10 @@ services:
       - bot_network
 
   bot-simulate:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    image: obi-scalp-bot-image:latest
     container_name: obi-scalp-bot-simulate
     entrypoint: ["/usr/local/bin/obi-scalp-bot"]
     volumes:
