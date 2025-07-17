@@ -63,6 +63,10 @@ replay: ## Run a backtest using historical data from the database.
 
 simulate: ## Run a backtest using trade data from a local CSV file.
 	@echo "Running simulation task..."
+	@if [ -n "$(DOCKER_HUB_USERNAME)" ] && [ -n "$(DOCKER_HUB_PASSWORD)" ]; then \
+		echo "Logging in to Docker Hub..."; \
+		echo "$(DOCKER_HUB_PASSWORD)" | sudo -E docker login -u "$(DOCKER_HUB_USERNAME)" --password-stdin; \
+	fi
 	@if [ -z "$(CSV_PATH)" ]; then \
 		echo "Error: CSV_PATH environment variable is not set."; \
 		echo "Usage: make simulate CSV_PATH=/path/to/your/trades.csv"; \

@@ -276,7 +276,7 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 				}
 				signalEngine.UpdateMarketData(result.Timestamp, midPrice, result.BestBid, result.BestAsk, 1.0, 1.0)
 
-				logger.Infof("Evaluating OBI: %.4f, Long Threshold: %.4f, Short Threshold: %.4f",
+				logger.Debugf("Evaluating OBI: %.4f, Long Threshold: %.4f, Short Threshold: %.4f",
 					result.OBI8, signalEngine.GetCurrentLongOBIThreshold(), signalEngine.GetCurrentShortOBIThreshold())
 
 				tradingSignal := signalEngine.Evaluate(result.Timestamp, result.OBI8)
