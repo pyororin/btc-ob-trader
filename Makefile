@@ -61,12 +61,8 @@ replay: ## Run a backtest using historical data from the database.
 	@echo "Running replay task..."
 	sudo -E docker compose run --build --rm bot-replay
 
-simulate: ## Run a backtest using trade data from a local CSV file.
+simulate: build-image ## Run a backtest using trade data from a local CSV file.
 	@echo "Running simulation task..."
-	@if [ -n "$(DOCKER_HUB_USERNAME)" ] && [ -n "$(DOCKER_HUB_PASSWORD)" ]; then \
-		echo "Logging in to Docker Hub..."; \
-		echo "$(DOCKER_HUB_PASSWORD)" | sudo -E docker login -u "$(DOCKER_HUB_USERNAME)" --password-stdin; \
-	fi
 	@if [ -z "$(CSV_PATH)" ]; then \
 		echo "Error: CSV_PATH environment variable is not set."; \
 		echo "Usage: make simulate CSV_PATH=/path/to/your/trades.csv"; \
@@ -78,7 +74,7 @@ simulate: ## Run a backtest using trade data from a local CSV file.
 		unzip -o $(CSV_PATH) -d ./simulation; \
 		UNZIPPED_CSV_PATH=/simulation/$$(basename $(CSV_PATH) .zip).csv; \
 		echo "Using unzipped file: $$UNZIPPED_CSV_PATH"; \
-		sudo -E docker compose run --build --rm --no-deps \
+		sudo -E docker compose run --rm --no-deps \
 			-v $$(pwd)/simulation:/simulation \
 			bot-simulate \
 			--simulate --config=config/app_config.yaml \
@@ -86,7 +82,7 @@ simulate: ## Run a backtest using trade data from a local CSV file.
 	else \
 		HOST_CSV_PATH=$$(realpath $(CSV_PATH)); \
 		CONTAINER_CSV_PATH=/simulation/$$(basename $(CSV_PATH)); \
-		sudo -E docker compose run --build --rm --no-deps \
+		sudo -E docker compose run --rm --no-deps \
 			-v $$HOST_CSV_PATH:$$CONTAINER_CSV_PATH \
 			-v $$(pwd)/simulation:/simulation \
 			bot-simulate \
@@ -137,6 +133,10 @@ build: ## Build the Go application binary inside the container.
 	@echo "Building Go application binary..."
 	@mkdir -p build
 	$(DOCKER_RUN_GO) go build -a -ldflags="-s -w" -o build/obi-scalp-bot cmd/bot/main.go
+
+build-image: ## Build the Docker image for the bot.
+	@echo "Building Docker image..."
+	sudo -E docker build -t obi-scalp-bot-image:latest .
 
 # ==============================================================================
 # GRAFANA DASHBOARDS
