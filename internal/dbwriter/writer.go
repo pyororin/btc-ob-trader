@@ -33,7 +33,9 @@ type Trade struct {
 	Size            float64   `db:"size"`
 	TransactionID   int64     `db:"transaction_id"`
 	IsCancelled     bool      `db:"is_cancelled"`
-	RealizedPnL   float64   `db:"realized_pnl"` // Not always stored in DB, but used for simulation summary
+	RealizedPnL   float64   // Not stored in DB, but used for simulation summary
+	EntryTime     time.Time // Not stored in DB
+	ExitTime      time.Time // Not stored in DB
 }
 
 // TradePnL はデータベースに保存する個別の取引のPnL情報です。
