@@ -54,17 +54,15 @@
          "steppedLine": false,
          "targets": [
             {
-               "expr": "SELECT bucket AS time, last_pnl FROM v_performance_vs_benchmark ORDER BY bucket",
-               "format": "time_series",
-               "intervalFactor": 2,
-               "legendFormat": "Bot PnL",
+               "datasource": "TimescaleDB",
+               "format": "table",
+               "rawSql": "SELECT bucket AS \"time\", last_pnl FROM v_performance_vs_benchmark ORDER BY bucket",
                "refId": "A"
             },
             {
-               "expr": "SELECT bucket AS time, normalized_price FROM v_performance_vs_benchmark ORDER BY bucket",
-               "format": "time_series",
-               "intervalFactor": 2,
-               "legendFormat": "Benchmark (Normalized)",
+               "datasource": "TimescaleDB",
+               "format": "table",
+               "rawSql": "SELECT bucket AS \"time\", normalized_price FROM v_performance_vs_benchmark ORDER BY bucket",
                "refId": "B"
             }
          ],
@@ -146,10 +144,9 @@
          "steppedLine": false,
          "targets": [
             {
-               "expr": "SELECT bucket AS time, alpha FROM v_performance_vs_benchmark ORDER BY bucket",
-               "format": "time_series",
-               "intervalFactor": 2,
-               "legendFormat": "Alpha",
+               "datasource": "TimescaleDB",
+               "format": "table",
+               "rawSql": "SELECT bucket AS \"time\", alpha FROM v_performance_vs_benchmark ORDER BY bucket",
                "refId": "A"
             }
          ],
