@@ -4,6 +4,12 @@ import (
 	"sync"
 )
 
+// OrderBookProvider defines the interface for accessing order book data.
+type OrderBookProvider interface {
+	BestBid() float64
+	BestAsk() float64
+}
+
 // Calculator handles PnL calculations.
 type Calculator struct {
 	RealizedPnL   float64

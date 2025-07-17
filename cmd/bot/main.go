@@ -276,6 +276,9 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 				}
 				signalEngine.UpdateMarketData(result.Timestamp, midPrice, result.BestBid, result.BestAsk, 1.0, 1.0)
 
+				logger.Infof("Evaluating OBI: %.4f, Long Threshold: %.4f, Short Threshold: %.4f",
+					result.OBI8, signalEngine.GetCurrentLongOBIThreshold(), signalEngine.GetCurrentShortOBIThreshold())
+
 				tradingSignal := signalEngine.Evaluate(result.Timestamp, result.OBI8)
 				if tradingSignal != nil {
 					orderType := ""
@@ -286,30 +289,17 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 					}
 
 					if orderType != "" {
-						orderBook := obiCalculator.OrderBook()
 						const liquidityCheckPriceRange = 0.001
 						const liquidityThresholdBtc = 0.1
 
-						var depth float64
+						finalPrice := 0.0
+						orderLogMsg := ""
 						if orderType == "buy" {
-							depth = orderBook.CalculateDepth("ask", liquidityCheckPriceRange)
+							finalPrice = result.BestAsk
+							orderLogMsg = "Placing aggressive buy order at ask price."
 						} else {
-							depth = orderBook.CalculateDepth("bid", liquidityCheckPriceRange)
-						}
-
-						finalPrice := tradingSignal.EntryPrice
-						var orderLogMsg string
-
-						if depth >= liquidityThresholdBtc {
-							if orderType == "buy" {
-								finalPrice = result.BestAsk
-								orderLogMsg = fmt.Sprintf("Sufficient liquidity (%.4f BTC). Placing aggressive buy order at ask price.", depth)
-							} else {
-								finalPrice = result.BestBid
-								orderLogMsg = fmt.Sprintf("Sufficient liquidity (%.4f BTC). Placing aggressive sell order at bid price.", depth)
-							}
-						} else {
-							orderLogMsg = fmt.Sprintf("Insufficient liquidity (%.4f BTC). Placing standard limit order.", depth)
+							finalPrice = result.BestBid
+							orderLogMsg = "Placing aggressive sell order at bid price."
 						}
 
 						logger.Infof("Executing trade for signal: %s. %s", tradingSignal.Type.String(), orderLogMsg)
@@ -319,9 +309,13 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 							logger.Infof("Order amount %.8f exceeds max size %.8f. Executing with TWAP.", orderAmount, currentCfg.Trade.Twap.MaxOrderSizeBtc)
 							go executeTwapOrder(ctx, execEngine, currentCfg.Trade.Pair, orderType, finalPrice, orderAmount)
 						} else {
-							_, err := execEngine.PlaceOrder(ctx, currentCfg.Trade.Pair, orderType, finalPrice, orderAmount, false)
+							logger.Infof("Calling PlaceOrder with: type=%s, price=%.2f, amount=%.2f", orderType, finalPrice, orderAmount)
+							resp, err := execEngine.PlaceOrder(ctx, currentCfg.Trade.Pair, orderType, finalPrice, orderAmount, false)
 							if err != nil {
 								logger.Errorf("Failed to place order for signal: %v", err)
+							}
+							if resp != nil && !resp.Success {
+								logger.Warnf("Order placement was not successful: %s", resp.Error)
 							}
 						}
 					}
@@ -621,10 +615,12 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 	logger.Infof("Short Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Trade.Short.OBIThreshold, cfg.Trade.Short.TP, cfg.Trade.Short.SL)
 	logger.Info("--------------------")
 
-	replayEngine := engine.NewReplayExecutionEngine(nil)
-	var execEngine engine.ExecutionEngine = replayEngine
-
 	orderBook := indicator.NewOrderBook()
+	// In simulation mode, override signal hold duration to 0 for instant signal confirmation.
+	cfg.Trade.Signal.HoldDurationMs = 0
+	cfg.Trade.Signal.SlopeFilter.Enabled = false
+	replayEngine := engine.NewReplayExecutionEngine(nil, orderBook)
+	var execEngine engine.ExecutionEngine = replayEngine
 	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
 	orderBookHandler, _ := setupHandlers(orderBook, nil, cfg.Trade.Pair)
 
@@ -815,9 +811,8 @@ func runReplay(ctx context.Context, dbWriter *dbwriter.Writer, sigs chan<- os.Si
 	logger.Infof("Short Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Trade.Short.OBIThreshold, cfg.Trade.Short.TP, cfg.Trade.Short.SL)
 	logger.Info("--------------------")
 
-	execEngine := engine.NewReplayExecutionEngine(dbWriter)
-
 	orderBook := indicator.NewOrderBook()
+	execEngine := engine.NewReplayExecutionEngine(dbWriter, orderBook)
 	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
 	orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Trade.Pair)
 
