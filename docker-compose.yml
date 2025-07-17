@@ -79,7 +79,8 @@ services:
   db-init:
     image: postgres:14
     volumes:
-      - ./db/schema:/docker-entrypoint-initdb.d
+      - ./db/schema:/docker-entrypoint-initdb.d/schema
+      - ./db/migrations:/docker-entrypoint-initdb.d/migrations
     environment:
       POSTGRES_HOST: timescaledb
       POSTGRES_USER: ${DB_USER:-your_db_user}
