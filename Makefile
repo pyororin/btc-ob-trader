@@ -27,9 +27,6 @@ up: ## Start all services including the bot for live trading.
 
 migrate: ## Run database migrations
 	@echo "Running database migrations..."
-	@if [ -f .env ]; then \
-		export $$(cat .env | grep -v '#' | xargs); \
-	fi
 	sudo -E docker compose exec -T timescaledb sh -c "for f in /docker-entrypoint-initdb.d/02_migrations/*.sql; do psql -v ON_ERROR_STOP=1 --username \"$$POSTGRES_USER\" --dbname \"$$POSTGRES_DB\" -f \"$$f\"; done"
 
 monitor: ## Start monitoring services (DB, Grafana) without the bot.
