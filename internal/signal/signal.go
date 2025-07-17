@@ -2,6 +2,7 @@
 package signal
 
 import (
+	"fmt"
 	"math" // Required for math.Min/Max
 	"time"
 
