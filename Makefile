@@ -1,7 +1,7 @@
 -include .env
 export
 
-.PHONY: help up down logs shell clean test build replay monitor report
+.PHONY: help up down logs shell clean test build monitor report
 
 # ==============================================================================
 # HELP
@@ -56,10 +56,6 @@ shell: ## Access a shell inside the running bot container.
 clean: ## Stop, remove containers, and remove volumes.
 	@echo "Stopping application stack and removing volumes..."
 	sudo -E docker compose down -v --remove-orphans
-
-replay: ## Run a backtest using historical data from the database.
-	@echo "Running replay task..."
-	sudo -E docker compose run --build --rm bot-replay
 
 simulate: ## Run a backtest using trade data from a local CSV file.
 	@echo "Running simulation task..."

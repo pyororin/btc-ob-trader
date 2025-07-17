@@ -13,13 +13,13 @@ import (
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
 )
 
-// StreamMarketEventsFromCSV reads order book data from a CSV file and streams it as MarketEvent
+// StreamMarketEventsFromCSV reads order book data from a CSV file and streams it as coincheck.OrderBookData
 // instances through a channel. It groups updates by timestamp to form snapshots.
 // The function returns a channel for events and a channel for errors.
 // The CSV file is expected to have a header and the following columns:
 // time, pair, side, price, size, is_snapshot
-func StreamMarketEventsFromCSV(ctx context.Context, filePath string) (<-chan MarketEvent, <-chan error) {
-	eventCh := make(chan MarketEvent)
+func StreamMarketEventsFromCSV(ctx context.Context, filePath string) (<-chan coincheck.OrderBookData, <-chan error) {
+	eventCh := make(chan coincheck.OrderBookData)
 	errCh := make(chan error, 1)
 
 	go func() {
@@ -62,13 +62,11 @@ func StreamMarketEventsFromCSV(ctx context.Context, filePath string) (<-chan Mar
 			}
 
 			select {
-			case eventCh <- OrderBookEvent{
-				OrderBook: coincheck.OrderBookData{
-					PairStr: currentPair,
-					Bids:    bids,
-					Asks:    asks,
-				},
-				Time: currentTime,
+			case eventCh <- coincheck.OrderBookData{
+				PairStr: currentPair,
+				Bids:    bids,
+				Asks:    asks,
+				Time:    currentTime,
 			}:
 				totalSnapshots++
 			case <-ctx.Done():
