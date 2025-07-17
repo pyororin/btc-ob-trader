@@ -459,7 +459,6 @@ func (e *LiveExecutionEngine) adjustRatios() {
 
 // ReplayExecutionEngine simulates order execution for backtesting.
 type ReplayExecutionEngine struct {
-	dbWriter      *dbwriter.Writer
 	position      *position.Position
 	pnlCalculator *pnl.Calculator
 	orderBook     pnl.OrderBookProvider
@@ -468,9 +467,8 @@ type ReplayExecutionEngine struct {
 }
 
 // NewReplayExecutionEngine creates a new ReplayExecutionEngine.
-func NewReplayExecutionEngine(dbWriter *dbwriter.Writer, orderBook pnl.OrderBookProvider) *ReplayExecutionEngine {
+func NewReplayExecutionEngine(orderBook pnl.OrderBookProvider) *ReplayExecutionEngine {
 	return &ReplayExecutionEngine{
-		dbWriter:       dbWriter,
 		position:       position.NewPosition(),
 		pnlCalculator:  pnl.NewCalculator(),
 		orderBook:      orderBook,
@@ -480,10 +478,7 @@ func NewReplayExecutionEngine(dbWriter *dbwriter.Writer, orderBook pnl.OrderBook
 
 // PlaceOrder simulates placing an order and records it based on the current order book state.
 func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, orderType string, rate float64, amount float64, postOnly bool) (*coincheck.OrderResponse, error) {
-	mode := "Replay"
-	if e.dbWriter == nil {
-		mode = "Simulation"
-	}
+	mode := "Simulation"
 
 	bestBid := e.orderBook.BestBid()
 	bestAsk := e.orderBook.BestAsk()
@@ -565,36 +560,7 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 	totalRealizedPnL := e.pnlCalculator.GetRealizedPnL()
 	totalPnL := totalRealizedPnL + unrealizedPnL
 
-	if e.dbWriter != nil {
-		e.dbWriter.SaveTrade(trade)
-		pnlSummary := dbwriter.PnLSummary{
-			Time:          trade.Time,
-			StrategyID:    "default",
-			Pair:          pair,
-			RealizedPnL:   realizedPnL,
-			UnrealizedPnL: unrealizedPnL,
-			TotalPnL:      totalPnL,
-			PositionSize:  positionSize,
-			AvgEntryPrice: avgEntryPrice,
-		}
-		if err := e.dbWriter.SavePnLSummary(ctx, pnlSummary); err != nil {
-			logger.Errorf("[%s] Error saving PnL summary: %v", mode, err)
-		}
-		// Save individual trade PnL
-		if realizedPnL != 0 {
-			tradePnl := dbwriter.TradePnL{
-				TradeID:   trade.TransactionID,
-				Pnl:       realizedPnL,
-				CreatedAt: trade.Time,
-			}
-			if err := e.dbWriter.SaveTradePnL(ctx, tradePnl); err != nil {
-				logger.Errorf("[%s] Error saving trade PnL: %v", mode, err)
-			}
-		}
-		logger.Infof("[%s] Saved simulated trade and PnL summary to DB.", mode)
-	} else {
-		logger.Infof("[%s] PnL Update: Realized=%.2f, Unrealized=%.2f, Total=%.2f", mode, realizedPnL, unrealizedPnL, totalPnL)
-	}
+	logger.Infof("[%s] PnL Update: Realized=%.2f, Unrealized=%.2f, Total=%.2f", mode, realizedPnL, unrealizedPnL, totalPnL)
 
 	return &coincheck.OrderResponse{
 		Success: true,
@@ -607,7 +573,7 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 
 // CancelOrder simulates cancelling an order.
 func (e *ReplayExecutionEngine) CancelOrder(ctx context.Context, orderID int64) (*coincheck.CancelResponse, error) {
-	logger.Infof("[Replay] Simulating cancellation of order ID: %d", orderID)
+	logger.Infof("[Simulation] Simulating cancellation of order ID: %d", orderID)
 	return &coincheck.CancelResponse{
 		Success: true,
 		ID:      orderID,

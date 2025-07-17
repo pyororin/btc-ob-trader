@@ -36,13 +36,6 @@ db_writer:
   # 非同期書き込みの有効化
   enable_async: false
 
-# リプレイモード設定
-replay:
-  # 開始時刻 (RFC3339形式)
-  start_time: "2025-07-13T00:00:00Z"
-  # 終了時刻 (RFC3339形式)
-  end_time: "2025-07-14T00:00:00Z"
-
 # PnLレポート設定
 pnl_report:
   # レポート生成間隔（分）
