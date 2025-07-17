@@ -4,7 +4,7 @@ CREATE TABLE trades_pnl (
     trade_id BIGINT PRIMARY KEY,
     pnl NUMERIC(20, 8) NOT NULL,
     cumulative_pnl NUMERIC(20, 8) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     -- FOREIGN KEY (trade_id) REFERENCES trades(transaction_id) -- TimescaleDBでは無効
 );
 
