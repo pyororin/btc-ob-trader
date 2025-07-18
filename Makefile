@@ -211,4 +211,6 @@ optimize: ## Run hyperparameter optimization using Optuna.
 	fi
 	@. venv/bin/activate; \
 	pip install -r requirements.txt; \
+	touch optuna_study.db; \
+	chmod 666 optuna_study.db; \
 	CSV_PATH=$(CSV_PATH) python optimizer.py
