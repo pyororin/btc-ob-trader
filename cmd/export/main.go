@@ -1,11 +1,14 @@
 package main
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/csv"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,12 +18,31 @@ import (
 
 func main() {
 	// --- Argument Parsing ---
+	hoursBefore := flag.Int("hours-before", 0, "Number of hours before the current time to start the export")
 	startTimeStr := flag.String("start", "", "Start time for the export window (YYYY-MM-DD HH:MM:SS)")
 	endTimeStr := flag.String("end", "", "End time for the export window (YYYY-MM-DD HH:MM:SS)")
+	noZip := flag.Bool("no-zip", false, "Disable ZIP compression")
 	flag.Parse()
 
-	if *startTimeStr == "" || *endTimeStr == "" {
-		logger.Fatal("Both --start and --end flags are required.")
+	var startTime, endTime time.Time
+	var err error
+
+	// --- Time Parsing Logic ---
+	if *hoursBefore > 0 {
+		endTime = time.Now()
+		startTime = endTime.Add(-time.Duration(*hoursBefore) * time.Hour)
+	} else {
+		if *startTimeStr == "" || *endTimeStr == "" {
+			logger.Fatal("Both --start and --end flags are required when --hours-before is not used.")
+		}
+		startTime, err = time.Parse("2006-01-02 15:04:05", *startTimeStr)
+		if err != nil {
+			logger.Fatalf("Invalid start time format: %v", err)
+		}
+		endTime, err = time.Parse("2006-01-02 15:04:05", *endTimeStr)
+		if err != nil {
+			logger.Fatalf("Invalid end time format: %v", err)
+		}
 	}
 
 	// --- Config and Logger Setup ---
@@ -48,26 +70,39 @@ func main() {
 	}
 	defer dbpool.Close()
 
-	logger.Infof("Successfully connected to the database. Exporting data from %s to %s...", *startTimeStr, *endTimeStr)
+	logger.Infof("Successfully connected to the database. Exporting data from %s to %s...", startTime.Format("2006-01-02 15:04:05"), endTime.Format("2006-01-02 15:04:05"))
 
-	// --- CSV Writer Setup ---
-	writer := csv.NewWriter(os.Stdout)
+	// --- File and Writer Setup ---
+	timestamp := time.Now().Format("20060102-150405")
+	outputDir := "simulation"
+	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
+		os.Mkdir(outputDir, 0755)
+	}
+	csvFileName := filepath.Join(outputDir, fmt.Sprintf("order_book_updates_%s.csv", timestamp))
+	zipFileName := filepath.Join(outputDir, fmt.Sprintf("order_book_updates_%s.zip", timestamp))
+
+	csvFile, err := os.Create(csvFileName)
+	if err != nil {
+		logger.Fatalf("Failed to create CSV file: %v", err)
+	}
+	defer csvFile.Close()
+
+	writer := csv.NewWriter(csvFile)
 	defer writer.Flush()
 
-	// Write header
+	// --- Write Data to CSV ---
 	header := []string{"time", "pair", "side", "price", "size", "is_snapshot"}
 	if err := writer.Write(header); err != nil {
 		logger.Fatalf("Failed to write CSV header: %v", err)
 	}
 
-	// --- Query and Write Data ---
 	query := `
         SELECT time, pair, side, price, size, is_snapshot
         FROM order_book_updates
         WHERE time >= $1 AND time < $2
         ORDER BY time ASC;
     `
-	rows, err := dbpool.Query(ctx, query, *startTimeStr, *endTimeStr)
+	rows, err := dbpool.Query(ctx, query, startTime, endTime)
 	if err != nil {
 		logger.Fatalf("Failed to query order book updates: %v", err)
 	}
@@ -102,6 +137,55 @@ func main() {
 	if err := rows.Err(); err != nil {
 		logger.Fatalf("Error iterating over rows: %v", err)
 	}
+	writer.Flush()
+	csvFile.Close()
 
-	logger.Infof("Successfully exported %d rows.", rowCount)
+	// --- ZIP Compression ---
+	if !*noZip {
+		if err := createZipFile(zipFileName, csvFileName); err != nil {
+			logger.Fatalf("Failed to create ZIP file: %v", err)
+		}
+		if err := os.Remove(csvFileName); err != nil {
+			logger.Warnf("Failed to remove temporary CSV file: %v", err)
+		}
+		logger.Infof("Successfully exported %d rows to %s", rowCount, zipFileName)
+	} else {
+		logger.Infof("Successfully exported %d rows to %s", rowCount, csvFileName)
+	}
+}
+
+func createZipFile(zipFileName, csvFileName string) error {
+	zipFile, err := os.Create(zipFileName)
+	if err != nil {
+		return err
+	}
+	defer zipFile.Close()
+
+	zipWriter := zip.NewWriter(zipFile)
+	defer zipWriter.Close()
+
+	fileToZip, err := os.Open(csvFileName)
+	if err != nil {
+		return err
+	}
+	defer fileToZip.Close()
+
+	info, err := fileToZip.Stat()
+	if err != nil {
+		return err
+	}
+
+	header, err := zip.FileInfoHeader(info)
+	if err != nil {
+		return err
+	}
+	header.Name = filepath.Base(csvFileName)
+	header.Method = zip.Deflate
+
+	writer, err := zipWriter.CreateHeader(header)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(writer, fileToZip)
+	return err
 }
