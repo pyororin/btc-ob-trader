@@ -136,13 +136,19 @@ def objective(trial):
         result = subprocess.run(command, capture_output=True, text=True, check=True)
         output = result.stdout
         print(output)
-        # JSON出力の最後の行をパースする
-        try:
-            summary = json.loads(output.strip().split('\n')[-1])
-            profit = summary.get('TotalProfit', 0.0)
-        except (json.JSONDecodeError, IndexError):
-            print("Could not parse JSON from output. Checking for text format.")
-            # JSONがダメならテキスト形式のフォールバックを試す
+        # Goプログラムが出力するJSONブロックを正規表現で探す
+        json_match = re.search(r'^{.+}$', result.stdout, re.MULTILINE | re.DOTALL)
+        if json_match:
+            json_output = json_match.group(0)
+            try:
+                summary = json.loads(json_output)
+                profit = summary.get('TotalProfit', 0.0)
+            except json.JSONDecodeError:
+                print(f"Failed to parse JSON: {json_output}")
+                profit = 0.0
+        else:
+            # JSONが見つからない場合は、以前のフォールバックロジックを使用
+            print("Could not find JSON block in output. Checking for text format.")
             profit_match = re.search(r'TotalProfit:\s*(-?[\d.]+)', output)
             if profit_match:
                 profit = float(profit_match.group(1))
