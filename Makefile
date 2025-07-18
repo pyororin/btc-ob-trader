@@ -197,11 +197,25 @@ optimize: ## Run hyperparameter optimization using Goptuna.
 		echo "Usage: make optimize CSV_PATH=/path/to/your/trades.csv"; \
 		exit 1; \
 	fi
-	@STUDY_NAME=${STUDY_NAME:-obi-scalp-bot-optimization}
-	@STORAGE_URL=${STORAGE_URL:-sqlite:///goptuna_study.db}
+	@mkdir -p ./simulation
+	@UNZIPPED_CSV_PATH=""; \
+	if echo "$(CSV_PATH)" | grep -q ".zip$$"; then \
+		echo "Unzipping $(CSV_PATH) to ./simulation..."; \
+		unzip -o $(CSV_PATH) -d ./simulation; \
+		UNZIPPED_CSV_PATH=/simulation/$$(basename $(CSV_PATH) .zip).csv; \
+		echo "Using unzipped file: $$UNZIPPED_CSV_PATH"; \
+		EFFECTIVE_CSV_PATH=$$UNZIPPED_CSV_PATH; \
+	else \
+		EFFECTIVE_CSV_PATH=$(CSV_PATH); \
+	fi; \
+	STUDY_NAME=${STUDY_NAME:-obi-scalp-bot-optimization}; \
+	STORAGE_URL=${STORAGE_URL:-sqlite:///goptuna_study.db}; \
+	N_TRIALS=${N_TRIALS:-100}; \
 	sudo -E \
-		CSV_PATH=$(CSV_PATH) \
-		N_TRIALS=$(N_TRIALS) \
-		STUDY_NAME=$(STUDY_NAME) \
-		STORAGE_URL=$(STORAGE_URL) \
-		docker compose run --rm optimizer
+		CSV_PATH=$$EFFECTIVE_CSV_PATH \
+		N_TRIALS=$$N_TRIALS \
+		STUDY_NAME=$$STUDY_NAME \
+		STORAGE_URL=$$STORAGE_URL \
+		docker compose run --rm \
+		-v $$(pwd)/simulation:/simulation \
+		optimizer
