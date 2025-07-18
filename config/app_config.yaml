@@ -46,7 +46,7 @@ pnl_report:
 # --- アラート設定 ---
 alert:
   discord:
-    # Discord Botのトークン
-    bot_token: "YOUR_DISCORD_BOT_TOKEN"
-    # 通知を送信するユーザーのID
-    user_id: "YOUR_DISCORD_USER_ID"
+    # Discord Botのトークン (環境変数 DISCORD_BOT_TOKEN で上書きされます)
+    bot_token: "dummy_token"
+    # 通知を送信するユーザーのID (環境変数 DISCORD_USER_ID で上書きされます)
+    user_id: "dummy_user_id"
