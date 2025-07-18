@@ -10,7 +10,7 @@ services:
       - ./config:/app/config:ro
     working_dir: /app
     environment:
-      - DB_HOST=timescaledb
+      - DB_HOST=timescaledb-obi
     networks:
       - bot_network
 
@@ -45,10 +45,9 @@ services:
       - bot_network
 
   bot-simulate:
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
-    image: obi-scalp-bot-image:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: obi-scalp-bot-simulate
     entrypoint: ["/usr/local/bin/obi-scalp-bot"]
     volumes:
@@ -91,7 +90,7 @@ services:
     env_file:
       - .env
     environment:
-      - DB_HOST=timescaledb
+      - DB_HOST=timescaledb-obi
     networks:
       - bot_network
     depends_on:
@@ -129,6 +128,24 @@ services:
       - bot_network
     depends_on:
       - timescaledb
+
+  optimizer:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    container_name: optimizer
+    volumes:
+      - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: /app
+    environment:
+      - CSV_PATH=${CSV_PATH}
+      - N_TRIALS=${N_TRIALS}
+      - STUDY_NAME=${STUDY_NAME}
+      - STORAGE_URL=${STORAGE_URL}
+    command: ["python", "optimizer.py"]
+    networks:
+      - bot_network
 
 networks:
   bot_network:
