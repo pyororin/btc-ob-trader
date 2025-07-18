@@ -483,7 +483,7 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 			benchmarkService = benchmark.NewService(zapLogger, dbWriter)
 		}
 		client := coincheck.NewClient(cfg.APIKey, cfg.APISecret)
-		execEngine := engine.NewLiveExecutionEngine(client, &cfg.Trade, &cfg.App.Order, &cfg.Trade.Risk, dbWriter)
+		execEngine := engine.NewLiveExecutionEngine(client, dbWriter)
 
 		orderBook := indicator.NewOrderBook()
 		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
