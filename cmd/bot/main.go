@@ -42,14 +42,6 @@ type flags struct {
 }
 
 func main() {
-	// Set timezone to JST
-	jst, err := time.LoadLocation("Asia/Tokyo")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load timezone: %v\n", err)
-		os.Exit(1)
-	}
-	time.Local = jst
-
 	// --- Initialization ---
 	_ = pgxpool.Config{}
 	f := parseFlags()
@@ -277,7 +269,7 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pa
 			return
 		}
 
-		now := time.Now()
+		now := time.Now().UTC()
 
 		saveLevels := func(levels [][]string, side string, isSnapshot bool) {
 			for _, level := range levels {
@@ -330,7 +322,7 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pa
 		}
 
 		trade := dbwriter.Trade{
-			Time:          time.Now(),
+			Time:          time.Now().UTC(),
 			Pair:          data.Pair(),
 			Side:          data.TakerSide(),
 			Price:         price,
@@ -539,7 +531,7 @@ func startPnlReporter(ctx context.Context) {
 			defer wg.Done()
 			defer ticker.Stop()
 
-			dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+			dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s&timezone=Asia/Tokyo",
 				cfg.App.Database.User, cfg.App.Database.Password, cfg.App.Database.Host, cfg.App.Database.Port, cfg.App.Database.Name, cfg.App.Database.SSLMode)
 			dbpool, err := pgxpool.New(ctx, dbURL)
 			if err != nil {

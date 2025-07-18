@@ -25,11 +25,7 @@ FROM public.ecr.aws/docker/library/alpine:latest
 WORKDIR /app
 
 # Install ca-certificates for HTTPS and curl for healthchecks
-RUN apk add --no-cache ca-certificates curl tzdata
-
-# Set timezone
-ENV TZ=Asia/Tokyo
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+RUN apk add --no-cache ca-certificates curl
 
 # Copy the config directory and .env.sample
 # Note: .env.sample is for reference; actual .env or environment variables should be used for secrets
