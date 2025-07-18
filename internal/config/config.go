@@ -209,6 +209,12 @@ func loadFromFiles(appConfigPath, tradeConfigPath string) (*Config, error) {
 	if dbSSLMode := os.Getenv("DB_SSLMODE"); dbSSLMode != "" {
 		cfg.App.Database.SSLMode = dbSSLMode
 	}
+	if discordBotToken := os.Getenv("DISCORD_BOT_TOKEN"); discordBotToken != "" {
+		cfg.App.Alert.Discord.BotToken = discordBotToken
+	}
+	if discordUserID := os.Getenv("DISCORD_USER_ID"); discordUserID != "" {
+		cfg.App.Alert.Discord.UserID = discordUserID
+	}
 
 	return cfg, nil
 }
