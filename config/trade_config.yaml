@@ -23,7 +23,7 @@ spread_limit: 30
 # lot_max_ratio: 1回の注文で使用する証拠金の最大比率。
 # 例えば、0.05 は利用可能残高の5%を上限とすることを意味します。
 # リスク管理の重要な要素です。値を大きくするとハイリスク・ハイリターンになります。
-lot_max_ratio: 0.02
+lot_max_ratio: 0.045
 
 # order_ratio: 注文量に対する比率。
 # この比率は、アダプティブ・ポジションサイジング機能によって動的に調整されることがあります。
@@ -54,11 +54,11 @@ long:
   obi_threshold: 0.7
   # tp: 利食い（Take Profit）を行う価格幅を円で指定します。
   # エントリー価格からこの値幅分、価格が上昇した場合に利食い注文が執行されます。
-  tp: 300
+  tp: 400
   # sl: 損切り（Stop Loss）を行う価格幅を円で指定します。
   # エントリー価格からこの値幅分、価格が下落した場合に損切り注文が執行されます。
   # 必ず負の値を指定してください。
-  sl: -100
+  sl: -80
 
 # short: ショート（売り）エントリーの戦略設定。
 short:
@@ -109,9 +109,9 @@ volatility:
   dynamic_obi:
     # enabled: この機能を有効にするか (`true`) 無効にするか (`false`)。
     # trueにすると、ボラティリティが高い時は閾値を広げ、低い時は狭めるよう自動調整します。
-    enabled: false
+    enabled: true
     # volatility_factor: ボラティリティをOBI閾値の調整にどれだけ反映させるかの係数。
-    volatility_factor: 1.6
+    volatility_factor: 1.0
     # min_threshold_factor: 動的閾値の下限を、元のOBI閾値に対する割合で指定します。
     min_threshold_factor: 0.8
     # max_threshold_factor: 動的閾値の上限を、元のOBI閾値に対する割合で指定します。
@@ -152,4 +152,4 @@ risk:
   max_drawdown_percent: 8
   # max_position_jpy: 許容する最大のポジションサイズ（日本円換算）。
   # この値を超えて新規のポジションを持つことはありません。
-  max_position_jpy: 80000.0
+  max_position_jpy: 500000.0
