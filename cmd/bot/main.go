@@ -26,6 +26,7 @@ import (
 	"github.com/your-org/obi-scalp-bot/internal/http/handler"
 	"sync"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/your-org/obi-scalp-bot/internal/indicator"
 	tradingsignal "github.com/your-org/obi-scalp-bot/internal/signal"
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
@@ -49,7 +50,7 @@ func main() {
 
 	cfg := setupConfig(f.configPath, f.tradeConfigPath)
 	setupLogger(cfg.App.LogLevel, f.configPath, cfg.Trade.Pair)
-	go watchSignals(f.configPath, f.tradeConfigPath)
+	go watchConfigFiles(f.configPath, f.tradeConfigPath)
 
 	if f.simulateMode && f.csvPath == "" {
 		logger.Fatal("CSV file path must be provided in simulation mode using --csv flag")
@@ -113,24 +114,52 @@ func setupConfig(appConfigPath, tradeConfigPath string) *config.Config {
 	return cfg
 }
 
-// watchSignals sets up a handler for SIGHUP to reload the configuration.
-func watchSignals(appConfigPath, tradeConfigPath string) {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGHUP)
+// watchConfigFiles sets up a file watcher to automatically reload the configuration on change.
+func watchConfigFiles(appConfigPath, tradeConfigPath string) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		logger.Fatalf("Failed to create file watcher: %v", err)
+	}
+	defer watcher.Close()
+
+	// Add files to watch
+	for _, file := range []string{appConfigPath, tradeConfigPath} {
+		if err := watcher.Add(file); err != nil {
+			logger.Fatalf("Failed to watch file %s: %v", file, err)
+		}
+	}
+
+	logger.Info("Started watching config files for changes...")
 
 	for {
-		<-sigChan
-		logger.Info("SIGHUP received, attempting to reload configuration...")
-		if tradeConfigPath == "" {
-			dir := filepath.Dir(appConfigPath)
-			tradeConfigPath = filepath.Join(dir, "trade_config.yaml")
-		}
-		newCfg, err := config.ReloadConfig(appConfigPath, tradeConfigPath)
-		if err != nil {
-			logger.Errorf("Failed to reload configuration: %v", err)
-		} else {
-			logger.SetGlobalLogLevel(newCfg.App.LogLevel)
-			logger.Info("Configuration reloaded successfully.")
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			// We only care about write events.
+			if event.Op&fsnotify.Write == fsnotify.Write {
+				logger.Infof("Config file %s modified. Attempting to reload...", event.Name)
+
+				// It's good practice to wait a bit for the write to complete
+				time.Sleep(100 * time.Millisecond)
+
+				newCfg, err := config.ReloadConfig(appConfigPath, tradeConfigPath)
+				if err != nil {
+					logger.Errorf("Failed to reload configuration: %v", err)
+				} else {
+					logger.SetGlobalLogLevel(newCfg.App.LogLevel)
+					logger.Info("Configuration reloaded successfully.")
+					logger.Infof("New LogLevel: %s", newCfg.App.LogLevel)
+					logger.Infof("New Long OBI Threshold: %.2f", newCfg.Trade.Long.OBIThreshold)
+					logger.Infof("New Short OBI Threshold: %.2f", newCfg.Trade.Short.OBIThreshold)
+				}
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			logger.Errorf("File watcher error: %v", err)
 		}
 	}
 }
@@ -485,27 +514,6 @@ func startPnlReporter(ctx context.Context) {
 	// Initial start
 	start()
 
-	// Watch for config changes
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGHUP)
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-sigChan:
-				logger.Info("Restarting PnL reporter due to config reload.")
-				// Stop the current ticker and wait for the goroutine to exit
-				if ticker != nil {
-					ticker.Stop()
-				}
-				wg.Wait()
-				// Restart the reporter
-				start()
-			}
-		}
-	}()
 }
 
 
