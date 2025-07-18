@@ -1,8 +1,9 @@
 import yaml
-import goptuna
+import optuna
 import subprocess
 import os
 import re
+import json
 
 def objective(trial):
     # 1. パラメータ空間の定義（拡張版）
@@ -63,14 +64,8 @@ def objective(trial):
     if not csv_path:
         raise ValueError("CSV_PATH environment variable is not set.")
 
-    # Goプログラムが --trade-config と --json-output フラグを受け取れるように修正したため、
-    # それらのフラグを渡すように `docker-compose.yml` 経由でコマンドを組み立てる。
-    # `Makefile` は直接使わず、`docker-compose` を直接呼び出すことで、
-    # 引数のハンドリングを容易にする。
-    # このため、あとで `docker-compose.yml` に `optimizer` サービスを追加する必要がある。
     command = [
-        'sudo', '-E', 'docker', 'compose', 'run', '--rm', '--no-deps',
-        'bot-simulate',
+        'go', 'run', 'cmd/bot/main.go',
         '--simulate',
         f'--csv={csv_path}',
         f'--trade-config={temp_config_path}',
@@ -108,19 +103,12 @@ def objective(trial):
 
     return profit
 
-    # 5. 一時ファイルのクリーンアップ
-    os.remove(temp_config_path)
-
-    return profit
-
-import json
-
 if __name__ == '__main__':
     n_trials = int(os.getenv('N_TRIALS', '100'))
     study_name = os.getenv('STUDY_NAME', 'obi-scalp-bot-optimization')
-    storage_url = os.getenv('STORAGE_URL', 'sqlite:///goptuna_study.db')
+    storage_url = os.getenv('STORAGE_URL', 'sqlite:///optuna_study.db')
 
-    study = goptuna.create_study(
+    study = optuna.create_study(
         study_name=study_name,
         storage=storage_url,
         load_if_exists=True,
@@ -140,19 +128,19 @@ if __name__ == '__main__':
     with open('config/trade_config.yaml', 'r') as f:
         best_config = yaml.safe_load(f)
 
-    best_config['spread_limit'] = best_params['spread_limit']
-    best_config['long']['obi_threshold'] = best_params['long_obi_threshold']
-    best_config['long']['tp'] = best_params['long_tp']
-    best_config['long']['sl'] = best_params['long_sl']
-    best_config['short']['obi_threshold'] = best_params['short_obi_threshold']
-    best_config['short']['tp'] = best_params['short_tp']
-    best_config['short']['sl'] = best_params['short_sl']
-    best_config['signal']['hold_duration_ms'] = best_params['hold_duration_ms']
-    best_config['signal']['slope_filter']['period'] = best_params['slope_period']
-    best_config['signal']['slope_filter']['threshold'] = best_params['slope_threshold']
-    best_config['volatility']['dynamic_obi']['volatility_factor'] = best_params['volatility_factor']
-    best_config['volatility']['dynamic_obi']['min_threshold_factor'] = best_params['min_threshold_factor']
-    best_config['volatility']['dynamic_obi']['max_threshold_factor'] = best_params['max_threshold_factor']
+    best_config['spread_limit'] = best_params.get('spread_limit')
+    best_config['long']['obi_threshold'] = best_params.get('long_obi_threshold')
+    best_config['long']['tp'] = best_params.get('long_tp')
+    best_config['long']['sl'] = best_params.get('long_sl')
+    best_config['short']['obi_threshold'] = best_params.get('short_obi_threshold')
+    best_config['short']['tp'] = best_params.get('short_tp')
+    best_config['short']['sl'] = best_params.get('short_sl')
+    best_config['signal']['hold_duration_ms'] = best_params.get('hold_duration_ms')
+    best_config['signal']['slope_filter']['period'] = best_params.get('slope_period')
+    best_config['signal']['slope_filter']['threshold'] = best_params.get('slope_threshold')
+    best_config['volatility']['dynamic_obi']['volatility_factor'] = best_params.get('volatility_factor')
+    best_config['volatility']['dynamic_obi']['min_threshold_factor'] = best_params.get('min_threshold_factor')
+    best_config['volatility']['dynamic_obi']['max_threshold_factor'] = best_params.get('max_threshold_factor')
 
     with open('config/best_trade_config.yaml', 'w') as f:
         yaml.dump(best_config, f)

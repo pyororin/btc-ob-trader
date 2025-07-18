@@ -199,11 +199,16 @@ report: ## Generate and display the PnL report.
 	@echo "Running PnL report..."
 	sudo -E docker compose exec report-generator ./build/report
 
-optimize: ## Run hyperparameter optimization using Goptuna.
+optimize: ## Run hyperparameter optimization using Optuna.
 	@echo "Running hyperparameter optimization..."
 	@if [ -z "$(CSV_PATH)" ]; then \
 		echo "Error: CSV_PATH environment variable is not set."; \
 		echo "Usage: make optimize CSV_PATH=/path/to/your/trades.csv"; \
 		exit 1; \
 	fi
-	sudo -E docker compose run --rm optimizer
+	@if [ ! -d "venv" ]; then \
+		python3 -m venv venv; \
+	fi
+	@. venv/bin/activate; \
+	pip install -r requirements.txt; \
+	CSV_PATH=$(CSV_PATH) python optimizer.py
