@@ -28,7 +28,7 @@ services:
     env_file:
       - .env
     environment:
-      - DB_HOST=timescaledb
+      - DB_HOST=timescaledb-obi
     ports:
       - "8080:8080" # Expose healthcheck port
     healthcheck:
