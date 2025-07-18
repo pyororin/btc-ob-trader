@@ -625,24 +625,34 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine, jsonOutp
 		if jsonOutput {
 			fmt.Println(`{"error": "No trades were executed"}`)
 		} else {
-			fmt.Println("\n==== シミュレーション結果 ====")
+			fmt.Println("\n--- 損益分析レポート ---")
 			fmt.Println("取引は実行されませんでした。")
-			fmt.Println("==========================")
+			fmt.Println("----------------------")
 		}
 		return
 	}
 
 	var wins, losses, closingTrades int
+	var longWins, longLosses, shortWins, shortLosses int
 	var totalWinAmount, totalLossAmount float64
 	var pnlHistory []float64
 	var holdingPeriods, winningHoldingPeriods, losingHoldingPeriods []float64
 	var consecutiveWins, consecutiveLosses, maxConsecutiveWins, maxConsecutiveLosses int
+	var firstTradeTime, lastTradeTime time.Time
+	var lastPrice float64
+
+	if len(executedTrades) > 0 {
+		firstTradeTime = executedTrades[0].EntryTime
+		if firstTradeTime.IsZero() && len(executedTrades) > 1 {
+			firstTradeTime = executedTrades[1].EntryTime
+		}
+	}
 
 	for _, trade := range executedTrades {
 		if trade.RealizedPnL != 0 {
 			closingTrades++
 			pnlHistory = append(pnlHistory, trade.RealizedPnL)
-			// A simple approximation of holding period for simulation
+
 			if !trade.EntryTime.IsZero() && !trade.ExitTime.IsZero() {
 				holdingPeriod := trade.ExitTime.Sub(trade.EntryTime).Seconds()
 				holdingPeriods = append(holdingPeriods, holdingPeriod)
@@ -653,6 +663,14 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine, jsonOutp
 				}
 			}
 
+			if trade.ExitTime.After(lastTradeTime) {
+				lastTradeTime = trade.ExitTime
+				lastPrice = trade.Price
+			}
+
+
+			isLongTrade := trade.Side == "buy"
+
 			if trade.RealizedPnL > 0 {
 				wins++
 				totalWinAmount += trade.RealizedPnL
@@ -660,6 +678,11 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine, jsonOutp
 				consecutiveLosses = 0
 				if consecutiveWins > maxConsecutiveWins {
 					maxConsecutiveWins = consecutiveWins
+				}
+				if isLongTrade {
+					longWins++
+				} else {
+					shortWins++
 				}
 			} else {
 				losses++
@@ -669,13 +692,29 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine, jsonOutp
 				if consecutiveLosses > maxConsecutiveLosses {
 					maxConsecutiveLosses = consecutiveLosses
 				}
+				if isLongTrade {
+					longLosses++
+				} else {
+					shortLosses++
+				}
 			}
 		}
 	}
 
+
 	winRate := 0.0
 	if closingTrades > 0 {
 		winRate = float64(wins) / float64(closingTrades) * 100
+	}
+
+	longWinRate := 0.0
+	if longWins+longLosses > 0 {
+		longWinRate = float64(longWins) / float64(longWins+longLosses) * 100
+	}
+
+	shortWinRate := 0.0
+	if shortWins+shortLosses > 0 {
+		shortWinRate = float64(shortWins) / float64(shortWins+shortLosses) * 100
 	}
 
 	avgWin := 0.0
@@ -684,12 +723,13 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine, jsonOutp
 	}
 	avgLoss := 0.0
 	if losses > 0 {
-		avgLoss = totalLossAmount / float64(losses)
+		// totalLossAmount is negative
+		avgLoss = math.Abs(totalLossAmount / float64(losses))
 	}
 
 	riskRewardRatio := 0.0
 	if avgLoss != 0 {
-		riskRewardRatio = math.Abs(avgWin / avgLoss)
+		riskRewardRatio = avgWin / avgLoss
 	}
 
 	profitFactor := 0.0
@@ -711,6 +751,51 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine, jsonOutp
 		}
 	}
 
+	recoveryFactor := 0.0
+	if maxDrawdown > 0 {
+		recoveryFactor = totalProfit / maxDrawdown
+	}
+
+	// Sharpe Ratio (assuming risk-free rate is 0)
+	sharpeRatio := 0.0
+	if len(pnlHistory) > 1 {
+		mean := totalProfit / float64(len(pnlHistory))
+		stdDev := 0.0
+		for _, pnl := range pnlHistory {
+			stdDev += math.Pow(pnl-mean, 2)
+		}
+		stdDev = math.Sqrt(stdDev / float64(len(pnlHistory)-1))
+		if stdDev > 0 {
+			sharpeRatio = mean / stdDev
+		}
+	}
+
+	// Sortino Ratio
+	sortinoRatio := 0.0
+	if len(pnlHistory) > 1 {
+		mean := totalProfit / float64(len(pnlHistory))
+		downsideDeviation := 0.0
+		downsideCount := 0
+		for _, pnl := range pnlHistory {
+			if pnl < mean {
+				downsideDeviation += math.Pow(pnl-mean, 2)
+				downsideCount++
+			}
+		}
+		if downsideCount > 1 {
+			downsideDeviation = math.Sqrt(downsideDeviation / float64(downsideCount-1))
+			if downsideDeviation > 0 {
+				sortinoRatio = mean / downsideDeviation
+			}
+		}
+	}
+
+	// Calmar Ratio
+	calmarRatio := 0.0
+	if maxDrawdown > 0 {
+		calmarRatio = totalProfit / maxDrawdown
+	}
+
 	avgHoldingPeriod, avgWinningHoldingPeriod, avgLosingHoldingPeriod := 0.0, 0.0, 0.0
 	if len(holdingPeriods) > 0 {
 		sum := 0.0
@@ -728,42 +813,97 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine, jsonOutp
 		avgLosingHoldingPeriod = sum / float64(len(losingHoldingPeriods))
 	}
 
+	// Buy & Hold Return
+	buyAndHoldReturn := 0.0
+	initialPrice := 0.0
+	if len(executedTrades) > 0 {
+		initialPrice = executedTrades[0].Price
+	}
+	if initialPrice > 0 && lastPrice > 0 {
+		buyAndHoldReturn = lastPrice - initialPrice
+	}
+	returnVsBuyAndHold := totalProfit - buyAndHoldReturn
+
+
 	if jsonOutput {
 		summary := map[string]interface{}{
 			"TotalProfit":         totalProfit,
-			"TotalTrades":         totalTrades,
+			"TotalTrades":         closingTrades,
 			"WinningTrades":       wins,
 			"LosingTrades":        losses,
 			"WinRate":             winRate,
+			"LongWinningTrades":   longWins,
+			"LongLosingTrades":    longLosses,
+			"LongWinRate":         longWinRate,
+			"ShortWinningTrades":  shortWins,
+			"ShortLosingTrades":   shortLosses,
+			"ShortWinRate":        shortWinRate,
 			"AverageWin":          avgWin,
 			"AverageLoss":         avgLoss,
 			"RiskRewardRatio":     riskRewardRatio,
 			"ProfitFactor":        profitFactor,
 			"MaxDrawdown":         maxDrawdown,
+			"RecoveryFactor":      recoveryFactor,
+			"SharpeRatio":         sharpeRatio,
+			"SortinoRatio":        sortinoRatio,
+			"CalmarRatio":         calmarRatio,
 			"MaxConsecutiveWins":  maxConsecutiveWins,
 			"MaxConsecutiveLosses": maxConsecutiveLosses,
-			"AverageHoldingPeriod": avgHoldingPeriod,
-			"AverageWinningHoldingPeriod": avgWinningHoldingPeriod,
-			"AverageLosingHoldingPeriod": avgLosingHoldingPeriod,
+			"AverageHoldingPeriodSeconds": avgHoldingPeriod,
+			"AverageWinningHoldingPeriodSeconds": avgWinningHoldingPeriod,
+			"AverageLosingHoldingPeriodSeconds":  avgLosingHoldingPeriod,
+			"BuyAndHoldReturn":    buyAndHoldReturn,
+			"ReturnVsBuyAndHold":  returnVsBuyAndHold,
 		}
-		output, err := json.Marshal(summary)
+		output, err := json.MarshalIndent(summary, "", "  ")
 		if err != nil {
 			fmt.Printf(`{"error": "failed to marshal summary: %v"}`, err)
 		} else {
 			fmt.Println(string(output))
 		}
 	} else {
-		fmt.Println("\n==== シミュレーション結果 ====")
-		fmt.Printf("総損益　     : %.2f JPY\n", totalProfit)
-		fmt.Printf("取引回数     : %d回\n", totalTrades)
-		fmt.Printf("勝率         : %.2f%% (%d勝/%d敗)\n", winRate, wins, losses)
-		fmt.Printf("平均利益/損失: %.2f JPY / %.2f JPY\n", avgWin, avgLoss)
+		fmt.Println("--- 損益分析レポート ---")
+		if !firstTradeTime.IsZero() && !lastTradeTime.IsZero() {
+			fmt.Printf("集計期間: %s から %s\n", firstTradeTime.Format(time.RFC3339), lastTradeTime.Format(time.RFC3339))
+		}
+		fmt.Println()
+		fmt.Println("--- 全体 ---")
+		fmt.Printf("約定済み取引数: %d\n", closingTrades)
+		fmt.Println()
+		fmt.Println("--- 約定済み取引の分析 ---")
+		fmt.Printf("勝ちトレード数: %d\n", wins)
+		fmt.Printf("負けトレード数: %d\n", losses)
+		fmt.Printf("勝率: %.2f%%\n", winRate)
+		fmt.Printf("合計損益: %.2f\n", totalProfit)
+		fmt.Printf("平均利益: %.2f\n", avgWin)
+		fmt.Printf("平均損失: %.2f\n", avgLoss)
 		fmt.Printf("リスクリワードレシオ: %.2f\n", riskRewardRatio)
+		fmt.Println()
+		fmt.Println("--- ロング戦略 ---")
+		fmt.Printf("勝ちトレード数: %d\n", longWins)
+		fmt.Printf("負けトレード数: %d\n", longLosses)
+		fmt.Printf("勝率: %.2f%%\n", longWinRate)
+		fmt.Println()
+		fmt.Println("--- ショート戦略 ---")
+		fmt.Printf("勝ちトレード数: %d\n", shortWins)
+		fmt.Printf("負けトレード数: %d\n", shortLosses)
+		fmt.Printf("勝率: %.2f%%\n", shortWinRate)
+		fmt.Println()
+		fmt.Println("--- パフォーマンス指標 ---")
 		fmt.Printf("プロフィットファクター: %.2f\n", profitFactor)
-		fmt.Printf("最大ドローダウン: %.2f JPY\n", maxDrawdown)
-		fmt.Printf("最大連勝/連敗: %d回 / %d回\n", maxConsecutiveWins, maxConsecutiveLosses)
-		fmt.Printf("平均保有期間: %.2f秒 (勝ち: %.2f秒, 負け: %.2f秒)\n", avgHoldingPeriod, avgWinningHoldingPeriod, avgLosingHoldingPeriod)
-		fmt.Println("==========================")
+		fmt.Printf("シャープレシオ: %.2f\n", sharpeRatio)
+		fmt.Printf("ソルティノレシオ: %.2f\n", sortinoRatio)
+		fmt.Printf("カルマーレシオ: %.2f\n", calmarRatio)
+		fmt.Printf("最大ドローダウン: %.2f\n", maxDrawdown)
+		fmt.Printf("リカバリーファクター: %.2f\n", recoveryFactor)
+		fmt.Printf("平均保有期間: %.2f 秒\n", avgHoldingPeriod)
+		fmt.Printf("勝ちトレードの平均保有期間: %.2f 秒\n", avgWinningHoldingPeriod)
+		fmt.Printf("負けトレードの平均保有期間: %.2f 秒\n", avgLosingHoldingPeriod)
+		fmt.Printf("最大連勝数: %d\n", maxConsecutiveWins)
+		fmt.Printf("最大連敗数: %d\n", maxConsecutiveLosses)
+		fmt.Printf("バイ・アンド・ホールドリターン: %.2f\n", buyAndHoldReturn)
+		fmt.Printf("リターン vs バイ・アンド・ホールド: %.2f\n", returnVsBuyAndHold)
+		fmt.Println("----------------------")
 		// For optimizer parsing
 		fmt.Printf("\nTotalProfit: %.2f\n", totalProfit)
 	}
