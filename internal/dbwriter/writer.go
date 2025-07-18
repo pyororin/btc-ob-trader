@@ -265,7 +265,7 @@ func (w *Writer) batchInsertTrades(ctx context.Context, trades []Trade) {
 	if w.pool == nil || len(trades) == 0 {
 		return
 	}
-	w.logger.Info("Flushing trades", zap.Int("count", len(trades)))
+	w.logger.Debug("Flushing trades", zap.Int("count", len(trades)))
 	_, err := w.pool.CopyFrom(
 		ctx,
 		pgx.Identifier{"trades"},
