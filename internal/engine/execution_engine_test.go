@@ -111,15 +111,8 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	tradeCfg := &config.TradeConfig{
-		OrderRatio: 0.5,
-	}
-	orderCfg := &config.OrderConfig{
-		PollIntervalMs: 10,
-		TimeoutSeconds: 2,
-	}
-	riskCfg := &config.RiskConfig{}
-	execEngine := NewLiveExecutionEngine(ccClient, tradeCfg, orderCfg, riskCfg, nil)
+	config.LoadConfig("../../config/app_config.yaml", "../../config/trade_config.yaml")
+	execEngine := NewLiveExecutionEngine(ccClient, nil)
 
 	// Test normal order
 	resp, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, false)
@@ -188,15 +181,11 @@ func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	tradeCfg := &config.TradeConfig{
-		OrderRatio: 0.5,
-	}
-	orderCfg := &config.OrderConfig{
-		PollIntervalMs: 10,
-		TimeoutSeconds: 2,
-	}
-	riskCfg := &config.RiskConfig{}
-	execEngine := NewLiveExecutionEngine(ccClient, tradeCfg, orderCfg, riskCfg, nil)
+	config.LoadConfig("../../config/app_config.yaml", "../../config/trade_config.yaml")
+	cfg := config.GetConfig()
+	cfg.Trade.OrderRatio = 0.5
+	cfg.Trade.Risk.MaxPositionJPY = math.MaxFloat64 // Disable risk check for this test
+	execEngine := NewLiveExecutionEngine(ccClient, nil)
 
 	_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.2, false)
 	if err != nil {
@@ -233,7 +222,7 @@ func TestExecutionEngine_CancelOrder_Success(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	execEngine := NewLiveExecutionEngine(ccClient, &config.TradeConfig{}, &config.OrderConfig{}, &config.RiskConfig{}, nil)
+	execEngine := NewLiveExecutionEngine(ccClient, nil)
 
 	resp, err := execEngine.CancelOrder(context.Background(), 56789)
 	if err != nil {
@@ -273,7 +262,7 @@ func TestExecutionEngine_CancelOrder_Failure(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	execEngine := NewLiveExecutionEngine(ccClient, &config.TradeConfig{}, &config.OrderConfig{}, &config.RiskConfig{}, nil)
+	execEngine := NewLiveExecutionEngine(ccClient, nil)
 
 	resp, err := execEngine.CancelOrder(context.Background(), 11111)
 	if err == nil {
@@ -337,15 +326,12 @@ func TestExecutionEngine_PlaceOrder_Timeout(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	tradeCfg := &config.TradeConfig{
-		OrderRatio: 0.5,
-	}
-	orderCfg := &config.OrderConfig{
-		PollIntervalMs: 1, // Poll quickly
-		TimeoutSeconds: 1, // Timeout quickly
-	}
-	riskCfg := &config.RiskConfig{}
-	execEngine := NewLiveExecutionEngine(ccClient, tradeCfg, orderCfg, riskCfg, nil) // Assuming dbWriter is not essential for this test
+	config.LoadConfig("../../config/app_config.yaml", "../../config/trade_config.yaml")
+	cfg := config.GetConfig()
+	cfg.App.Order.PollIntervalMs = 1
+	cfg.App.Order.TimeoutSeconds = 1
+
+	execEngine := NewLiveExecutionEngine(ccClient, nil) // Assuming dbWriter is not essential for this test
 
 	_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, false)
 	if err == nil {
@@ -496,22 +482,21 @@ func TestExecutionEngine_AdaptivePositionSizing(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	tradeCfg := &config.TradeConfig{
-		OrderRatio:  0.2,
-		LotMaxRatio: 0.2, // For consistency
-		AdaptivePositionSizing: config.AdaptiveSizingConfig{
-			Enabled:       true,
-			NumTrades:     5,
-			ReductionStep: 0.8,
-			MinRatio:      0.5,
-		},
+	config.LoadConfig("../../config/app_config.yaml", "../../config/trade_config.yaml")
+	cfg := config.GetConfig()
+	cfg.Trade.OrderRatio = 0.2
+	cfg.Trade.LotMaxRatio = 0.2
+	cfg.Trade.AdaptivePositionSizing = config.AdaptiveSizingConfig{
+		Enabled:       true,
+		NumTrades:     5,
+		ReductionStep: 0.8,
+		MinRatio:      0.5,
 	}
-	orderCfg := &config.OrderConfig{
-		PollIntervalMs: 1, // Poll fast
-		TimeoutSeconds: 1,
-	}
-	riskCfg := &config.RiskConfig{}
-	execEngine := NewLiveExecutionEngine(ccClient, tradeCfg, orderCfg, riskCfg, nil)
+	cfg.App.Order.PollIntervalMs = 1
+	cfg.App.Order.TimeoutSeconds = 1
+	cfg.Trade.Risk.MaxPositionJPY = math.MaxFloat64 // Disable risk check for this test
+
+	execEngine := NewLiveExecutionEngine(ccClient, nil)
 
 	// --- Scenario 1: Losing trades lead to reduced size ---
 	t.Run("size reduction after losses", func(t *testing.T) {
@@ -535,7 +520,7 @@ func TestExecutionEngine_AdaptivePositionSizing(t *testing.T) {
 		finalAmount := lastRequestedAmount
 		mu.Unlock()
 
-		expectedReducedAmount := (100000000 * (tradeCfg.OrderRatio * tradeCfg.AdaptivePositionSizing.ReductionStep)) / 5000000
+		expectedReducedAmount := (100000000 * (cfg.Trade.OrderRatio * cfg.Trade.AdaptivePositionSizing.ReductionStep)) / 5000000
 		const epsilon = 1e-9
 		if math.Abs(finalAmount-expectedReducedAmount) > epsilon {
 			t.Errorf("Expected amount to be reduced to %.8f, but got %.8f", expectedReducedAmount, finalAmount)
@@ -561,7 +546,7 @@ func TestExecutionEngine_AdaptivePositionSizing(t *testing.T) {
 		finalAmount := lastRequestedAmount
 		mu.Unlock()
 
-		originalAmount := (100000000 * tradeCfg.OrderRatio) / 5000000
+		originalAmount := (100000000 * cfg.Trade.OrderRatio) / 5000000
 		const epsilon = 1e-9
 		if math.Abs(finalAmount-originalAmount) > epsilon {
 			t.Errorf("Expected amount to be reset to %.8f, but got %.8f", originalAmount, finalAmount)
@@ -590,18 +575,16 @@ func (e *LiveExecutionEngine) SetRealizedPnLForTest(t *testing.T, pnl float64) {
 }
 
 func TestLiveExecutionEngine_CheckAndTriggerPartialExit(t *testing.T) {
-	baseTradeCfg := &config.TradeConfig{
-		Twap: config.TwapConfig{
-			PartialExitEnabled: true,
-			ProfitThreshold:    1.0, // 1%
-			ExitRatio:          0.5, // 50%
-		},
+	config.LoadConfig("../../config/app_config.yaml", "../../config/trade_config.yaml")
+	cfg := config.GetConfig()
+	cfg.Trade.Twap = config.TwapConfig{
+		PartialExitEnabled: true,
+		ProfitThreshold:    1.0, // 1%
+		ExitRatio:          0.5, // 50%
 	}
-	riskCfg := &config.RiskConfig{}
-	orderCfg := &config.OrderConfig{}
 
 	t.Run("Long position with profit above threshold", func(t *testing.T) {
-		engine := NewLiveExecutionEngine(nil, baseTradeCfg, orderCfg, riskCfg, nil)
+		engine := NewLiveExecutionEngine(nil, nil)
 		engine.position = position.NewPosition()
 		engine.position.Update(1.0, 100000) // Buy 1 BTC @ 100,000
 
@@ -615,7 +598,7 @@ func TestLiveExecutionEngine_CheckAndTriggerPartialExit(t *testing.T) {
 	})
 
 	t.Run("Long position with profit below threshold", func(t *testing.T) {
-		engine := NewLiveExecutionEngine(nil, baseTradeCfg, orderCfg, riskCfg, nil)
+		engine := NewLiveExecutionEngine(nil, nil)
 		engine.position = position.NewPosition()
 		engine.position.Update(1.0, 100000)
 
@@ -627,7 +610,7 @@ func TestLiveExecutionEngine_CheckAndTriggerPartialExit(t *testing.T) {
 	})
 
 	t.Run("Short position with profit above threshold", func(t *testing.T) {
-		engine := NewLiveExecutionEngine(nil, baseTradeCfg, orderCfg, riskCfg, nil)
+		engine := NewLiveExecutionEngine(nil, nil)
 		engine.position = position.NewPosition()
 		engine.position.Update(-1.0, 100000) // Sell 1 BTC @ 100,000
 
@@ -641,7 +624,7 @@ func TestLiveExecutionEngine_CheckAndTriggerPartialExit(t *testing.T) {
 	})
 
 	t.Run("No position", func(t *testing.T) {
-		engine := NewLiveExecutionEngine(nil, baseTradeCfg, orderCfg, riskCfg, nil)
+		engine := NewLiveExecutionEngine(nil, nil)
 		engine.position = position.NewPosition()
 
 		marketPrice := 102000.0
@@ -651,9 +634,9 @@ func TestLiveExecutionEngine_CheckAndTriggerPartialExit(t *testing.T) {
 	})
 
 	t.Run("Disabled in config", func(t *testing.T) {
-		tradeCfg := *baseTradeCfg
-		tradeCfg.Twap.PartialExitEnabled = false
-		engine := NewLiveExecutionEngine(nil, &tradeCfg, orderCfg, riskCfg, nil)
+		cfg.Trade.Twap.PartialExitEnabled = false
+		defer func() { cfg.Trade.Twap.PartialExitEnabled = true }() // Restore
+		engine := NewLiveExecutionEngine(nil, nil)
 		engine.position = position.NewPosition()
 		engine.position.Update(1.0, 100000)
 
@@ -664,7 +647,7 @@ func TestLiveExecutionEngine_CheckAndTriggerPartialExit(t *testing.T) {
 	})
 
 	t.Run("Already exiting", func(t *testing.T) {
-		engine := NewLiveExecutionEngine(nil, baseTradeCfg, orderCfg, riskCfg, nil)
+		engine := NewLiveExecutionEngine(nil, nil)
 		engine.position = position.NewPosition()
 		engine.position.Update(1.0, 100000)
 		engine.SetPartialExitStatus(true) // Manually set flag
@@ -715,16 +698,19 @@ func TestExecutionEngine_RiskManagement(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	tradeCfg := &config.TradeConfig{OrderRatio: 0.1}
-	orderCfg := &config.OrderConfig{PollIntervalMs: 10, TimeoutSeconds: 1}
+	config.LoadConfig("../../config/app_config.yaml", "../../config/trade_config.yaml")
+	cfg := config.GetConfig()
+	cfg.Trade.OrderRatio = 0.1
+	cfg.App.Order.PollIntervalMs = 10
+	cfg.App.Order.TimeoutSeconds = 1
 
 	setupEngine := func() *LiveExecutionEngine {
 		atomic.StoreInt32(&newOrderRequestCount, 0)
-		riskCfg := &config.RiskConfig{
+		cfg.Trade.Risk = config.RiskConfig{
 			MaxDrawdownPercent: 10.0, // 10%
 			MaxPositionJPY:     500000.0,
 		}
-		return NewLiveExecutionEngine(ccClient, tradeCfg, orderCfg, riskCfg, nil)
+		return NewLiveExecutionEngine(ccClient, nil)
 	}
 
 	t.Run("stops order on max drawdown breach", func(t *testing.T) {
