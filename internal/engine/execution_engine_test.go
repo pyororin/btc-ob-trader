@@ -184,7 +184,7 @@ func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 	config.LoadConfig("../../config/app_config.yaml", "../../config/trade_config.yaml")
 	cfg := config.GetConfig()
 	cfg.Trade.OrderRatio = 0.5
-	cfg.Trade.Risk.MaxPositionJPY = math.MaxFloat64 // Disable risk check for this test
+	cfg.Trade.Risk.MaxPositionRatio = 1.0 // Disable risk check for this test
 	execEngine := NewLiveExecutionEngine(ccClient, nil)
 
 	_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.2, false)
@@ -494,7 +494,7 @@ func TestExecutionEngine_AdaptivePositionSizing(t *testing.T) {
 	}
 	cfg.App.Order.PollIntervalMs = 1
 	cfg.App.Order.TimeoutSeconds = 1
-	cfg.Trade.Risk.MaxPositionJPY = math.MaxFloat64 // Disable risk check for this test
+	cfg.Trade.Risk.MaxPositionRatio = 1.0 // Disable risk check for this test
 
 	execEngine := NewLiveExecutionEngine(ccClient, nil)
 
@@ -708,7 +708,7 @@ func TestExecutionEngine_RiskManagement(t *testing.T) {
 		atomic.StoreInt32(&newOrderRequestCount, 0)
 		cfg.Trade.Risk = config.RiskConfig{
 			MaxDrawdownPercent: 10.0, // 10%
-			MaxPositionJPY:     500000.0,
+			MaxPositionRatio:   0.5,  // 50% of 1,000,000 JPY balance = 500,000 JPY
 		}
 		return NewLiveExecutionEngine(ccClient, nil)
 	}
@@ -729,10 +729,11 @@ func TestExecutionEngine_RiskManagement(t *testing.T) {
 	t.Run("stops order on max position breach", func(t *testing.T) {
 		execEngine := setupEngine()
 		// Set position to 0.1 BTC at 5,000,000 JPY, which is 500,000 JPY.
+		// This is exactly at the 50% limit of the 1,000,000 JPY balance.
 		execEngine.SetPositionForTest(t, 0.1, 5000000)
 
-		// Attempt to place an order, which should be blocked because the position value already equals the max.
-		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, false)
+		// Attempt to place an order, which should be blocked because any new order would exceed the ratio.
+		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.001, false)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "risk check failed: prospective position value")

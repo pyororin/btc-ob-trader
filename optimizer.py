@@ -54,7 +54,7 @@ def objective(trial):
         },
         'risk': {
             'max_drawdown_percent': trial.suggest_int('risk_max_drawdown_percent', 5, 20),
-            'max_position_jpy': trial.suggest_float('risk_max_position_jpy', 100000, 1000000),
+            'max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.1, 1.0),
         }
     }
 
@@ -92,7 +92,7 @@ def objective(trial):
     trade_config['twap']['profit_threshold'] = params['twap']['profit_threshold']
     trade_config['twap']['exit_ratio'] = params['twap']['exit_ratio']
     trade_config['risk']['max_drawdown_percent'] = params['risk']['max_drawdown_percent']
-    trade_config['risk']['max_position_jpy'] = params['risk']['max_position_jpy']
+    trade_config['risk']['max_position_ratio'] = params['risk']['max_position_ratio']
 
     # 更新した設定を一時ファイルに保存
     temp_config_path = f'config/trade_config_trial_{trial.number}.yaml'
@@ -222,7 +222,7 @@ if __name__ == '__main__':
     best_config['twap']['profit_threshold'] = best_params.get('twap_profit_threshold')
     best_config['twap']['exit_ratio'] = best_params.get('twap_exit_ratio')
     best_config['risk']['max_drawdown_percent'] = best_params.get('risk_max_drawdown_percent')
-    best_config['risk']['max_position_jpy'] = best_params.get('risk_max_position_jpy')
+    best_config['risk']['max_position_ratio'] = best_params.get('risk_max_position_ratio')
 
     with open('config/best_trade_config.yaml', 'w') as f:
         yaml.dump(best_config, f)

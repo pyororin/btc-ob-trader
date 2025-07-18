@@ -67,7 +67,7 @@ type DiscordConfig struct {
 // RiskConfig holds risk management settings.
 type RiskConfig struct {
 	MaxDrawdownPercent float64 `yaml:"max_drawdown_percent"`
-	MaxPositionJPY     float64 `yaml:"max_position_jpy"`
+	MaxPositionRatio   float64 `yaml:"max_position_ratio"`
 }
 
 // SignalConfig holds configuration for signal generation.
