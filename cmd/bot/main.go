@@ -122,10 +122,18 @@ func watchConfigFiles(appConfigPath, tradeConfigPath string) {
 	}
 	defer watcher.Close()
 
-	// Use a map to handle cases where both configs are in the same directory
+	absAppConfigPath, err := filepath.Abs(appConfigPath)
+	if err != nil {
+		logger.Fatalf("Failed to get absolute path for app config: %v", err)
+	}
+	absTradeConfigPath, err := filepath.Abs(tradeConfigPath)
+	if err != nil {
+		logger.Fatalf("Failed to get absolute path for trade config: %v", err)
+	}
+
 	dirsToWatch := make(map[string]bool)
-	dirsToWatch[filepath.Dir(appConfigPath)] = true
-	dirsToWatch[filepath.Dir(tradeConfigPath)] = true
+	dirsToWatch[filepath.Dir(absAppConfigPath)] = true
+	dirsToWatch[filepath.Dir(absTradeConfigPath)] = true
 
 	for dir := range dirsToWatch {
 		logger.Infof("Watching directory %s for config changes...", dir)
@@ -133,7 +141,7 @@ func watchConfigFiles(appConfigPath, tradeConfigPath string) {
 			logger.Fatalf("Failed to watch directory %s: %v", dir, err)
 		}
 	}
-  
+
 	for {
 		select {
 		case event, ok := <-watcher.Events:
@@ -141,14 +149,15 @@ func watchConfigFiles(appConfigPath, tradeConfigPath string) {
 				return
 			}
 
-			// Check if the event is for one of our config files
-			if event.Name == appConfigPath || event.Name == tradeConfigPath {
-				// vim and other editors may use CREATE/WRITE, RENAME, or CHMOD.
-				// It's safer to catch more events and reload.
-				if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
-					logger.Infof("Config file %s modified (%s). Attempting to reload...", event.Name, event.Op.String())
+			absEventPath, err := filepath.Abs(event.Name)
+			if err != nil {
+				logger.Errorf("Could not get absolute path for event %s: %v", event.Name, err)
+				continue
+			}
 
-					// Wait a bit for the write to complete, especially for atomic writes.
+			if absEventPath == absAppConfigPath || absEventPath == absTradeConfigPath {
+				if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
+					logger.Infof("Config file %s modified (%s). Attempting to reload...", event.Name, event.Op.String())
 					time.Sleep(250 * time.Millisecond)
 
 					newCfg, err := config.ReloadConfig(appConfigPath, tradeConfigPath)
