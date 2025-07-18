@@ -8,9 +8,9 @@ import json
 def objective(trial):
     # 1. パラメータ空間の定義（拡張版）
     params = {
-        'spread_limit': trial.suggest_int('spread_limit', 10, 100),
-        'lot_max_ratio': trial.suggest_float('lot_max_ratio', 0.01, 0.1),
-        'order_ratio': trial.suggest_float('order_ratio', 0.05, 0.2),
+        'spread_limit': trial.suggest_int('spread_limit', 10, 150),
+        'lot_max_ratio': trial.suggest_float('lot_max_ratio', 0.01, 0.2),
+        'order_ratio': trial.suggest_float('order_ratio', 0.05, 0.25),
         'adaptive_position_sizing': {
             'enabled': trial.suggest_categorical('adaptive_position_sizing_enabled', [True, False]),
             'num_trades': trial.suggest_int('adaptive_num_trades', 3, 20),
