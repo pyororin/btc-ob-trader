@@ -58,7 +58,7 @@ services:
   timescaledb:
     image: timescale/timescaledb-ha:pg14.9-ts2.11.2
     container_name: timescaledb-obi
-    command: postgres -c listen_addresses='*'
+    command:  postgres -c config_file=/etc/postgresql/postgresql.conf
     ports:
       - "5432:5432"
     environment:
@@ -71,7 +71,7 @@ services:
       - ./db/schema:/docker-entrypoint-initdb.d/01_schema
       - ./db/migrations:/docker-entrypoint-initdb.d/02_migrations
       - ./db/postgresql.conf:/etc/postgresql/postgresql.conf
-    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+  
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
