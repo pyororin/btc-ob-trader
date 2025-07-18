@@ -297,7 +297,7 @@ func (w *Writer) batchInsertLatencies(ctx context.Context, latencies []Latency) 
 	if w.pool == nil || len(latencies) == 0 {
 		return
 	}
-	w.logger.Info("Flushing latencies", zap.Int("count", len(latencies)))
+	w.logger.Debug("Flushing latencies", zap.Int("count", len(latencies)))
 	_, err := w.pool.CopyFrom(
 		ctx,
 		pgx.Identifier{"latencies"},
