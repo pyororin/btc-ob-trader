@@ -58,6 +58,7 @@ services:
   timescaledb:
     image: timescale/timescaledb-ha:pg14.9-ts2.11.2
     container_name: timescaledb-obi
+    command: postgres -c listen_addresses='*'
     ports:
       - "5432:5432"
     environment:
