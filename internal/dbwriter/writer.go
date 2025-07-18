@@ -87,7 +87,7 @@ type Writer struct {
 
 // NewWriter は新しいWriterインスタンスを作成します。
 func NewWriter(ctx context.Context, dbConfig config.DatabaseConfig, writerConfig config.DBWriterConfig, logger *zap.Logger) (*Writer, error) {
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s&timezone=Asia/Tokyo",
 		dbConfig.User,
 		dbConfig.Password,
 		dbConfig.Host,
