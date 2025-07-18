@@ -15,14 +15,13 @@ import (
 
 // Trade はデータベースからの取引を表します。
 type Trade struct {
-	Time            time.Time       `json:"time"`
-	ReplaySessionID *string         `json:"replay_session_id"`
-	Pair            string          `json:"pair"`
-	Side            string          `json:"side"`
-	Price           decimal.Decimal `json:"price"`
-	Size            decimal.Decimal `json:"size"`
-	TransactionID   int64           `json:"transaction_id"`
-	IsCancelled     bool            `json:"is_cancelled"`
+	Time          time.Time       `json:"time"`
+	Pair          string          `json:"pair"`
+	Side          string          `json:"side"`
+	Price         decimal.Decimal `json:"price"`
+	Size          decimal.Decimal `json:"size"`
+	TransactionID int64           `json:"transaction_id"`
+	IsCancelled   bool            `json:"is_cancelled"`
 }
 
 // TradePnl は個々のトレードの損益情報を保持します。
@@ -107,7 +106,7 @@ func main() {
 // fetchNewTrades はまだ処理されていない新しいトレードを取得します。
 func fetchNewTrades(ctx context.Context, dbpool *pgxpool.Pool) ([]Trade, error) {
 	query := `
-        SELECT t.time, t.replay_session_id, t.pair, t.side, t.price, t.size, t.transaction_id, t.is_cancelled
+        SELECT t.time, t.pair, t.side, t.price, t.size, t.transaction_id, t.is_cancelled
         FROM trades t
         LEFT JOIN trades_pnl tp ON t.transaction_id = tp.trade_id
         WHERE tp.trade_id IS NULL
@@ -122,7 +121,7 @@ func fetchNewTrades(ctx context.Context, dbpool *pgxpool.Pool) ([]Trade, error) 
 	var trades []Trade
 	for rows.Next() {
 		var t Trade
-		if err := rows.Scan(&t.Time, &t.ReplaySessionID, &t.Pair, &t.Side, &t.Price, &t.Size, &t.TransactionID, &t.IsCancelled); err != nil {
+		if err := rows.Scan(&t.Time, &t.Pair, &t.Side, &t.Price, &t.Size, &t.TransactionID, &t.IsCancelled); err != nil {
 			return nil, err
 		}
 		trades = append(trades, t)
@@ -133,7 +132,6 @@ func fetchNewTrades(ctx context.Context, dbpool *pgxpool.Pool) ([]Trade, error) 
 
 // Report は損益分析の結果を保持します。
 type Report struct {
-	ReplaySessionID         *string         `json:"replay_session_id"`
 	StartDate               time.Time       `json:"start_date"`
 	EndDate                 time.Time       `json:"end_date"`
 	TotalTrades             int             `json:"total_trades"`        // Executed trades
@@ -179,7 +177,6 @@ func analyzeTrades(ctx context.Context, dbpool *pgxpool.Pool, trades []Trade) (R
 	}
 
 	var executedTrades []Trade
-	var replaySessionID *string
 	cancelledCount := 0
 	for _, t := range trades {
 		if t.IsCancelled {
@@ -187,14 +184,10 @@ func analyzeTrades(ctx context.Context, dbpool *pgxpool.Pool, trades []Trade) (R
 		} else {
 			executedTrades = append(executedTrades, t)
 		}
-		if t.ReplaySessionID != nil {
-			replaySessionID = t.ReplaySessionID
-		}
 	}
 
 	if len(executedTrades) == 0 {
 		return Report{
-			ReplaySessionID: replaySessionID,
 			StartDate:       trades[0].Time,
 			EndDate:         trades[len(trades)-1].Time,
 			CancelledTrades: cancelledCount,
@@ -472,7 +465,6 @@ func analyzeTrades(ctx context.Context, dbpool *pgxpool.Pool, trades []Trade) (R
 	}
 
 	return Report{
-		ReplaySessionID:                replaySessionID,
 		StartDate:                      startDate,
 		EndDate:                        endDate,
 		TotalTrades:                    totalExecutedTrades,
@@ -592,7 +584,7 @@ func writeReportToJSON(r Report, filepath string) error {
 func saveReportToDB(ctx context.Context, dbpool *pgxpool.Pool, r Report) error {
 	query := `
         INSERT INTO pnl_reports (
-            time, replay_session_id, start_date, end_date, total_trades, cancelled_trades,
+            time, start_date, end_date, total_trades, cancelled_trades,
             cancellation_rate, winning_trades, losing_trades, win_rate,
             long_winning_trades, long_losing_trades, long_win_rate,
             short_winning_trades, short_losing_trades, short_win_rate,
@@ -603,11 +595,11 @@ func saveReportToDB(ctx context.Context, dbpool *pgxpool.Pool, r Report) error {
             max_consecutive_wins, max_consecutive_losses, buy_and_hold_return, return_vs_buy_and_hold
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-            $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36
+            $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35
         );
     `
 	_, err := dbpool.Exec(ctx, query,
-		time.Now(), r.ReplaySessionID, r.StartDate, r.EndDate, r.TotalTrades, r.CancelledTrades,
+		time.Now(), r.StartDate, r.EndDate, r.TotalTrades, r.CancelledTrades,
 		r.CancellationRate, r.WinningTrades, r.LosingTrades, r.WinRate,
 		r.LongWinningTrades, r.LongLosingTrades, r.LongWinRate,
 		r.ShortWinningTrades, r.ShortLosingTrades, r.ShortWinRate,
