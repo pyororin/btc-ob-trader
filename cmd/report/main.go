@@ -309,7 +309,7 @@ func analyzeTrades(ctx context.Context, dbpool *pgxpool.Pool, trades []Trade) (R
 
 	winningTrades := longWinningTrades + shortWinningTrades
 	losingTrades := longLosingTrades + shortLosingTrades
-	totalExecutedTrades := winningTrades + losingTrades
+	totalExecutedTrades := len(executedTrades)
 
 	cancellationRate := 0.0
 	if cancelledCount+totalExecutedTrades > 0 {
@@ -317,8 +317,8 @@ func analyzeTrades(ctx context.Context, dbpool *pgxpool.Pool, trades []Trade) (R
 	}
 
 	winRate := 0.0
-	if totalExecutedTrades > 0 {
-		winRate = float64(winningTrades) / float64(totalExecutedTrades) * 100
+	if winningTrades+losingTrades > 0 {
+		winRate = float64(winningTrades) / float64(winningTrades+losingTrades) * 100
 	}
 
 	longWinRate := 0.0
