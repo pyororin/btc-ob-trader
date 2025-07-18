@@ -216,6 +216,6 @@ optimize: ## Run hyperparameter optimization using Goptuna.
 		N_TRIALS=$$N_TRIALS \
 		STUDY_NAME=$$STUDY_NAME \
 		STORAGE_URL=$$STORAGE_URL \
-		docker compose run --rm \
+		docker compose -f docker-compose.yml -f docker-compose.override.yml run --rm \
 		-v $$(pwd)/simulation:/simulation \
 		optimizer
