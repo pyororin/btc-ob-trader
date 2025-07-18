@@ -104,11 +104,30 @@ def objective(trial):
     if not csv_path:
         raise ValueError("CSV_PATH environment variable is not set.")
 
+    # ZIPファイルが指定されているか確認し、展開する
+    unzipped_csv_path = csv_path
+    if csv_path.endswith('.zip'):
+        import zipfile
+        simulation_dir = 'simulation'
+        os.makedirs(simulation_dir, exist_ok=True)
+        with zipfile.ZipFile(csv_path, 'r') as zip_ref:
+            zip_ref.extractall(simulation_dir)
+        # 展開されたCSVファイル名を取得（ZIPファイル名から.zipを除いたものと仮定）
+        unzipped_csv_path = os.path.join(simulation_dir, os.path.basename(csv_path)[:-4] + '.csv')
+
+    # Dockerコンテナ内で実行するためのコマンドを構築
+    # Note: コンテナ内のパスに変換
+    container_csv_path = f"/simulation/{os.path.basename(unzipped_csv_path)}"
+    container_config_path = f"/app/{temp_config_path}"
+
     command = [
-        'go', 'run', 'cmd/bot/main.go',
+        'sudo', '-E', 'docker', 'compose', 'run', '--rm', '--no-deps',
+        '-v', f"{os.path.abspath(unzipped_csv_path)}:{container_csv_path}",
+        '-v', f"{os.path.abspath('config')}:/app/config",
+        'bot-simulate',
         '--simulate',
-        f'--csv={csv_path}',
-        f'--trade-config={temp_config_path}',
+        f'--csv={container_csv_path}',
+        f'--trade-config={container_config_path}',
         '--json-output'
     ]
 
