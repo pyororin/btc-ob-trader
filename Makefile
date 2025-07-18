@@ -199,11 +199,25 @@ report: ## Generate and display the PnL report.
 	@echo "Running PnL report..."
 	sudo -E docker compose exec report-generator ./build/report
 
-optimize: ## Run hyperparameter optimization using Optuna.
+optimize: ## Run hyperparameter optimization using Optuna. Accepts HOURS_BEFORE or CSV_PATH.
 	@echo "Running hyperparameter optimization..."
-	@if [ -z "$(CSV_PATH)" ]; then \
-		echo "Error: CSV_PATH environment variable is not set."; \
-		echo "Usage: make optimize CSV_PATH=/path/to/your/trades.csv"; \
+	@OPTIMIZE_CSV_PATH=""; \
+	if [ -n "$(HOURS_BEFORE)" ]; then \
+		echo "HOURS_BEFORE is set to $(HOURS_BEFORE). Exporting data..."; \
+		$(MAKE) export-sim-data HOURS_BEFORE=$(HOURS_BEFORE) NO_ZIP=true; \
+		OPTIMIZE_CSV_PATH=$$(find simulation -name "*.csv" -print0 | xargs -0 ls -t | head -n 1); \
+		if [ -z "$$OPTIMIZE_CSV_PATH" ]; then \
+			echo "Error: Could not find exported CSV file in simulation directory."; \
+			exit 1; \
+		fi; \
+		echo "Using exported data: $$OPTIMIZE_CSV_PATH"; \
+	elif [ -n "$(CSV_PATH)" ]; then \
+		echo "Using provided CSV_PATH: $(CSV_PATH)"; \
+		OPTIMIZE_CSV_PATH=$(CSV_PATH); \
+	else \
+		echo "Error: Please set either HOURS_BEFORE or CSV_PATH."; \
+		echo "Usage: make optimize HOURS_BEFORE=24"; \
+		echo "   or: make optimize CSV_PATH=/path/to/your/trades.csv"; \
 		exit 1; \
 	fi
 	@if [ ! -d "venv" ]; then \
@@ -211,4 +225,13 @@ optimize: ## Run hyperparameter optimization using Optuna.
 	fi
 	@. venv/bin/activate; \
 	pip install -r requirements.txt; \
-	CSV_PATH=$(CSV_PATH) N_TRIALS=$(N_TRIALS) STUDY_NAME=$(STUDY_NAME) STORAGE_URL=$(STORAGE_URL) python optimizer.py
+	CSV_PATH=$$OPTIMIZE_CSV_PATH N_TRIALS=$(N_TRIALS) STUDY_NAME=$(STUDY_NAME) STORAGE_URL=$(STORAGE_URL) python optimizer.py
+	@if [ "$(OVERRIDE)" = "true" ]; then \
+		echo "OVERRIDE is set to true. Backing up and updating trade_config.yaml..."; \
+		mkdir -p config/history; \
+		TIMESTAMP=$$(date +%Y%m%d%H%M); \
+		cp config/trade_config.yaml config/history/trade_config.yaml_$$TIMESTAMP; \
+		echo "Backup created at config/history/trade_config.yaml_$$TIMESTAMP"; \
+		cp config/best_trade_config.yaml config/trade_config.yaml; \
+		echo "trade_config.yaml has been updated with the best parameters."; \
+	fi
