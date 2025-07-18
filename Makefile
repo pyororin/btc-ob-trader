@@ -212,3 +212,4 @@ optimize: ## Run hyperparameter optimization using Optuna.
 	@. venv/bin/activate; \
 	pip install -r requirements.txt; \
 	CSV_PATH=$(CSV_PATH) N_TRIALS=$(N_TRIALS) STUDY_NAME=$(STUDY_NAME) STORAGE_URL=$(STORAGE_URL) python optimizer.py
+	deactivate
