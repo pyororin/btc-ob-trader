@@ -25,7 +25,7 @@ import (
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
 	"github.com/your-org/obi-scalp-bot/internal/http/handler"
 	"sync"
-
+	"reflect"
 	"github.com/fsnotify/fsnotify"
 	"github.com/your-org/obi-scalp-bot/internal/indicator"
 	tradingsignal "github.com/your-org/obi-scalp-bot/internal/signal"
@@ -148,7 +148,6 @@ func watchConfigFiles(appConfigPath, tradeConfigPath string) {
 			if !ok {
 				return
 			}
-
 			absEventPath, err := filepath.Abs(event.Name)
 			if err != nil {
 				logger.Errorf("Could not get absolute path for event %s: %v", event.Name, err)
@@ -160,15 +159,14 @@ func watchConfigFiles(appConfigPath, tradeConfigPath string) {
 					logger.Infof("Config file %s modified (%s). Attempting to reload...", event.Name, event.Op.String())
 					time.Sleep(250 * time.Millisecond)
 
+					oldCfg := config.GetConfig()
 					newCfg, err := config.ReloadConfig(appConfigPath, tradeConfigPath)
 					if err != nil {
 						logger.Errorf("Failed to reload configuration: %v", err)
 					} else {
-						logger.SetGlobalLogLevel(newCfg.App.LogLevel)
 						logger.Info("Configuration reloaded successfully.")
-						logger.Infof("New LogLevel: %s", newCfg.App.LogLevel)
-						logger.Infof("New Long OBI Threshold: %.2f", newCfg.Trade.Long.OBIThreshold)
-						logger.Infof("New Short OBI Threshold: %.2f", newCfg.Trade.Short.OBIThreshold)
+						logConfigChanges(oldCfg, newCfg)
+						logger.SetGlobalLogLevel(newCfg.App.LogLevel)
 					}
 				}
 			}
@@ -177,6 +175,40 @@ func watchConfigFiles(appConfigPath, tradeConfigPath string) {
 				return
 			}
 			logger.Errorf("File watcher error: %v", err)
+		}
+	}
+}
+
+// logConfigChanges compares two config structs and logs the differences.
+func logConfigChanges(oldCfg, newCfg *config.Config) {
+	if oldCfg == nil || newCfg == nil {
+		return
+	}
+
+	// Compare AppConfig
+	compareStructs(reflect.ValueOf(oldCfg.App), reflect.ValueOf(newCfg.App), "App")
+	// Compare TradeConfig
+	compareStructs(reflect.ValueOf(oldCfg.Trade), reflect.ValueOf(newCfg.Trade), "Trade")
+}
+
+func compareStructs(v1, v2 reflect.Value, prefix string) {
+	if v1.Kind() != reflect.Struct || v2.Kind() != reflect.Struct {
+		return
+	}
+
+	for i := 0; i < v1.NumField(); i++ {
+		field1 := v1.Field(i)
+		field2 := v2.Field(i)
+		fieldName := v1.Type().Field(i).Name
+		currentPrefix := fmt.Sprintf("%s.%s", prefix, fieldName)
+
+		if field1.Kind() == reflect.Struct {
+			compareStructs(field1, field2, currentPrefix)
+			continue
+		}
+
+		if !reflect.DeepEqual(field1.Interface(), field2.Interface()) {
+			logger.Infof("Config changed: %s from '%v' to '%v'", currentPrefix, field1.Interface(), field2.Interface())
 		}
 	}
 }
