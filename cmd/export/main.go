@@ -74,8 +74,12 @@ func main() {
 
 	// --- File and Writer Setup ---
 	timestamp := time.Now().Format("20060102-150405")
-	csvFileName := fmt.Sprintf("order_book_updates_%s.csv", timestamp)
-	zipFileName := fmt.Sprintf("order_book_updates_%s.zip", timestamp)
+	outputDir := "simulation"
+	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
+		os.Mkdir(outputDir, 0755)
+	}
+	csvFileName := filepath.Join(outputDir, fmt.Sprintf("order_book_updates_%s.csv", timestamp))
+	zipFileName := filepath.Join(outputDir, fmt.Sprintf("order_book_updates_%s.zip", timestamp))
 
 	csvFile, err := os.Create(csvFileName)
 	if err != nil {
