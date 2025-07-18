@@ -22,7 +22,7 @@ help:
 # ==============================================================================
 up: ## Start all services including the bot for live trading.
 	@echo "Starting all services (including trading bot)..."
-	sudo -E docker compose -f docker-compose.yml up -d --build bot timescaledb grafana adminer
+	sudo -E docker compose up -d --build bot timescaledb grafana adminer
 	$(MAKE) migrate
 
 migrate: ## Run database migrations
@@ -216,6 +216,6 @@ optimize: ## Run hyperparameter optimization using Goptuna.
 		N_TRIALS=$$N_TRIALS \
 		STUDY_NAME=$$STUDY_NAME \
 		STORAGE_URL=$$STORAGE_URL \
-		docker compose -f docker-compose.yml -f docker-compose.override.yml run --rm \
+		docker compose run --rm \
 		-v $$(pwd)/simulation:/simulation \
 		optimizer
