@@ -26,6 +26,9 @@ import (
 	"github.com/your-org/obi-scalp-bot/internal/http/handler"
 	"sync"
 
+	"reflect"
+
+	"github.com/fsnotify/fsnotify"
 	"github.com/your-org/obi-scalp-bot/internal/indicator"
 	tradingsignal "github.com/your-org/obi-scalp-bot/internal/signal"
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
@@ -49,7 +52,7 @@ func main() {
 
 	cfg := setupConfig(f.configPath, f.tradeConfigPath)
 	setupLogger(cfg.App.LogLevel, f.configPath, cfg.Trade.Pair)
-	go watchSignals(f.configPath, f.tradeConfigPath)
+	go watchConfigFiles(f.configPath, f.tradeConfigPath)
 
 	if f.simulateMode && f.csvPath == "" {
 		logger.Fatal("CSV file path must be provided in simulation mode using --csv flag")
@@ -113,24 +116,101 @@ func setupConfig(appConfigPath, tradeConfigPath string) *config.Config {
 	return cfg
 }
 
-// watchSignals sets up a handler for SIGHUP to reload the configuration.
-func watchSignals(appConfigPath, tradeConfigPath string) {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGHUP)
+// watchConfigFiles sets up a file watcher to automatically reload the configuration on change.
+func watchConfigFiles(appConfigPath, tradeConfigPath string) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		logger.Fatalf("Failed to create file watcher: %v", err)
+	}
+	defer watcher.Close()
+
+	absAppConfigPath, err := filepath.Abs(appConfigPath)
+	if err != nil {
+		logger.Fatalf("Failed to get absolute path for app config: %v", err)
+	}
+	absTradeConfigPath, err := filepath.Abs(tradeConfigPath)
+	if err != nil {
+		logger.Fatalf("Failed to get absolute path for trade config: %v", err)
+	}
+
+	dirsToWatch := make(map[string]bool)
+	dirsToWatch[filepath.Dir(absAppConfigPath)] = true
+	dirsToWatch[filepath.Dir(absTradeConfigPath)] = true
+
+	for dir := range dirsToWatch {
+		logger.Infof("Watching directory %s for config changes...", dir)
+		if err := watcher.Add(dir); err != nil {
+			logger.Fatalf("Failed to watch directory %s: %v", dir, err)
+		}
+	}
 
 	for {
-		<-sigChan
-		logger.Info("SIGHUP received, attempting to reload configuration...")
-		if tradeConfigPath == "" {
-			dir := filepath.Dir(appConfigPath)
-			tradeConfigPath = filepath.Join(dir, "trade_config.yaml")
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			absEventPath, err := filepath.Abs(event.Name)
+			if err != nil {
+				logger.Errorf("Could not get absolute path for event %s: %v", event.Name, err)
+				continue
+			}
+
+			if absEventPath == absAppConfigPath || absEventPath == absTradeConfigPath {
+				if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
+					logger.Infof("Config file %s modified (%s). Attempting to reload...", event.Name, event.Op.String())
+					time.Sleep(250 * time.Millisecond)
+
+					oldCfg := config.GetConfig()
+					newCfg, err := config.ReloadConfig(appConfigPath, tradeConfigPath)
+					if err != nil {
+						logger.Errorf("Failed to reload configuration: %v", err)
+					} else {
+						logger.Info("Configuration reloaded successfully.")
+						logConfigChanges(oldCfg, newCfg)
+						logger.SetGlobalLogLevel(newCfg.App.LogLevel)
+					}
+				}
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			logger.Errorf("File watcher error: %v", err)
 		}
-		newCfg, err := config.ReloadConfig(appConfigPath, tradeConfigPath)
-		if err != nil {
-			logger.Errorf("Failed to reload configuration: %v", err)
-		} else {
-			logger.SetGlobalLogLevel(newCfg.App.LogLevel)
-			logger.Info("Configuration reloaded successfully.")
+	}
+}
+
+// logConfigChanges compares two config structs and logs the differences.
+func logConfigChanges(oldCfg, newCfg *config.Config) {
+	if oldCfg == nil || newCfg == nil {
+		return
+	}
+
+	// Compare AppConfig
+	compareStructs(reflect.ValueOf(oldCfg.App), reflect.ValueOf(newCfg.App), "App")
+	// Compare TradeConfig
+	compareStructs(reflect.ValueOf(oldCfg.Trade), reflect.ValueOf(newCfg.Trade), "Trade")
+}
+
+func compareStructs(v1, v2 reflect.Value, prefix string) {
+	if v1.Kind() != reflect.Struct || v2.Kind() != reflect.Struct {
+		return
+	}
+
+	for i := 0; i < v1.NumField(); i++ {
+		field1 := v1.Field(i)
+		field2 := v2.Field(i)
+		fieldName := v1.Type().Field(i).Name
+		currentPrefix := fmt.Sprintf("%s.%s", prefix, fieldName)
+
+		if field1.Kind() == reflect.Struct {
+			compareStructs(field1, field2, currentPrefix)
+			continue
+		}
+
+		if !reflect.DeepEqual(field1.Interface(), field2.Interface()) {
+			logger.Infof("Config changed: %s from '%v' to '%v'", currentPrefix, field1.Interface(), field2.Interface())
 		}
 	}
 }
@@ -485,27 +565,6 @@ func startPnlReporter(ctx context.Context) {
 	// Initial start
 	start()
 
-	// Watch for config changes
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGHUP)
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-sigChan:
-				logger.Info("Restarting PnL reporter due to config reload.")
-				// Stop the current ticker and wait for the goroutine to exit
-				if ticker != nil {
-					ticker.Stop()
-				}
-				wg.Wait()
-				// Restart the reporter
-				start()
-			}
-		}
-	}()
 }
 
 

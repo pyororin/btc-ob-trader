@@ -248,7 +248,7 @@ func (w *Writer) batchInsertOrderBookUpdates(ctx context.Context, updates []Orde
 	if w.pool == nil || len(updates) == 0 {
 		return
 	}
-	w.logger.Info("Flushing order book updates", zap.Int("count", len(updates)))
+	w.logger.Debug("Flushing order book updates", zap.Int("count", len(updates)))
 
 	_, err := w.pool.CopyFrom(
 		ctx,
@@ -329,7 +329,7 @@ func (w *Writer) batchInsertBenchmarkValues(ctx context.Context, values []Benchm
 	if w.pool == nil || len(values) == 0 {
 		return
 	}
-	w.logger.Info("Flushing benchmark values", zap.Int("count", len(values)))
+	w.logger.Debug("Flushing benchmark values", zap.Int("count", len(values)))
 	_, err := w.pool.CopyFrom(
 		ctx,
 		pgx.Identifier{"benchmark_values"},
