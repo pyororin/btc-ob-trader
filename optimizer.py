@@ -118,7 +118,8 @@ def objective(trial):
     # Dockerコンテナ内で実行するためのコマンドを構築
     # Note: コンテナ内のパスに変換
     container_csv_path = f"/simulation/{os.path.basename(unzipped_csv_path)}"
-    container_config_path = f"/app/{temp_config_path}"
+    # container_config_path は config/trade_config_trial_{trial.number}.yaml とする
+    container_config_path = temp_config_path
 
     command = [
         'sudo', '-E', 'docker', 'compose', 'run', '--rm', '--no-deps',
