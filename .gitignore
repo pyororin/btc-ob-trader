@@ -19,6 +19,8 @@ build/
 # Simulation output
 simulation/
 simulation_result.txt
+config/best_trade_config.yaml
 
 # Go deps
 vendor/
+
