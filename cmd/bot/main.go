@@ -26,6 +26,7 @@ import (
 	"github.com/your-org/obi-scalp-bot/internal/http/handler"
 	"sync"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/your-org/obi-scalp-bot/internal/indicator"
 	tradingsignal "github.com/your-org/obi-scalp-bot/internal/signal"
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
@@ -49,7 +50,7 @@ func main() {
 
 	cfg := setupConfig(f.configPath, f.tradeConfigPath)
 	setupLogger(cfg.App.LogLevel, f.configPath, cfg.Trade.Pair)
-	go watchSignals(f.configPath, f.tradeConfigPath)
+	go watchConfigFiles(f.configPath, f.tradeConfigPath)
 
 	if f.simulateMode && f.csvPath == "" {
 		logger.Fatal("CSV file path must be provided in simulation mode using --csv flag")
@@ -113,24 +114,60 @@ func setupConfig(appConfigPath, tradeConfigPath string) *config.Config {
 	return cfg
 }
 
-// watchSignals sets up a handler for SIGHUP to reload the configuration.
-func watchSignals(appConfigPath, tradeConfigPath string) {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGHUP)
+// watchConfigFiles sets up a file watcher to automatically reload the configuration on change.
+func watchConfigFiles(appConfigPath, tradeConfigPath string) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		logger.Fatalf("Failed to create file watcher: %v", err)
+	}
+	defer watcher.Close()
+
+	// Use a map to handle cases where both configs are in the same directory
+	dirsToWatch := make(map[string]bool)
+	dirsToWatch[filepath.Dir(appConfigPath)] = true
+	dirsToWatch[filepath.Dir(tradeConfigPath)] = true
+
+	for dir := range dirsToWatch {
+		logger.Infof("Watching directory %s for config changes...", dir)
+		if err := watcher.Add(dir); err != nil {
+			logger.Fatalf("Failed to watch directory %s: %v", dir, err)
+		}
+	}
 
 	for {
-		<-sigChan
-		logger.Info("SIGHUP received, attempting to reload configuration...")
-		if tradeConfigPath == "" {
-			dir := filepath.Dir(appConfigPath)
-			tradeConfigPath = filepath.Join(dir, "trade_config.yaml")
-		}
-		newCfg, err := config.ReloadConfig(appConfigPath, tradeConfigPath)
-		if err != nil {
-			logger.Errorf("Failed to reload configuration: %v", err)
-		} else {
-			logger.SetGlobalLogLevel(newCfg.App.LogLevel)
-			logger.Info("Configuration reloaded successfully.")
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+
+			// Check if the event is for one of our config files
+			if event.Name == appConfigPath || event.Name == tradeConfigPath {
+				// vim and other editors may use CREATE/WRITE, RENAME, or CHMOD.
+				// It's safer to catch more events and reload.
+				if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
+					logger.Infof("Config file %s modified (%s). Attempting to reload...", event.Name, event.Op.String())
+
+					// Wait a bit for the write to complete, especially for atomic writes.
+					time.Sleep(250 * time.Millisecond)
+
+					newCfg, err := config.ReloadConfig(appConfigPath, tradeConfigPath)
+					if err != nil {
+						logger.Errorf("Failed to reload configuration: %v", err)
+					} else {
+						logger.SetGlobalLogLevel(newCfg.App.LogLevel)
+						logger.Info("Configuration reloaded successfully.")
+						logger.Infof("New LogLevel: %s", newCfg.App.LogLevel)
+						logger.Infof("New Long OBI Threshold: %.2f", newCfg.Trade.Long.OBIThreshold)
+						logger.Infof("New Short OBI Threshold: %.2f", newCfg.Trade.Short.OBIThreshold)
+					}
+				}
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			logger.Errorf("File watcher error: %v", err)
 		}
 	}
 }
@@ -485,27 +522,6 @@ func startPnlReporter(ctx context.Context) {
 	// Initial start
 	start()
 
-	// Watch for config changes
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGHUP)
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-sigChan:
-				logger.Info("Restarting PnL reporter due to config reload.")
-				// Stop the current ticker and wait for the goroutine to exit
-				if ticker != nil {
-					ticker.Stop()
-				}
-				wg.Wait()
-				// Restart the reporter
-				start()
-			}
-		}
-	}()
 }
 
 
