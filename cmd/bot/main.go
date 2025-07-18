@@ -526,7 +526,7 @@ func startPnlReporter(ctx context.Context) {
 
 
 func generateAndSaveReport(ctx context.Context, repo *datastore.Repository) {
-	logger.Info("Generating PnL report...")
+	logger.Debug("Generating PnL report...")
 	trades, err := repo.FetchAllTradesForReport(ctx)
 	if err != nil {
 		logger.Errorf("Failed to fetch trades for PnL report: %v", err)
@@ -534,7 +534,7 @@ func generateAndSaveReport(ctx context.Context, repo *datastore.Repository) {
 	}
 
 	if len(trades) == 0 {
-		logger.Info("No trades found for PnL report.")
+		logger.Debug("No trades found for PnL report.")
 		return
 	}
 
@@ -548,23 +548,23 @@ func generateAndSaveReport(ctx context.Context, repo *datastore.Repository) {
 		logger.Errorf("Failed to save PnL report: %v", err)
 		return
 	}
-	logger.Info("Successfully generated and saved PnL report.")
+	logger.Debug("Successfully generated and saved PnL report.")
 }
 
 func deleteOldReports(ctx context.Context, repo *datastore.Repository, maxAgeHours int) {
 	if maxAgeHours <= 0 {
 		return
 	}
-	logger.Infof("Deleting PnL reports older than %d hours...", maxAgeHours)
+	logger.Debugf("Deleting PnL reports older than %d hours...", maxAgeHours)
 	deletedCount, err := repo.DeleteOldPnlReports(ctx, maxAgeHours)
 	if err != nil {
 		logger.Errorf("Failed to delete old PnL reports: %v", err)
 		return
 	}
 	if deletedCount > 0 {
-		logger.Infof("Successfully deleted %d old PnL reports.", deletedCount)
+		logger.Debugf("Successfully deleted %d old PnL reports.", deletedCount)
 	} else {
-		logger.Info("No old PnL reports to delete.")
+		logger.Debug("No old PnL reports to delete.")
 	}
 }
 
