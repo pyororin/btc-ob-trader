@@ -118,12 +118,12 @@ def objective(trial):
     # Dockerコンテナ内で実行するためのコマンドを構築
     # Note: コンテナ内のパスに変換
     container_csv_path = f"/simulation/{os.path.basename(unzipped_csv_path)}"
-    container_config_path = f"/app/{temp_config_path}"
+    container_config_path = f"/{temp_config_path}"
 
     command = [
         'sudo', '-E', 'docker', 'compose', 'run', '--rm', '--no-deps',
         '-v', f"{os.path.abspath(unzipped_csv_path)}:{container_csv_path}",
-        '-v', f"{os.path.abspath('config')}:/app/config",
+        '-v', f"{os.path.abspath('config')}:/config",
         'bot-simulate',
         '--simulate',
         f'--csv={container_csv_path}',
