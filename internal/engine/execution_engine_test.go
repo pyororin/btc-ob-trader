@@ -749,7 +749,7 @@ func TestExecutionEngine_RiskManagement(t *testing.T) {
 		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, false)
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "risk check failed: current position value")
+		assert.Contains(t, err.Error(), "risk check failed: prospective position value")
 		assert.EqualValues(t, 0, atomic.LoadInt32(&newOrderRequestCount), "NewOrder should not have been called")
 	})
 

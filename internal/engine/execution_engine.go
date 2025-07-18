@@ -74,9 +74,15 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	// --- Risk Management Check ---
 	// 1. Max Position Check
 	positionSize, avgEntryPrice := e.position.Get()
-	positionValueJPY := math.Abs(positionSize) * rate // Use current rate for valuation
-	if e.riskCfg.MaxPositionJPY > 0 && positionValueJPY >= e.riskCfg.MaxPositionJPY {
-		err := fmt.Errorf("risk check failed: current position value %.2f JPY exceeds max_position_jpy %.2f", positionValueJPY, e.riskCfg.MaxPositionJPY)
+	orderSideMultiplier := 1.0
+	if orderType == "sell" {
+		orderSideMultiplier = -1.0
+	}
+	prospectivePositionSize := positionSize + (amount * orderSideMultiplier)
+	prospectivePositionValueJPY := math.Abs(prospectivePositionSize) * rate
+
+	if e.riskCfg.MaxPositionJPY > 0 && prospectivePositionValueJPY > e.riskCfg.MaxPositionJPY {
+		err := fmt.Errorf("risk check failed: prospective position value %.2f JPY exceeds max_position_jpy %.2f", prospectivePositionValueJPY, e.riskCfg.MaxPositionJPY)
 		logger.Error(err)
 		return nil, err
 	}
