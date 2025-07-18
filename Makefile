@@ -197,4 +197,11 @@ optimize: ## Run hyperparameter optimization using Goptuna.
 		echo "Usage: make optimize CSV_PATH=/path/to/your/trades.csv"; \
 		exit 1; \
 	fi
-	sudo -E docker compose run --rm optimizer
+	@STUDY_NAME=${STUDY_NAME:-obi-scalp-bot-optimization}
+	@STORAGE_URL=${STORAGE_URL:-sqlite:///goptuna_study.db}
+	sudo -E \
+		CSV_PATH=$(CSV_PATH) \
+		N_TRIALS=$(N_TRIALS) \
+		STUDY_NAME=$(STUDY_NAME) \
+		STORAGE_URL=$(STORAGE_URL) \
+		docker compose run --rm optimizer
