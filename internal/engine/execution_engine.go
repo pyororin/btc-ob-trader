@@ -78,10 +78,14 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	prospectivePositionSize := positionSize + (amount * orderSideMultiplier)
 	prospectivePositionValueJPY := math.Abs(prospectivePositionSize) * rate
 
-	if cfg.Trade.Risk.MaxPositionJPY > 0 && prospectivePositionValueJPY > cfg.Trade.Risk.MaxPositionJPY {
-		err := fmt.Errorf("risk check failed: prospective position value %.2f JPY exceeds max_position_jpy %.2f", prospectivePositionValueJPY, cfg.Trade.Risk.MaxPositionJPY)
-		logger.Error(err)
-		return nil, err
+	// JPY残高に対するポジションサイズの比率をチェック
+	if cfg.Trade.Risk.MaxPositionRatio > 0 {
+		maxAllowedPositionValue := currentJpy * cfg.Trade.Risk.MaxPositionRatio
+		if prospectivePositionValueJPY > maxAllowedPositionValue {
+			err := fmt.Errorf("risk check failed: prospective position value %.2f JPY exceeds max_position_ratio (%.2f) of balance (%.2f JPY)", prospectivePositionValueJPY, cfg.Trade.Risk.MaxPositionRatio, currentJpy)
+			logger.Error(err)
+			return nil, err
+		}
 	}
 
 	// 2. Max Drawdown Check
