@@ -152,4 +152,4 @@ risk:
   max_drawdown_percent: 8
   # max_position_jpy: 許容する最大のポジションサイズ（日本円換算）。
   # この値を超えて新規のポジションを持つことはありません。
-  max_position_jpy: 3000.0
+  max_position_jpy: 50000.0
