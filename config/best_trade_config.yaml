@@ -1,0 +1,40 @@
+adaptive_position_sizing:
+  enabled: true
+  min_ratio: 0.5
+  num_trades: 5
+  reduction_step: 0.9
+long:
+  obi_threshold: 1.204964234315221
+  sl: -64
+  tp: 151
+lot_max_ratio: 0.045
+order_ratio: 0.15
+pair: btc_jpy
+risk:
+  max_drawdown_percent: 8
+  max_position_jpy: 500000.0
+short:
+  obi_threshold: -1.2573731982985765
+  sl: -287
+  tp: 203
+signal:
+  hold_duration_ms: 811
+  slope_filter:
+    enabled: true
+    period: 30
+    threshold: 0.08757672161151207
+spread_limit: 23
+twap:
+  enabled: false
+  exit_ratio: 0.5
+  interval_seconds: 5
+  max_order_size_btc: 0.01
+  partial_exit_enabled: false
+  profit_threshold: 0.5
+volatility:
+  dynamic_obi:
+    enabled: true
+    max_threshold_factor: 1.9900831908046375
+    min_threshold_factor: 0.6699963400269067
+    volatility_factor: 1.078874609160313
+  ewma_lambda: 0.15
