@@ -90,22 +90,31 @@ simulate: build-image ## Run a backtest using trade data from a local CSV file.
 			--csv=$$CONTAINER_CSV_PATH; \
 	fi
 
-export-sim-data: ## Export order book data from the database to a CSV file for simulation.
+export-sim-data: ## Export order book data. Use HOURS_BEFORE or START_TIME/END_TIME.
 	@echo "Exporting simulation data..."
 	@mkdir -p ./simulation
-	@if [ -z "$(START_TIME)" ] || [ -z "$(END_TIME)" ]; then \
-		echo "Error: START_TIME and END_TIME environment variables must be set."; \
-		echo "Usage: make export-sim-data START_TIME='YYYY-MM-DD HH:MM:SS' END_TIME='YYYY-MM-DD HH:MM:SS'"; \
+	@FLAGS=""; \
+	if [ -n "$(HOURS_BEFORE)" ]; then \
+		FLAGS="--hours-before=$(HOURS_BEFORE)"; \
+	elif [ -n "$(START_TIME)" ] && [ -n "$(END_TIME)" ]; then \
+		FLAGS="--start='$(START_TIME)' --end='$(END_TIME)'"; \
+	else \
+		echo "Error: Please set either HOURS_BEFORE or both START_TIME and END_TIME."; \
+		echo "Usage: make export-sim-data HOURS_BEFORE=24"; \
+		echo "   or: make export-sim-data START_TIME='YYYY-MM-DD HH:MM:SS' END_TIME='YYYY-MM-DD HH:MM:SS'"; \
 		exit 1; \
-	fi
-	@FILENAME="simulation/order_book_updates_$$(date +%Y%m%d-%H%M%S).csv"; \
-	echo "Exporting data to $$FILENAME..."; \
+	fi; \
+	if [ "$(NO_ZIP)" = "true" ]; then \
+		FLAGS="$$FLAGS --no-zip"; \
+	fi; \
+	echo "Running export with flags: $$FLAGS"; \
 	sudo -E docker compose run --rm \
+		-v $$(pwd)/simulation:/app/simulation \
 		-e DB_USER=$(DB_USER) \
 		-e DB_PASSWORD=$(DB_PASSWORD) \
 		-e DB_NAME=$(DB_NAME) \
-		builder go run cmd/export/main.go --start "$(START_TIME)" --end "$(END_TIME)" > $$FILENAME
-	@echo "Export complete. See $$FILENAME";
+		builder sh -c "cd /app && go run cmd/export/main.go $$FLAGS"
+	@echo "Export complete. Check the 'simulation' directory."
 
 # ==============================================================================
 # GO BUILDS & TESTS
