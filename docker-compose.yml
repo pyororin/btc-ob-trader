@@ -58,7 +58,7 @@ services:
   timescaledb:
     image: timescale/timescaledb:2.11.2-pg14
     container_name: timescaledb-obi
-    command:  postgres -c config_file=/etc/postgresql/postgresql.conf
+    # command:  postgres -c config_file=/etc/postgresql/postgresql.conf
     ports:
       - "5432:5432"
     environment:
