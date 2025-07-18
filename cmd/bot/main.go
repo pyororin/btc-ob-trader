@@ -42,6 +42,14 @@ type flags struct {
 }
 
 func main() {
+	// Set timezone to JST
+	jst, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load timezone: %v\n", err)
+		os.Exit(1)
+	}
+	time.Local = jst
+
 	// --- Initialization ---
 	_ = pgxpool.Config{}
 	f := parseFlags()
@@ -269,7 +277,7 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pa
 			return
 		}
 
-		now := time.Now().UTC()
+		now := time.Now()
 
 		saveLevels := func(levels [][]string, side string, isSnapshot bool) {
 			for _, level := range levels {
@@ -322,7 +330,7 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pa
 		}
 
 		trade := dbwriter.Trade{
-			Time:          time.Now().UTC(),
+			Time:          time.Now(),
 			Pair:          data.Pair(),
 			Side:          data.TakerSide(),
 			Price:         price,
