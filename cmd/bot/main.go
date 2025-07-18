@@ -122,37 +122,45 @@ func watchConfigFiles(appConfigPath, tradeConfigPath string) {
 	}
 	defer watcher.Close()
 
-	// Add files to watch
-	for _, file := range []string{appConfigPath, tradeConfigPath} {
-		if err := watcher.Add(file); err != nil {
-			logger.Fatalf("Failed to watch file %s: %v", file, err)
+	// Use a map to handle cases where both configs are in the same directory
+	dirsToWatch := make(map[string]bool)
+	dirsToWatch[filepath.Dir(appConfigPath)] = true
+	dirsToWatch[filepath.Dir(tradeConfigPath)] = true
+
+	for dir := range dirsToWatch {
+		logger.Infof("Watching directory %s for config changes...", dir)
+		if err := watcher.Add(dir); err != nil {
+			logger.Fatalf("Failed to watch directory %s: %v", dir, err)
 		}
 	}
-
-	logger.Info("Started watching config files for changes...")
-
+  
 	for {
 		select {
 		case event, ok := <-watcher.Events:
 			if !ok {
 				return
 			}
-			// We only care about write events.
-			if event.Op&fsnotify.Write == fsnotify.Write {
-				logger.Infof("Config file %s modified. Attempting to reload...", event.Name)
 
-				// It's good practice to wait a bit for the write to complete
-				time.Sleep(100 * time.Millisecond)
+			// Check if the event is for one of our config files
+			if event.Name == appConfigPath || event.Name == tradeConfigPath {
+				// vim and other editors may use CREATE/WRITE, RENAME, or CHMOD.
+				// It's safer to catch more events and reload.
+				if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
+					logger.Infof("Config file %s modified (%s). Attempting to reload...", event.Name, event.Op.String())
 
-				newCfg, err := config.ReloadConfig(appConfigPath, tradeConfigPath)
-				if err != nil {
-					logger.Errorf("Failed to reload configuration: %v", err)
-				} else {
-					logger.SetGlobalLogLevel(newCfg.App.LogLevel)
-					logger.Info("Configuration reloaded successfully.")
-					logger.Infof("New LogLevel: %s", newCfg.App.LogLevel)
-					logger.Infof("New Long OBI Threshold: %.2f", newCfg.Trade.Long.OBIThreshold)
-					logger.Infof("New Short OBI Threshold: %.2f", newCfg.Trade.Short.OBIThreshold)
+					// Wait a bit for the write to complete, especially for atomic writes.
+					time.Sleep(250 * time.Millisecond)
+
+					newCfg, err := config.ReloadConfig(appConfigPath, tradeConfigPath)
+					if err != nil {
+						logger.Errorf("Failed to reload configuration: %v", err)
+					} else {
+						logger.SetGlobalLogLevel(newCfg.App.LogLevel)
+						logger.Info("Configuration reloaded successfully.")
+						logger.Infof("New LogLevel: %s", newCfg.App.LogLevel)
+						logger.Infof("New Long OBI Threshold: %.2f", newCfg.Trade.Long.OBIThreshold)
+						logger.Infof("New Short OBI Threshold: %.2f", newCfg.Trade.Short.OBIThreshold)
+					}
 				}
 			}
 		case err, ok := <-watcher.Errors:
