@@ -1,5 +1,5 @@
 import yaml
-import goptuna
+import optuna
 import subprocess
 import os
 import re
@@ -120,7 +120,7 @@ if __name__ == '__main__':
     study_name = os.getenv('STUDY_NAME', 'obi-scalp-bot-optimization')
     storage_url = os.getenv('STORAGE_URL', 'sqlite:///goptuna_study.db')
 
-    study = goptuna.create_study(
+    study = optuna.create_study(
         study_name=study_name,
         storage=storage_url,
         load_if_exists=True,

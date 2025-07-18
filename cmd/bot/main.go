@@ -133,7 +133,7 @@ func watchConfigFiles(appConfigPath, tradeConfigPath string) {
 			logger.Fatalf("Failed to watch directory %s: %v", dir, err)
 		}
 	}
-
+  
 	for {
 		select {
 		case event, ok := <-watcher.Events:

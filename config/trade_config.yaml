@@ -149,7 +149,7 @@ risk:
   # max_drawdown_percent: 許容する最大のドローダウン率（%）。
   # 資産のピークからの下落率がこの値を超えた場合、ボットは新規の注文を停止します。
   # 非常に重要なリスク管理項目です。
-  max_drawdown_percent: 5
+  max_drawdown_percent: 8
   # max_position_jpy: 許容する最大のポジションサイズ（日本円換算）。
   # この値を超えて新規のポジションを持つことはありません。
-  max_position_jpy: 30000.0
+  max_position_jpy: 50000.0
