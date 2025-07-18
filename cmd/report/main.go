@@ -109,7 +109,7 @@ func fetchNewTrades(ctx context.Context, dbpool *pgxpool.Pool) ([]Trade, error) 
         SELECT t.time, t.pair, t.side, t.price, t.size, t.transaction_id, t.is_cancelled
         FROM trades t
         LEFT JOIN trades_pnl tp ON t.transaction_id = tp.trade_id
-        WHERE tp.trade_id IS NULL
+        WHERE tp.trade_id IS NULL AND t.is_my_trade = TRUE
         ORDER BY t.time ASC;
     `
 	rows, err := dbpool.Query(ctx, query)

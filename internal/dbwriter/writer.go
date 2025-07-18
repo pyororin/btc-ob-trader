@@ -32,6 +32,7 @@ type Trade struct {
 	Size            float64   `db:"size"`
 	TransactionID   int64     `db:"transaction_id"`
 	IsCancelled     bool      `db:"is_cancelled"`
+	IsMyTrade       bool      `db:"is_my_trade"` // 自分の取引かどうか
 	RealizedPnL   float64   // Not stored in DB, but used for simulation summary
 	EntryTime     time.Time // Not stored in DB
 	ExitTime      time.Time // Not stored in DB
@@ -269,7 +270,7 @@ func (w *Writer) batchInsertTrades(ctx context.Context, trades []Trade) {
 	_, err := w.pool.CopyFrom(
 		ctx,
 		pgx.Identifier{"trades"},
-		[]string{"time", "pair", "side", "price", "size", "transaction_id", "is_cancelled"},
+		[]string{"time", "pair", "side", "price", "size", "transaction_id", "is_cancelled", "is_my_trade"},
 		pgx.CopyFromRows(toTradeInterfaces(trades)),
 	)
 	if err != nil {
@@ -368,7 +369,7 @@ func toBenchmarkInterfaces(values []BenchmarkValue) [][]interface{} {
 func toTradeInterfaces(trades []Trade) [][]interface{} {
 	rows := make([][]interface{}, len(trades))
 	for i, t := range trades {
-		rows[i] = []interface{}{t.Time, t.Pair, t.Side, t.Price, t.Size, t.TransactionID, t.IsCancelled}
+		rows[i] = []interface{}{t.Time, t.Pair, t.Side, t.Price, t.Size, t.TransactionID, t.IsCancelled, t.IsMyTrade}
 	}
 	return rows
 }

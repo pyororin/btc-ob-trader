@@ -210,6 +210,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 					Size:          adjustedAmount,
 					TransactionID: orderResp.ID, // Use order ID as a reference
 					IsCancelled:   true,
+					IsMyTrade:     true,
 				}
 				e.dbWriter.SaveTrade(trade)
 				logger.Infof("[Live] Cancelled trade for Order ID %d saved to DB.", orderResp.ID)
@@ -264,6 +265,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 							Size:          size,
 							TransactionID: txID,
 							IsCancelled:   false,
+							IsMyTrade:     true,
 						}
 						e.dbWriter.SaveTrade(trade)
 						logger.Infof("[Live] Confirmed trade for Order ID %d saved to DB.", orderResp.ID)
