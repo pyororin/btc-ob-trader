@@ -129,24 +129,6 @@ services:
     depends_on:
       - timescaledb
 
-  optimizer:
-    build:
-      context: .
-      dockerfile: Dockerfile.python
-    container_name: optimizer
-    volumes:
-      - .:/app
-      - /var/run/docker.sock:/var/run/docker.sock
-    working_dir: /app
-    environment:
-      - CSV_PATH=${CSV_PATH}
-      - N_TRIALS=${N_TRIALS}
-      - STUDY_NAME=${STUDY_NAME}
-      - STORAGE_URL=${STORAGE_URL}
-    command: ["python", "optimizer.py"]
-    networks:
-      - bot_network
-
 networks:
   bot_network:
     driver: bridge
