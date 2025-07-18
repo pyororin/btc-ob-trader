@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS trades (
     size DECIMAL NOT NULL,
     transaction_id BIGINT NOT NULL,
     is_cancelled BOOLEAN NOT NULL DEFAULT FALSE, -- キャンセルされた注文かどうか
+    is_my_trade BOOLEAN NOT NULL DEFAULT FALSE, -- 自分の取引かどうか
     CONSTRAINT check_trade_side CHECK (side IN ('buy', 'sell'))
 );
 
@@ -88,6 +89,7 @@ ALTER TABLE trades SET (
 SELECT add_compression_policy('trades', INTERVAL '7 days', if_not_exists => TRUE);
 
 CREATE INDEX IF NOT EXISTS idx_trades_pair_time ON trades (pair, time DESC);
+CREATE INDEX IF NOT EXISTS idx_trades_my_trade_time ON trades (is_my_trade, time DESC);
 -- CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_transaction_id ON trades (transaction_id, time);
 
 -- PnLレポートテーブル (pnl_reports)
