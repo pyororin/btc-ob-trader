@@ -10,6 +10,6 @@ CREATE TABLE trades_pnl (
 
 -- Add cumulative columns to pnl_reports
 ALTER TABLE pnl_reports
-ADD COLUMN cumulative_total_pnl NUMERIC(20, 8) NOT NULL DEFAULT 0,
-ADD COLUMN cumulative_winning_trades INTEGER NOT NULL DEFAULT 0,
-ADD COLUMN cumulative_losing_trades INTEGER NOT NULL DEFAULT 0;
+ADD COLUMN IF NOT EXISTS cumulative_total_pnl NUMERIC(20, 8) NOT NULL DEFAULT 0,
+ADD COLUMN IF NOT EXISTS cumulative_winning_trades INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN IF NOT EXISTS cumulative_losing_trades INTEGER NOT NULL DEFAULT 0;
