@@ -3,9 +3,14 @@ FROM python:3.9-slim
 # Install dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+    tzdata \
     python3-venv \
     docker.io \
     && rm -rf /var/lib/apt/lists/*
+
+# Set timezone
+ENV TZ=Asia/Tokyo
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # Create a virtual environment
 ENV VENV_PATH=/opt/venv
