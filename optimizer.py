@@ -1,5 +1,5 @@
 import yaml
-import goptuna
+import optuna
 import subprocess
 import os
 import re
