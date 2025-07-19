@@ -122,6 +122,8 @@ def objective(trial):
                 # 制約を満たさない場合は、非常に悪い値を返す
                 return 0.0, 0.0, 0.0
 
+            return total_profit, risk_reward_ratio, return_vs_buy_and_hold
+
         except json.JSONDecodeError:
             print(f"Failed to parse JSON from simulation output: {result.stdout}")
             return 0.0, 0.0, 0.0
@@ -129,14 +131,11 @@ def objective(trial):
         print("Simulation failed.")
         print(f"--- STDOUT ---\n{e.stdout}")
         print(f"--- STDERR ---\n{e.stderr}")
-        # 失敗した場合は最小値を返す
         return 0.0, 0.0, 0.0
     finally:
         # 5. 一時ファイルのクリーンアップ
         if os.path.exists(temp_config_path):
             os.remove(temp_config_path)
-
-    return total_profit, risk_reward_ratio, return_vs_buy_and_hold
 
 if __name__ == '__main__':
     n_trials = int(os.getenv('N_TRIALS', '100'))
