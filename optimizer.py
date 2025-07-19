@@ -30,88 +30,70 @@ def objective(trial):
         'spread_limit': trial.suggest_int('spread_limit', 10, 150),
         'lot_max_ratio': trial.suggest_float('lot_max_ratio', 0.01, 0.2),
         'order_ratio': trial.suggest_float('order_ratio', 0.05, 0.25),
-        'adaptive_position_sizing': {
-            'enabled': trial.suggest_categorical('adaptive_position_sizing_enabled', [True, False]),
-            'num_trades': trial.suggest_int('adaptive_num_trades', 3, 20),
-            'reduction_step': trial.suggest_float('adaptive_reduction_step', 0.5, 1.0),
-            'min_ratio': trial.suggest_float('adaptive_min_ratio', 0.1, 0.8),
-        },
-        'long': {
-            'obi_threshold': trial.suggest_float('long_obi_threshold', 0.1, 2.0),
-            'tp': trial.suggest_int('long_tp', 50, 500),
-            'sl': trial.suggest_int('long_sl', -500, -50),
-        },
-        'short': {
-            'obi_threshold': trial.suggest_float('short_obi_threshold', -2.0, -0.1),
-            'tp': trial.suggest_int('short_tp', 50, 500),
-            'sl': trial.suggest_int('short_sl', -500, -50),
-        },
-        'signal': {
-            'hold_duration_ms': trial.suggest_int('hold_duration_ms', 100, 2000),
-            'slope_filter': {
-                'enabled': trial.suggest_categorical('slope_filter_enabled', [True, False]),
-                'period': trial.suggest_int('slope_period', 3, 50),
-                'threshold': trial.suggest_float('slope_threshold', 0.0, 0.5),
-            }
-        },
-        'volatility': {
-            'ewma_lambda': trial.suggest_float('ewma_lambda', 0.05, 0.3),
-            'dynamic_obi': {
-                'enabled': trial.suggest_categorical('dynamic_obi_enabled', [True, False]),
-                'volatility_factor': trial.suggest_float('volatility_factor', 0.5, 5.0),
-                'min_threshold_factor': trial.suggest_float('min_threshold_factor', 0.5, 1.0),
-                'max_threshold_factor': trial.suggest_float('max_threshold_factor', 1.0, 3.0),
-            }
-        },
-        'twap': {
-            'enabled': trial.suggest_categorical('twap_enabled', [True, False]),
-            'max_order_size_btc': trial.suggest_float('twap_max_order_size_btc', 0.01, 0.1),
-            'interval_seconds': trial.suggest_int('twap_interval_seconds', 1, 10),
-            'partial_exit_enabled': trial.suggest_categorical('twap_partial_exit_enabled', [True, False]),
-            'profit_threshold': trial.suggest_float('twap_profit_threshold', 0.1, 2.0),
-            'exit_ratio': trial.suggest_float('twap_exit_ratio', 0.1, 1.0),
-        },
-        'risk': {
-            'max_drawdown_percent': trial.suggest_int('risk_max_drawdown_percent', 5, 20),
-            'max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.1, 1.0),
-        }
+        'adaptive_position_sizing_enabled': trial.suggest_categorical('adaptive_position_sizing_enabled', [True, False]),
+        'adaptive_num_trades': trial.suggest_int('adaptive_num_trades', 3, 20),
+        'adaptive_reduction_step': trial.suggest_float('adaptive_reduction_step', 0.5, 1.0),
+        'adaptive_min_ratio': trial.suggest_float('adaptive_min_ratio', 0.1, 0.8),
+        'long_obi_threshold': trial.suggest_float('long_obi_threshold', 0.1, 2.0),
+        'long_tp': trial.suggest_int('long_tp', 50, 500),
+        'long_sl': trial.suggest_int('long_sl', -500, -50),
+        'short_obi_threshold': trial.suggest_float('short_obi_threshold', -2.0, -0.1),
+        'short_tp': trial.suggest_int('short_tp', 50, 500),
+        'short_sl': trial.suggest_int('short_sl', -500, -50),
+        'hold_duration_ms': trial.suggest_int('hold_duration_ms', 100, 2000),
+        'slope_filter_enabled': trial.suggest_categorical('slope_filter_enabled', [True, False]),
+        'slope_period': trial.suggest_int('slope_period', 3, 50),
+        'slope_threshold': trial.suggest_float('slope_threshold', 0.0, 0.5),
+        'ewma_lambda': trial.suggest_float('ewma_lambda', 0.05, 0.3),
+        'dynamic_obi_enabled': trial.suggest_categorical('dynamic_obi_enabled', [True, False]),
+        'volatility_factor': trial.suggest_float('volatility_factor', 0.5, 5.0),
+        'min_threshold_factor': trial.suggest_float('min_threshold_factor', 0.5, 1.0),
+        'max_threshold_factor': trial.suggest_float('max_threshold_factor', 1.0, 3.0),
+        'twap_enabled': trial.suggest_categorical('twap_enabled', [True, False]),
+        'twap_max_order_size_btc': trial.suggest_float('twap_max_order_size_btc', 0.01, 0.1),
+        'twap_interval_seconds': trial.suggest_int('twap_interval_seconds', 1, 10),
+        'twap_partial_exit_enabled': trial.suggest_categorical('twap_partial_exit_enabled', [True, False]),
+        'twap_profit_threshold': trial.suggest_float('twap_profit_threshold', 0.1, 2.0),
+        'twap_exit_ratio': trial.suggest_float('twap_exit_ratio', 0.1, 1.0),
+        'risk_max_drawdown_percent': trial.suggest_int('risk_max_drawdown_percent', 5, 20),
+        'risk_max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.1, 1.0),
     }
 
     # 2. trade_config.yaml の読み込みと更新
     with open('config/trade_config.yaml', 'r') as f:
         trade_config = yaml.safe_load(f)
 
-    # パラメータを trade_config に設定
-    trade_config['spread_limit'] = params['spread_limit']
-    trade_config['lot_max_ratio'] = params['lot_max_ratio']
-    trade_config['order_ratio'] = params['order_ratio']
-    trade_config['adaptive_position_sizing']['enabled'] = params['adaptive_position_sizing']['enabled']
-    trade_config['adaptive_position_sizing']['num_trades'] = params['adaptive_position_sizing']['num_trades']
-    trade_config['adaptive_position_sizing']['reduction_step'] = params['adaptive_position_sizing']['reduction_step']
-    trade_config['adaptive_position_sizing']['min_ratio'] = params['adaptive_position_sizing']['min_ratio']
-    trade_config['long']['obi_threshold'] = params['long']['obi_threshold']
-    trade_config['long']['tp'] = params['long']['tp']
-    trade_config['long']['sl'] = params['long']['sl']
-    trade_config['short']['obi_threshold'] = params['short']['obi_threshold']
-    trade_config['short']['tp'] = params['short']['tp']
-    trade_config['short']['sl'] = params['short']['sl']
-    trade_config['signal']['hold_duration_ms'] = params['signal']['hold_duration_ms']
-    trade_config['signal']['slope_filter']['enabled'] = params['signal']['slope_filter']['enabled']
-    trade_config['signal']['slope_filter']['period'] = params['signal']['slope_filter']['period']
-    trade_config['signal']['slope_filter']['threshold'] = params['signal']['slope_filter']['threshold']
-    trade_config['volatility']['ewma_lambda'] = params['volatility']['ewma_lambda']
-    trade_config['volatility']['dynamic_obi']['enabled'] = params['volatility']['dynamic_obi']['enabled']
-    trade_config['volatility']['dynamic_obi']['volatility_factor'] = params['volatility']['dynamic_obi']['volatility_factor']
-    trade_config['volatility']['dynamic_obi']['min_threshold_factor'] = params['volatility']['dynamic_obi']['min_threshold_factor']
-    trade_config['volatility']['dynamic_obi']['max_threshold_factor'] = params['volatility']['dynamic_obi']['max_threshold_factor']
-    trade_config['twap']['enabled'] = params['twap']['enabled']
-    trade_config['twap']['max_order_size_btc'] = params['twap']['max_order_size_btc']
-    trade_config['twap']['interval_seconds'] = params['twap']['interval_seconds']
-    trade_config['twap']['partial_exit_enabled'] = params['twap']['partial_exit_enabled']
-    trade_config['twap']['profit_threshold'] = params['twap']['profit_threshold']
-    trade_config['twap']['exit_ratio'] = params['twap']['exit_ratio']
-    trade_config['risk']['max_drawdown_percent'] = params['risk_max_drawdown_percent']
-    trade_config['risk']['max_position_ratio'] = params['risk']['max_position_ratio']
+    # パラメータを trade_config に設定 (trial.paramsから取得するように修正)
+    trade_config['spread_limit'] = trial.params['spread_limit']
+    trade_config['lot_max_ratio'] = trial.params['lot_max_ratio']
+    trade_config['order_ratio'] = trial.params['order_ratio']
+    trade_config['adaptive_position_sizing']['enabled'] = trial.params['adaptive_position_sizing_enabled']
+    trade_config['adaptive_position_sizing']['num_trades'] = trial.params['adaptive_num_trades']
+    trade_config['adaptive_position_sizing']['reduction_step'] = trial.params['adaptive_reduction_step']
+    trade_config['adaptive_position_sizing']['min_ratio'] = trial.params['adaptive_min_ratio']
+    trade_config['long']['obi_threshold'] = trial.params['long_obi_threshold']
+    trade_config['long']['tp'] = trial.params['long_tp']
+    trade_config['long']['sl'] = trial.params['long_sl']
+    trade_config['short']['obi_threshold'] = trial.params['short_obi_threshold']
+    trade_config['short']['tp'] = trial.params['short_tp']
+    trade_config['short']['sl'] = trial.params['short_sl']
+    trade_config['signal']['hold_duration_ms'] = trial.params['hold_duration_ms']
+    trade_config['signal']['slope_filter']['enabled'] = trial.params['slope_filter_enabled']
+    trade_config['signal']['slope_filter']['period'] = trial.params['slope_period']
+    trade_config['signal']['slope_filter']['threshold'] = trial.params['slope_threshold']
+    trade_config['volatility']['ewma_lambda'] = trial.params['ewma_lambda']
+    trade_config['volatility']['dynamic_obi']['enabled'] = trial.params['dynamic_obi_enabled']
+    trade_config['volatility']['dynamic_obi']['volatility_factor'] = trial.params['volatility_factor']
+    trade_config['volatility']['dynamic_obi']['min_threshold_factor'] = trial.params['min_threshold_factor']
+    trade_config['volatility']['dynamic_obi']['max_threshold_factor'] = trial.params['max_threshold_factor']
+    trade_config['twap']['enabled'] = trial.params['twap_enabled']
+    trade_config['twap']['max_order_size_btc'] = trial.params['twap_max_order_size_btc']
+    trade_config['twap']['interval_seconds'] = trial.params['twap_interval_seconds']
+    trade_config['twap']['partial_exit_enabled'] = trial.params['twap_partial_exit_enabled']
+    trade_config['twap']['profit_threshold'] = trial.params['twap_profit_threshold']
+    trade_config['twap']['exit_ratio'] = trial.params['twap_exit_ratio']
+    trade_config['risk']['max_drawdown_percent'] = trial.params['risk_max_drawdown_percent']
+    trade_config['risk']['max_position_ratio'] = trial.params['risk_max_position_ratio']
 
     # 更新した設定を一時ファイルに保存 (Goバイナリに渡すため)
     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as temp_config_file:
