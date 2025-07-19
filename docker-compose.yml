@@ -130,6 +130,25 @@ services:
     depends_on:
       - timescaledb
 
+  online-learner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: obi-scalp-learner
+    volumes:
+      - .:/app
+      - ./.env:/app/.env:ro
+      - ./config:/app/config:ro
+    entrypoint: ["/usr/local/bin/learner"]
+    command: ["-config", "/app/config/app_config.yaml"]
+    env_file:
+      - .env
+    restart: unless-stopped
+    depends_on:
+      - bot
+    networks:
+      - bot_network
+
 networks:
   bot_network:
     driver: bridge
