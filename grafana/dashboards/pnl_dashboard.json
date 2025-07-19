@@ -64,193 +64,16 @@
   "links": [],
   "panels": [
     {
-      "title": "全体",
-      "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
-    },
-    {
-      "id": 101,
-      "title": "約定済み取引数",
-      "type": "stat",
-      "datasource": "TimescaleDB",
-      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 1 },
-      "targets": [
-        {
-          "rawSql": "SELECT total_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
-        }
-      ]
-    },
-    {
-      "id": 102,
-      "title": "キャンセル済み取引数",
-      "type": "stat",
-      "datasource": "TimescaleDB",
-      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 1 },
-      "targets": [
-        {
-          "rawSql": "SELECT cancelled_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
-        }
-      ]
-    },
-    {
-      "id": 103,
-      "title": "キャンセル率",
-      "type": "stat",
-      "datasource": "TimescaleDB",
-      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 1 },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent"
-        }
-      },
-      "targets": [
-        {
-          "rawSql": "SELECT cancellation_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
-        }
-      ]
-    },
-    {
-      "title": "約定済み取引の分析",
-      "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 }
-    },
-    {
-      "id": 201, "title": "勝ちトレード数", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 4, "x": 0, "y": 6 },
-      "targets": [{ "rawSql": "SELECT winning_trades FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 202, "title": "負けトレード数", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 4, "x": 4, "y": 6 },
-      "targets": [{ "rawSql": "SELECT losing_trades FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 203, "title": "勝率", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 4, "x": 8, "y": 6 },
-      "fieldConfig": { "defaults": { "unit": "percent" }},
-      "targets": [{ "rawSql": "SELECT win_rate FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 204, "title": "合計損益", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 4, "x": 12, "y": 6 },
-      "fieldConfig": { "defaults": { "unit": "currencyJPY" }},
-      "targets": [{ "rawSql": "SELECT total_pnl FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 205, "title": "平均利益", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 4, "x": 16, "y": 6 },
-      "fieldConfig": { "defaults": { "unit": "currencyJPY" }},
-      "targets": [{ "rawSql": "SELECT average_profit FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 206, "title": "平均損失", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 4, "x": 20, "y": 6 },
-      "fieldConfig": { "defaults": { "unit": "currencyJPY" }},
-      "targets": [{ "rawSql": "SELECT average_loss FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 207, "title": "リスクリワードレシオ", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 24, "x": 0, "y": 10 },
-      "targets": [{ "rawSql": "SELECT risk_reward_ratio FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "title": "戦略別",
-      "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 }
-    },
-    {
-      "id": 301,
-      "title": "ロング戦略",
-      "type": "table",
-      "datasource": "TimescaleDB",
-      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 15 },
-      "targets": [
-        {
-          "rawSql": "SELECT long_winning_trades as \"勝ちトレード数\", long_losing_trades as \"負けトレード数\", long_win_rate as \"勝率(%)\" FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
-        }
-      ]
-    },
-    {
-      "id": 302,
-      "title": "ショート戦略",
-      "type": "table",
-      "datasource": "TimescaleDB",
-      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 15 },
-      "targets": [
-        {
-          "rawSql": "SELECT short_winning_trades as \"勝ちトレード数\", short_losing_trades as \"負けトレード数\", short_win_rate as \"勝率(%)\" FROM pnl_reports ORDER BY time DESC LIMIT 1",
-          "format": "table"
-        }
-      ]
-    },
-    {
-      "title": "パフォーマンス指標",
-      "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 19 }
-    },
-    {
-      "id": 401, "title": "プロフィットファクター", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 6, "x": 0, "y": 20 },
-      "targets": [{ "rawSql": "SELECT profit_factor FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 402, "title": "シャープレシオ", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 6, "x": 6, "y": 20 },
-      "targets": [{ "rawSql": "SELECT sharpe_ratio FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 403, "title": "ソルティノレシオ", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 6, "x": 12, "y": 20 },
-      "targets": [{ "rawSql": "SELECT sortino_ratio FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 404, "title": "カルマーレシオ", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 6, "x": 18, "y": 20 },
-      "targets": [{ "rawSql": "SELECT calmar_ratio FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 405, "title": "最大ドローダウン", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 6, "x": 0, "y": 24 },
-       "fieldConfig": { "defaults": { "unit": "currencyJPY" }},
-      "targets": [{ "rawSql": "SELECT max_drawdown FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 406, "title": "リカバリーファクター", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 6, "x": 6, "y": 24 },
-      "targets": [{ "rawSql": "SELECT recovery_factor FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 407, "title": "平均保有期間(秒)", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 6, "x": 12, "y": 24 },
-      "targets": [{ "rawSql": "SELECT avg_holding_period_seconds FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 408, "title": "勝ちトレード平均保有期間(秒)", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 6, "x": 18, "y": 24 },
-      "targets": [{ "rawSql": "SELECT avg_winning_holding_period_seconds FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 409, "title": "負けトレード平均保有期間(秒)", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 6, "x": 0, "y": 28 },
-      "targets": [{ "rawSql": "SELECT avg_losing_holding_period_seconds FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 410, "title": "最大連勝数", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 6, "x": 6, "y": 28 },
-      "targets": [{ "rawSql": "SELECT max_consecutive_wins FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 411, "title": "最大連敗数", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 6, "x": 12, "y": 28 },
-      "targets": [{ "rawSql": "SELECT max_consecutive_losses FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 412, "title": "バイ・アンド・ホールドリターン", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 6, "x": 18, "y": 28 },
-       "fieldConfig": { "defaults": { "unit": "currencyJPY" }},
-      "targets": [{ "rawSql": "SELECT buy_and_hold_return FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
-      "id": 413, "title": "リターン vs B&H", "type": "stat", "datasource": "TimescaleDB", "gridPos": { "h": 4, "w": 24, "x": 0, "y": 32 },
-       "fieldConfig": { "defaults": { "unit": "currencyJPY" }},
-      "targets": [{ "rawSql": "SELECT return_vs_buy_and_hold FROM pnl_reports ORDER BY time DESC LIMIT 1", "format": "table" }]
-    },
-    {
       "title": "累積",
       "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 36 }
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
     },
     {
       "id": 501,
       "title": "累積損益",
       "type": "timeseries",
       "datasource": "TimescaleDB",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 37 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 1 },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -273,7 +96,7 @@
       "title": "累積勝ちトレード数",
       "type": "stat",
       "datasource": "TimescaleDB",
-      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 45 },
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 9 },
       "targets": [
         {
           "rawSql": "SELECT cumulative_winning_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
@@ -286,7 +109,7 @@
       "title": "累積負けトレード数",
       "type": "stat",
       "datasource": "TimescaleDB",
-      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 45 },
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 9 },
       "targets": [
         {
           "rawSql": "SELECT cumulative_losing_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
