@@ -113,6 +113,7 @@ export-sim-data: ## Export order book data. Use HOURS_BEFORE or START_TIME/END_T
 		-e DB_USER=$(DB_USER) \
 		-e DB_PASSWORD=$(DB_PASSWORD) \
 		-e DB_NAME=$(DB_NAME) \
+		-e DB_HOST=$(DB_HOST) \
 		builder sh -c "cd /app && go run cmd/export/main.go $$FLAGS"
 	@echo "Export complete. Check the 'simulation' directory."
 
