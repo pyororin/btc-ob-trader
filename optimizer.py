@@ -112,24 +112,31 @@ def objective(trial):
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=True)
         try:
-            # Goプログラムからの出力を直接JSONとしてパース
             summary = json.loads(result.stdout)
-            profit = summary.get('TotalProfit', 0.0)
+            total_profit = summary.get('TotalProfit', 0.0)
+            risk_reward_ratio = summary.get('RiskRewardRatio', 0.0)
+            return_vs_buy_and_hold = summary.get('ReturnVsBuyAndHold', 0.0)
+
+            # 制約条件のチェック
+            if total_profit < 0 or risk_reward_ratio < 1 or return_vs_buy_and_hold < 0:
+                # 制約を満たさない場合は、非常に悪い値を返す
+                return 0.0, 0.0, 0.0
+
         except json.JSONDecodeError:
             print(f"Failed to parse JSON from simulation output: {result.stdout}")
-            profit = 0.0
+            return 0.0, 0.0, 0.0
     except subprocess.CalledProcessError as e:
         print("Simulation failed.")
-        print("--- STDOUT ---")
-        print(e.stdout)
-        print("--- STDERR ---")
-        print(e.stderr)
-        profit = 0.0 # 失敗した場合は最小値を返す
+        print(f"--- STDOUT ---\n{e.stdout}")
+        print(f"--- STDERR ---\n{e.stderr}")
+        # 失敗した場合は最小値を返す
+        return 0.0, 0.0, 0.0
+    finally:
+        # 5. 一時ファイルのクリーンアップ
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
 
-    # 5. 一時ファイルのクリーンアップ
-    os.remove(temp_config_path)
-
-    return profit
+    return total_profit, risk_reward_ratio, return_vs_buy_and_hold
 
 if __name__ == '__main__':
     n_trials = int(os.getenv('N_TRIALS', '100'))
@@ -140,20 +147,30 @@ if __name__ == '__main__':
         study_name=study_name,
         storage=storage_url,
         load_if_exists=True,
-        direction='maximize'
+        directions=['maximize', 'maximize', 'maximize']
     )
     # n_jobs=-1 を指定して並列実行
     study.optimize(objective, n_trials=n_trials, n_jobs=-1)
 
-    print("Best trial:")
-    trial = study.best_trial
-    print(f"  Value: {trial.value}")
-    print("  Params: ")
-    for key, value in trial.params.items():
-        print(f"    {key}: {value}")
+    print("Best trials on the Pareto front:")
+    best_trials = sorted(study.best_trials, key=lambda t: t.values[0], reverse=True)
+
+    for trial in best_trials:
+        print(f"  Trial {trial.number}:")
+        print(f"    Values: TotalProfit={trial.values[0]:.2f}, RiskRewardRatio={trial.values[1]:.2f}, ReturnVsBuyAndHold={trial.values[2]:.2f}")
+        print("    Params: ")
+        for key, value in trial.params.items():
+            print(f"      {key}: {value}")
+
+    # TotalProfitが最も高いものを選択
+    best_trial = best_trials[0]
+    print("\nSelected best trial (highest TotalProfit):")
+    print(f"  Trial {best_trial.number}:")
+    print(f"    Values: TotalProfit={best_trial.values[0]:.2f}, RiskRewardRatio={best_trial.values[1]:.2f}, ReturnVsBuyAndHold={best_trial.values[2]:.2f}")
+
 
     # 最適な設定をYAMLファイルとして出力
-    best_params = trial.params
+    best_params = best_trial.params
     with open('config/trade_config.yaml', 'r') as f:
         best_config = yaml.safe_load(f)
 
