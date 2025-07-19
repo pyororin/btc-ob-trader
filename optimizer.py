@@ -6,7 +6,12 @@ import re
 import json
 import zipfile
 import tempfile
+import logging
 from jinja2 import Template
+
+# --- ロギング設定 ---
+optuna_logger = logging.getLogger("optuna")
+optuna_logger.setLevel(logging.WARNING)
 
 # --- ZIP展開処理を関数の外に移動 ---
 csv_path = os.getenv('CSV_PATH')
