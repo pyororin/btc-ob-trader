@@ -153,7 +153,14 @@ if __name__ == '__main__':
     study.optimize(objective, n_trials=n_trials, n_jobs=-1)
 
     print("Best trials on the Pareto front:")
-    best_trials = sorted(study.best_trials, key=lambda t: t.values[0], reverse=True)
+    # Filter for trials that have the correct number of values
+    valid_trials = [t for t in study.best_trials if t.values is not None and len(t.values) == 3]
+
+    if not valid_trials:
+        print("No valid trials found that satisfy the constraints.")
+        exit()
+
+    best_trials = sorted(valid_trials, key=lambda t: t.values[0], reverse=True)
 
     for trial in best_trials:
         print(f"  Trial {trial.number}:")
