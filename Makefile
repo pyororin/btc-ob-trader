@@ -212,13 +212,19 @@ optimize: ## Run hyperparameter optimization using Optuna. Accepts HOURS_BEFORE 
 		echo "Usage: make optimize HOURS_BEFORE=24"; \
 		echo "   or: make optimize CSV_PATH=/path/to/your/trades.csv"; \
 		exit 1; \
-	fi
-	@if [ ! -d "venv" ]; then \
-		python3 -m venv venv; \
-	fi
-	@. venv/bin/activate; \
-	pip install -r requirements.txt; \
-	CSV_PATH=$$OPTIMIZE_CSV_PATH N_TRIALS=$(N_TRIALS) STUDY_NAME=$(STUDY_NAME) STORAGE_URL=$(STORAGE_URL) python optimizer.py
+	fi; \
+	echo "Starting optimization..."; \
+	bash -c '\
+		if [ ! -d "venv" ]; then python3 -m venv venv; fi && \
+		source venv/bin/activate && \
+		pip install -r requirements.txt && \
+		export CSV_PATH="'"$${OPTIMIZE_CSV_PATH}"'" && \
+		export N_TRIALS="$${N_TRIALS:-100}" && \
+		export STUDY_NAME="$${STUDY_NAME:-obi-scalp-bot-optimization}" && \
+		export STORAGE_URL="$${STORAGE_URL:-sqlite:///optuna_study.db}" && \
+		python optimizer.py \
+	'
+
 	@if [ "$(OVERRIDE)" = "true" ]; then \
 		echo "OVERRIDE is set to true. Backing up and updating trade_config.yaml..."; \
 		mkdir -p config/history; \

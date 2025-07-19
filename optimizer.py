@@ -110,7 +110,7 @@ def objective(trial):
     trade_config['twap']['partial_exit_enabled'] = params['twap']['partial_exit_enabled']
     trade_config['twap']['profit_threshold'] = params['twap']['profit_threshold']
     trade_config['twap']['exit_ratio'] = params['twap']['exit_ratio']
-    trade_config['risk']['max_drawdown_percent'] = params['risk']['max_drawdown_percent']
+    trade_config['risk']['max_drawdown_percent'] = params['risk_max_drawdown_percent']
     trade_config['risk']['max_position_ratio'] = params['risk']['max_position_ratio']
 
     # 更新した設定を一時ファイルに保存 (Goバイナリに渡すため)
