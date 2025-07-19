@@ -398,7 +398,11 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 							logger.Infof("Calling PlaceOrder with: type=%s, price=%.2f, amount=%.2f", orderType, finalPrice, orderAmount)
 							resp, err := execEngine.PlaceOrder(ctx, currentCfg.Trade.Pair, orderType, finalPrice, orderAmount, false)
 							if err != nil {
-								logger.Errorf("Failed to place order for signal: %v", err)
+								if _, ok := err.(*engine.RiskCheckError); ok {
+									logger.Warnf("Failed to place order for signal: %v", err)
+								} else {
+									logger.Errorf("Failed to place order for signal: %v", err)
+								}
 							}
 							if resp != nil && !resp.Success {
 								logger.Warnf("Order placement was not successful: %s", resp.Error)

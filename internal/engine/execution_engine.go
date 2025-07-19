@@ -16,6 +16,16 @@ import (
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
 )
 
+// RiskCheckError is a custom error type for risk check failures.
+type RiskCheckError struct {
+	Message string
+}
+
+// Error implements the error interface for RiskCheckError.
+func (e *RiskCheckError) Error() string {
+	return e.Message
+}
+
 // ExecutionEngine defines the interface for order execution.
 type ExecutionEngine interface {
 	PlaceOrder(ctx context.Context, pair string, orderType string, rate float64, amount float64, postOnly bool) (*coincheck.OrderResponse, error)
@@ -82,9 +92,8 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	if cfg.Trade.Risk.MaxPositionRatio > 0 {
 		maxAllowedPositionValue := currentJpy * cfg.Trade.Risk.MaxPositionRatio
 		if prospectivePositionValueJPY > maxAllowedPositionValue {
-			err := fmt.Errorf("risk check failed: prospective position value %.2f JPY exceeds max_position_ratio (%.2f) of balance (%.2f JPY)", prospectivePositionValueJPY, cfg.Trade.Risk.MaxPositionRatio, currentJpy)
-			logger.Error(err)
-			return nil, err
+			msg := fmt.Sprintf("risk check failed: prospective position value %.2f JPY exceeds max_position_ratio (%.2f) of balance (%.2f JPY)", prospectivePositionValueJPY, cfg.Trade.Risk.MaxPositionRatio, currentJpy)
+			return nil, &RiskCheckError{Message: msg}
 		}
 	}
 
@@ -101,9 +110,8 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 			drawdownPercent = (-totalPnL / currentJpy) * 100
 		}
 		if cfg.Trade.Risk.MaxDrawdownPercent > 0 && drawdownPercent >= cfg.Trade.Risk.MaxDrawdownPercent {
-			err := fmt.Errorf("risk check failed: current drawdown %.2f%% exceeds max_drawdown_percent %.2f%% (PnL: %.2f, Capital: %.2f)", drawdownPercent, cfg.Trade.Risk.MaxDrawdownPercent, totalPnL, currentJpy)
-			logger.Error(err)
-			return nil, err
+			msg := fmt.Sprintf("risk check failed: current drawdown %.2f%% exceeds max_drawdown_percent %.2f%% (PnL: %.2f, Capital: %.2f)", drawdownPercent, cfg.Trade.Risk.MaxDrawdownPercent, totalPnL, currentJpy)
+			return nil, &RiskCheckError{Message: msg}
 		}
 	}
 	// --- End Risk Management Check ---
@@ -161,8 +169,8 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 
 	// coincheckの最小注文単位（0.001BTC）を下回っていないか確認
 	if adjustedAmount < 0.001 {
-		logger.Warnf("[Live] Order amount %.8f is below the minimum required amount of 0.001 BTC. Skipping order.", adjustedAmount)
-		return nil, fmt.Errorf("order amount %.8f is below the minimum required amount of 0.001 BTC", adjustedAmount)
+		msg := fmt.Sprintf("order amount %.8f is below the minimum required amount of 0.001 BTC", adjustedAmount)
+		return nil, &RiskCheckError{Message: msg}
 	}
 
 	// Place the order
