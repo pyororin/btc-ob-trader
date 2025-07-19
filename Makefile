@@ -18,7 +18,7 @@ help:
 	@echo "  \033[32mhttp://localhost:3000\033[0m (login: admin/admin)"
 
 # ==============================================================================
-# DOCKER COMPOSE
+# MAIN DOCKER COMPOSE
 # ==============================================================================
 up: ## Start all services including the bot for live trading.
 	@echo "Starting all services (including trading bot)..."
@@ -57,10 +57,9 @@ clean: ## Stop, remove containers, and remove volumes.
 	@echo "Stopping application stack and removing volumes..."
 	sudo -E docker compose down -v --remove-orphans
 
-replay: ## Run a backtest using historical data from the database.
-	@echo "Running replay task..."
-	sudo -E docker compose run --build --rm bot-replay
-
+# ==============================================================================
+# SIMULATE
+# ==============================================================================
 simulate: build-image ## Run a backtest using trade data from a local CSV file.
 	@echo "Running simulation task..."
 	@if [ -z "$(CSV_PATH)" ]; then \
@@ -116,7 +115,58 @@ export-sim-data: ## Export order book data. Use HOURS_BEFORE or START_TIME/END_T
 		-e DB_HOST=$(DB_HOST) \
 		builder sh -c "cd /app && go run cmd/export/main.go $$FLAGS"
 	@echo "Export complete. Check the 'simulation' directory."
+report: ## Generate and display the PnL report.
+	@echo "Starting report generator service..."
+	sudo -E docker compose up -d --build report-generator
+	@echo "Generating PnL report..."
+	sudo -E docker compose exec report-generator go build -o build/report cmd/report/main.go
+	@echo "Running PnL report..."
+	sudo -E docker compose exec report-generator ./build/report
 
+optimize: build ## Run hyperparameter optimization using Optuna. Accepts HOURS_BEFORE or CSV_PATH.
+	@echo "Running hyperparameter optimization..."
+	@OPTIMIZE_CSV_PATH=""; \
+	if [ -n "$(HOURS_BEFORE)" ]; then \
+		echo "HOURS_BEFORE is set to $(HOURS_BEFORE). Exporting data..."; \
+		$(MAKE) export-sim-data HOURS_BEFORE=$(HOURS_BEFORE) NO_ZIP=true; \
+		OPTIMIZE_CSV_PATH=$$(find simulation -name "*.csv" -print0 | xargs -0 ls -t | head -n 1); \
+		if [ -z "$$OPTIMIZE_CSV_PATH" ]; then \
+			echo "Error: Could not find exported CSV file in simulation directory."; \
+			exit 1; \
+		fi; \
+		echo "Using exported data: $$OPTIMIZE_CSV_PATH"; \
+	elif [ -n "$(CSV_PATH)" ]; then \
+		echo "Using provided CSV_PATH: $(CSV_PATH)"; \
+		OPTIMIZE_CSV_PATH=$(CSV_PATH); \
+	else \
+		echo "Error: Please set either HOURS_BEFORE or CSV_PATH."; \
+		echo "Usage: make optimize HOURS_BEFORE=24"; \
+		echo "   or: make optimize CSV_PATH=/path/to/your/trades.csv"; \
+		exit 1; \
+	fi; \
+	rm ./optuna_study.db; \
+	echo "Starting optimization..."; \
+	bash -c '\
+		if [ ! -d "venv" ]; then python3 -m venv venv; fi && \
+		source venv/bin/activate && \
+		pip install -r requirements.txt && \
+		export CSV_PATH="'"$${OPTIMIZE_CSV_PATH}"'" && \
+		export N_TRIALS="$${N_TRIALS:-100}" && \
+		export STUDY_NAME="$${STUDY_NAME:-obi-scalp-bot-optimization}" && \
+		export STORAGE_URL="$${STORAGE_URL:-sqlite:///optuna_study.db}" && \
+		python optimizer.py \
+	'
+
+	@if [ "$(OVERRIDE)" = "true" ]; then \
+		echo "OVERRIDE is set to true. Backing up and updating trade_config.yaml..."; \
+		mkdir -p config/history; \
+		TIMESTAMP=$$(date +%Y%m%d%H%M); \
+		cp config/trade_config.yaml config/history/trade_config.yaml_$$TIMESTAMP; \
+		echo "Backup created at config/history/trade_config.yaml_$$TIMESTAMP"; \
+		cp config/best_trade_config.yaml config/trade_config.yaml; \
+		echo "trade_config.yaml has been updated with the best parameters."; \
+	fi
+	
 # ==============================================================================
 # GO BUILDS & TESTS
 # ==============================================================================
@@ -185,54 +235,4 @@ grafana-lint: ## Lint and validate Grafana dashboards.
 	fi
 	$(DOCKER_RUN_GO) go test -v ./grafana/jsonnet/...
 
-report: ## Generate and display the PnL report.
-	@echo "Starting report generator service..."
-	sudo -E docker compose up -d --build report-generator
-	@echo "Generating PnL report..."
-	sudo -E docker compose exec report-generator go build -o build/report cmd/report/main.go
-	@echo "Running PnL report..."
-	sudo -E docker compose exec report-generator ./build/report
 
-optimize: build ## Run hyperparameter optimization using Optuna. Accepts HOURS_BEFORE or CSV_PATH.
-	@echo "Running hyperparameter optimization..."
-	@OPTIMIZE_CSV_PATH=""; \
-	if [ -n "$(HOURS_BEFORE)" ]; then \
-		echo "HOURS_BEFORE is set to $(HOURS_BEFORE). Exporting data..."; \
-		$(MAKE) export-sim-data HOURS_BEFORE=$(HOURS_BEFORE) NO_ZIP=true; \
-		OPTIMIZE_CSV_PATH=$$(find simulation -name "*.csv" -print0 | xargs -0 ls -t | head -n 1); \
-		if [ -z "$$OPTIMIZE_CSV_PATH" ]; then \
-			echo "Error: Could not find exported CSV file in simulation directory."; \
-			exit 1; \
-		fi; \
-		echo "Using exported data: $$OPTIMIZE_CSV_PATH"; \
-	elif [ -n "$(CSV_PATH)" ]; then \
-		echo "Using provided CSV_PATH: $(CSV_PATH)"; \
-		OPTIMIZE_CSV_PATH=$(CSV_PATH); \
-	else \
-		echo "Error: Please set either HOURS_BEFORE or CSV_PATH."; \
-		echo "Usage: make optimize HOURS_BEFORE=24"; \
-		echo "   or: make optimize CSV_PATH=/path/to/your/trades.csv"; \
-		exit 1; \
-	fi; \
-	rm ./optuna_study.db; \
-	echo "Starting optimization..."; \
-	bash -c '\
-		if [ ! -d "venv" ]; then python3 -m venv venv; fi && \
-		source venv/bin/activate && \
-		pip install -r requirements.txt && \
-		export CSV_PATH="'"$${OPTIMIZE_CSV_PATH}"'" && \
-		export N_TRIALS="$${N_TRIALS:-100}" && \
-		export STUDY_NAME="$${STUDY_NAME:-obi-scalp-bot-optimization}" && \
-		export STORAGE_URL="$${STORAGE_URL:-sqlite:///optuna_study.db}" && \
-		python optimizer.py \
-	'
-
-	@if [ "$(OVERRIDE)" = "true" ]; then \
-		echo "OVERRIDE is set to true. Backing up and updating trade_config.yaml..."; \
-		mkdir -p config/history; \
-		TIMESTAMP=$$(date +%Y%m%d%H%M); \
-		cp config/trade_config.yaml config/history/trade_config.yaml_$$TIMESTAMP; \
-		echo "Backup created at config/history/trade_config.yaml_$$TIMESTAMP"; \
-		cp config/best_trade_config.yaml config/trade_config.yaml; \
-		echo "trade_config.yaml has been updated with the best parameters."; \
-	fi
