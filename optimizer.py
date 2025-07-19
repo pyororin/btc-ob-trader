@@ -128,8 +128,11 @@ if __name__ == '__main__':
     study_name = os.getenv('STUDY_NAME', 'obi-scalp-bot-optimization')
     storage_url = os.getenv('STORAGE_URL', 'sqlite:///optuna_study.db')
 
-    # catch 引数で OperationalError をリトライ
-    catch_exceptions = (sqlalchemy.exc.OperationalError,)
+    # catch 引数で OperationalError と StorageInternalError をリトライ
+    catch_exceptions = (
+        sqlalchemy.exc.OperationalError,
+        optuna.exceptions.StorageInternalError,
+    )
 
     study = optuna.create_study(
         study_name=study_name,
