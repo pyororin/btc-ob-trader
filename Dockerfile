@@ -24,8 +24,8 @@ FROM public.ecr.aws/docker/library/alpine:latest
 
 WORKDIR /app
 
-# Install ca-certificates for HTTPS and curl for healthchecks
-RUN apk add --no-cache ca-certificates curl
+# Install ca-certificates for HTTPS, curl for healthchecks, and postgresql-client for the entrypoint script
+RUN apk add --no-cache ca-certificates curl postgresql-client
 
 # Copy the config directory and .env.sample
 # Note: .env.sample is for reference; actual .env or environment variables should be used for secrets
