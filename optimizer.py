@@ -120,11 +120,14 @@ if __name__ == '__main__':
     n_trials = int(os.getenv('N_TRIALS', '100'))
     study_name = os.getenv('STUDY_NAME', 'obi-scalp-bot-optimization')
     storage_url = os.getenv('STORAGE_URL', 'sqlite:///optuna_study.db')
+    fresh_start = os.getenv('FRESH_START', 'false').lower() == 'true'
 
+    # FRESH_STARTがtrueの場合、load_if_existsをFalseにして強制的に新しいStudyを作成する
+    # そうでない場合は、Trueのままにして既存のStudyを再開できるようにする
     study = optuna.create_study(
         study_name=study_name,
         storage=storage_url,
-        load_if_exists=True,
+        load_if_exists=not fresh_start,
         direction='maximize'
     )
     # n_jobs=-1 を指定して並列実行
