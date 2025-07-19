@@ -119,19 +119,25 @@ def objective(trial):
 
             # 制約条件のチェック
             if total_profit < 0 or risk_reward_ratio < 1 or return_vs_buy_and_hold < 0:
-                # 制約を満たさない場合は、非常に悪い値を返す
-                return 0.0, 0.0, 0.0
+                return 0.0
 
-            return total_profit, risk_reward_ratio, return_vs_buy_and_hold
+            # スコア計算
+            # 各指標を正規化して合計する（スケールは仮）
+            profit_score = min(total_profit / 10000.0, 1.0)
+            risk_reward_score = min((risk_reward_ratio - 1.0) / (10.0 - 1.0), 1.0)
+            return_vs_buy_and_hold_score = min(return_vs_buy_and_hold / 10000.0, 1.0)
+
+            score = profit_score + risk_reward_score + return_vs_buy_and_hold_score
+            return score
 
         except json.JSONDecodeError:
             print(f"Failed to parse JSON from simulation output: {result.stdout}")
-            return 0.0, 0.0, 0.0
+            return 0.0
     except subprocess.CalledProcessError as e:
         print("Simulation failed.")
         print(f"--- STDOUT ---\n{e.stdout}")
         print(f"--- STDERR ---\n{e.stderr}")
-        return 0.0, 0.0, 0.0
+        return 0.0
     finally:
         # 5. 一時ファイルのクリーンアップ
         if os.path.exists(temp_config_path):
@@ -146,37 +152,20 @@ if __name__ == '__main__':
         study_name=study_name,
         storage=storage_url,
         load_if_exists=True,
-        directions=['maximize', 'maximize', 'maximize']
+        direction='maximize'
     )
     # n_jobs=-1 を指定して並列実行
     study.optimize(objective, n_trials=n_trials, n_jobs=-1)
 
-    print("Best trials on the Pareto front:")
-    # Filter for trials that have the correct number of values
-    valid_trials = [t for t in study.best_trials if t.values is not None and len(t.values) == 3]
-
-    if not valid_trials:
-        print("No valid trials found that satisfy the constraints.")
-        exit()
-
-    best_trials = sorted(valid_trials, key=lambda t: t.values[0], reverse=True)
-
-    for trial in best_trials:
-        print(f"  Trial {trial.number}:")
-        print(f"    Values: TotalProfit={trial.values[0]:.2f}, RiskRewardRatio={trial.values[1]:.2f}, ReturnVsBuyAndHold={trial.values[2]:.2f}")
-        print("    Params: ")
-        for key, value in trial.params.items():
-            print(f"      {key}: {value}")
-
-    # TotalProfitが最も高いものを選択
-    best_trial = best_trials[0]
-    print("\nSelected best trial (highest TotalProfit):")
-    print(f"  Trial {best_trial.number}:")
-    print(f"    Values: TotalProfit={best_trial.values[0]:.2f}, RiskRewardRatio={best_trial.values[1]:.2f}, ReturnVsBuyAndHold={best_trial.values[2]:.2f}")
-
+    print("Best trial:")
+    trial = study.best_trial
+    print(f"  Value: {trial.value}")
+    print("  Params: ")
+    for key, value in trial.params.items():
+        print(f"    {key}: {value}")
 
     # 最適な設定をYAMLファイルとして出力
-    best_params = best_trial.params
+    best_params = trial.params
     with open('config/trade_config.yaml', 'r') as f:
         best_config = yaml.safe_load(f)
 
