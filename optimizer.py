@@ -124,7 +124,7 @@ if __name__ == '__main__':
     study = optuna.create_study(
         study_name=study_name,
         storage=storage_url,
-        load_if_exists=True,
+        load_if_exists=False,
         direction='maximize'
     )
     # n_jobs=-1 を指定して並列実行
