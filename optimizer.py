@@ -133,7 +133,7 @@ if __name__ == '__main__':
         direction='maximize'
     )
     # n_jobs=-1 を指定して並列実行
-    study.optimize(objective, n_trials=n_trials, n_jobs=-1)
+    study.optimize(objective, n_trials=n_trials, n_jobs=-1, show_progress_bar=True)
 
     print("Best trial:")
     trial = study.best_trial
