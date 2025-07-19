@@ -4,9 +4,28 @@ import subprocess
 import os
 import re
 import json
+import zipfile
+import tempfile
+
+# --- ZIP展開処理を関数の外に移動 ---
+csv_path = os.getenv('CSV_PATH')
+if not csv_path:
+    raise ValueError("CSV_PATH environment variable is not set.")
+
+unzipped_csv_path = csv_path
+if csv_path.endswith('.zip'):
+    print(f"Unzipping {csv_path}...")
+    simulation_dir = 'simulation'
+    os.makedirs(simulation_dir, exist_ok=True)
+    with zipfile.ZipFile(csv_path, 'r') as zip_ref:
+        zip_ref.extractall(simulation_dir)
+    # 展開されたCSVファイル名を取得（ZIPファイル名から.zipを除いたものと仮定）
+    unzipped_csv_path = os.path.join(simulation_dir, os.path.basename(csv_path)[:-4] + '.csv')
+    print(f"Using unzipped CSV: {unzipped_csv_path}")
+
 
 def objective(trial):
-    # 1. パラメータ空間の定義（拡張版）
+    # 1. パラメータ空間の定義
     params = {
         'spread_limit': trial.suggest_int('spread_limit', 10, 150),
         'lot_max_ratio': trial.suggest_float('lot_max_ratio', 0.01, 0.2),
@@ -94,68 +113,29 @@ def objective(trial):
     trade_config['risk']['max_drawdown_percent'] = params['risk']['max_drawdown_percent']
     trade_config['risk']['max_position_ratio'] = params['risk']['max_position_ratio']
 
-    # 更新した設定を一時ファイルに保存
-    temp_config_path = f'config/trade_config_trial_{trial.number}.yaml'
-    with open(temp_config_path, 'w') as f:
-        yaml.dump(trade_config, f)
+    # 更新した設定を一時ファイルに保存 (Goバイナリに渡すため)
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as temp_config_file:
+        yaml.dump(trade_config, temp_config_file)
+        temp_config_path = temp_config_file.name
 
-    # 3. シミュレーションの実行
-    csv_path = os.getenv('CSV_PATH')
-    if not csv_path:
-        raise ValueError("CSV_PATH environment variable is not set.")
-
-    # ZIPファイルが指定されているか確認し、展開する
-    unzipped_csv_path = csv_path
-    if csv_path.endswith('.zip'):
-        import zipfile
-        simulation_dir = 'simulation'
-        os.makedirs(simulation_dir, exist_ok=True)
-        with zipfile.ZipFile(csv_path, 'r') as zip_ref:
-            zip_ref.extractall(simulation_dir)
-        # 展開されたCSVファイル名を取得（ZIPファイル名から.zipを除いたものと仮定）
-        unzipped_csv_path = os.path.join(simulation_dir, os.path.basename(csv_path)[:-4] + '.csv')
-
-    # Dockerコンテナ内で実行するためのコマンドを構築
-    # Note: コンテナ内のパスに変換
-    container_csv_path = f"/simulation/{os.path.basename(unzipped_csv_path)}"
-    # container_config_path は config/trade_config_trial_{trial.number}.yaml とする
-    container_config_path = temp_config_path
-
+    # 3. シミュレーションの実行 (Goバイナリを直接呼び出す)
     command = [
-        'sudo', '-E', 'docker', 'compose', 'run', '--rm', '--no-deps',
-        '-v', f"{os.path.abspath(unzipped_csv_path)}:{container_csv_path}",
-        '-v', f"{os.path.abspath('config')}:/config",
-        'bot-simulate',
+        './build/obi-scalp-bot',
         '--simulate',
-        f'--csv={container_csv_path}',
-        f'--trade-config={container_config_path}',
+        f'--csv={unzipped_csv_path}',
+        f'--trade-config={temp_config_path}',
         '--json-output'
     ]
 
-    print(f"Running command: {' '.join(command)}")
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=True)
-        output = result.stdout
-        print(output)
-        # Goプログラムが出力するJSONブロックを正規表現で探す
-        json_match = re.search(r'^{.+}$', result.stdout, re.MULTILINE | re.DOTALL)
-        if json_match:
-            json_output = json_match.group(0)
-            try:
-                summary = json.loads(json_output)
-                profit = summary.get('TotalProfit', 0.0)
-            except json.JSONDecodeError:
-                print(f"Failed to parse JSON: {json_output}")
-                profit = 0.0
-        else:
-            # JSONが見つからない場合は、以前のフォールバックロジックを使用
-            print("Could not find JSON block in output. Checking for text format.")
-            profit_match = re.search(r'TotalProfit:\s*(-?[\d.]+)', output)
-            if profit_match:
-                profit = float(profit_match.group(1))
-            else:
-                print("Could not parse profit from output. Returning 0.")
-                profit = 0.0
+        try:
+            # Goプログラムからの出力を直接JSONとしてパース
+            summary = json.loads(result.stdout)
+            profit = summary.get('TotalProfit', 0.0)
+        except json.JSONDecodeError:
+            print(f"Failed to parse JSON from simulation output: {result.stdout}")
+            profit = 0.0
     except subprocess.CalledProcessError as e:
         print("Simulation failed.")
         print("--- STDOUT ---")
@@ -180,7 +160,8 @@ if __name__ == '__main__':
         load_if_exists=True,
         direction='maximize'
     )
-    study.optimize(objective, n_trials=n_trials)
+    # n_jobs=-1 を指定して並列実行
+    study.optimize(objective, n_trials=n_trials, n_jobs=-1)
 
     print("Best trial:")
     trial = study.best_trial
