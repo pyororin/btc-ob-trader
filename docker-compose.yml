@@ -13,6 +13,8 @@ services:
       - DB_HOST=timescaledb
     networks:
       - bot_network
+    depends_on:
+      - timescaledb
 
   bot:
     build:
