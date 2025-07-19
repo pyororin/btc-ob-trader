@@ -1,4 +1,4 @@
--include .env
+-include .env.local
 export
 
 .PHONY: help up down logs shell clean test build monitor report
@@ -160,23 +160,12 @@ JSON_FILES = $(patsubst $(JSONNET_DIR)/%.jsonnet,$(DASHBOARDS_DIR)/%.json,$(JSON
 JB_EXE = $(shell pwd)/bin/jb
 JSONNET_EXE = $(shell pwd)/bin/jsonnet
 
-tools: $(JB_EXE) $(JSONNET_EXE) ## Install required local tools (jb, jsonnet).
+tools: ## Install required local tools (jb, jsonnet).
+	@echo "Skipping tool installation in this environment."
 
-$(JB_EXE):
-	@echo "Installing jsonnet-bundler (jb)..."
-	@mkdir -p ./bin
-	@go install github.com/jsonnet-bundler/jsonnet-bundler/cmd/jb@latest
-	@mv $$(go env GOPATH)/bin/jb ./bin/
-
-$(JSONNET_EXE):
-	@echo "Installing jsonnet..."
-	@mkdir -p ./bin
-	@go install github.com/google/go-jsonnet/cmd/jsonnet@latest
-	@mv $$(go env GOPATH)/bin/jsonnet ./bin/
-
-vendor: tools ## Install jsonnet dependencies into the vendor directory.
+vendor: ## Install jsonnet dependencies into the vendor directory.
 	@echo "Installing jsonnet dependencies..."
-	@cd $(JSONNET_DIR) && $(JB_EXE) install
+	@cd $(JSONNET_DIR) && go run github.com/jsonnet-bundler/jsonnet-bundler/cmd/jb@latest install
 
 grafana-render: vendor ## Render Grafana dashboards from Jsonnet to JSON.
 	@echo "Rendering Grafana dashboards..."
@@ -184,11 +173,15 @@ grafana-render: vendor ## Render Grafana dashboards from Jsonnet to JSON.
 	@for file in $(JSONNET_FILES); do \
 		output_file="$(DASHBOARDS_DIR)/$$(basename $${file%.jsonnet}.json)"; \
 		echo "Rendering $$file -> $$output_file"; \
-		$(JSONNET_EXE) -J $(JSONNET_DIR)/vendor $$file > $$output_file; \
+		go run github.com/google/go-jsonnet/cmd/jsonnet@latest -J $(JSONNET_DIR)/vendor $$file > $$output_file; \
 	done
 
-grafana-lint: vendor ## Lint and validate Grafana dashboards.
+grafana-lint: ## Lint and validate Grafana dashboards.
 	@echo "Linting and validating Grafana dashboards..."
+	@if ! [ -d "grafana/jsonnet/vendor" ]; then \
+		echo "Vendor directory not found. Running 'make vendor' first..."; \
+		$(MAKE) vendor; \
+	fi
 	$(DOCKER_RUN_GO) go test -v ./grafana/jsonnet/...
 
 report: ## Generate and display the PnL report.
