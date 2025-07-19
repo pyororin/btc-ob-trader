@@ -124,7 +124,7 @@ DOCKER_RUN_GO = sudo -E docker compose run --rm --service-ports --entrypoint "" 
 
 test: ## Run standard Go tests (excluding DB-dependent tests).
 	@echo "Running standard Go tests..."
-	$(DOCKER_RUN_GO) go test -tags="" -v ./...
+	$(DOCKER_RUN_GO) go test -v ./...
 
 sqltest: ## Run tests that require a database connection.
 	@echo "Running database integration tests..."
