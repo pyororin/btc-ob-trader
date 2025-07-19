@@ -23,8 +23,15 @@ services:
       - .:/app
       - ./.env:/app/.env:ro
       - ./config:/app/config:ro
-    entrypoint: ["/usr/local/bin/obi-scalp-bot"]
-    command: ["-config", "/app/config/app_config.yaml"]
+    entrypoint: >
+      /bin/sh -c "
+        until PGPASSWORD=$DB_PASSWORD psql -h timescaledb -U $DB_USER -d $DB_NAME -c '\d trades' 2>/dev/null | grep -q 'Table \"public.trades\"'; do
+          echo 'Waiting for database schema to be ready...'
+          sleep 2
+        done;
+        echo 'Database is ready. Starting bot...';
+        /usr/local/bin/obi-scalp-bot -config /app/config/app_config.yaml
+      "
     env_file:
       - .env
     environment:
