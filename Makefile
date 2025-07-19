@@ -124,7 +124,7 @@ DOCKER_RUN_GO = sudo -E docker compose run --rm --service-ports --entrypoint "" 
 
 test: ## Run standard Go tests (excluding DB-dependent tests).
 	@echo "Running standard Go tests..."
-	$(DOCKER_RUN_GO) go test -v ./...
+	$(DOCKER_RUN_GO) go test -tags="" -v ./...
 
 sqltest: ## Run tests that require a database connection.
 	@echo "Running database integration tests..."
@@ -192,7 +192,7 @@ report: ## Generate and display the PnL report.
 	@echo "Running PnL report..."
 	sudo -E docker compose exec report-generator ./build/report
 
-optimize: ## Run hyperparameter optimization using Optuna. Accepts HOURS_BEFORE or CSV_PATH.
+optimize: build ## Run hyperparameter optimization using Optuna. Accepts HOURS_BEFORE or CSV_PATH.
 	@echo "Running hyperparameter optimization..."
 	@OPTIMIZE_CSV_PATH=""; \
 	if [ -n "$(HOURS_BEFORE)" ]; then \
