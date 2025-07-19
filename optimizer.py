@@ -10,6 +10,7 @@ import logging
 import time
 from jinja2 import Template
 import sqlalchemy.exc
+import sqlite3
 
 # --- ロギング設定 ---
 optuna_logger = logging.getLogger("optuna")
@@ -132,6 +133,7 @@ if __name__ == '__main__':
     catch_exceptions = (
         sqlalchemy.exc.OperationalError,
         optuna.exceptions.StorageInternalError,
+        sqlite3.OperationalError,
     )
 
     study = optuna.create_study(
