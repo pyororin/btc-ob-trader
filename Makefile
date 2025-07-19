@@ -192,39 +192,37 @@ report: ## Generate and display the PnL report.
 	@echo "Running PnL report..."
 	sudo -E docker compose exec report-generator ./build/report
 
-optimize: build monitor ## Run hyperparameter optimization using Optuna. Accepts HOURS_BEFORE or CSV_PATH.
+optimize: build ## Run hyperparameter optimization using Optuna. Accepts HOURS_BEFORE or CSV_PATH.
 	@echo "Running hyperparameter optimization..."
-	@bash -c ' \
-		set -e; \
-		export HOURS_BEFORE=$(HOURS_BEFORE); \
-		export CSV_PATH=$(CSV_PATH); \
-		export N_TRIALS=${N_TRIALS:-100}; \
-		export STUDY_NAME=${STUDY_NAME:-obi-scalp-bot-optimization}; \
-		export STORAGE_URL=${STORAGE_URL:-sqlite:///optuna_study.db}; \
-		export FRESH_START=${FRESH_START:-false}; \
-		\
-		if [ -n "$$HOURS_BEFORE" ]; then \
-			echo "HOURS_BEFORE is set to $$HOURS_BEFORE. Exporting data..."; \
-			make export-sim-data; \
-			export CSV_PATH=$$(find simulation -name "*.csv" -print0 | xargs -0 ls -t | head -n 1); \
-			if [ -z "$$CSV_PATH" ]; then \
-				echo "Error: Could not find exported CSV file in simulation directory."; \
-				exit 1; \
-			fi; \
-			echo "Using exported data: $$CSV_PATH"; \
-		elif [ -n "$$CSV_PATH" ]; then \
-			echo "Using provided CSV_PATH: $$CSV_PATH"; \
-		else \
-			echo "Error: Please set either HOURS_BEFORE or CSV_PATH."; \
+	@OPTIMIZE_CSV_PATH=""; \
+	if [ -n "$(HOURS_BEFORE)" ]; then \
+		echo "HOURS_BEFORE is set to $(HOURS_BEFORE). Exporting data..."; \
+		$(MAKE) export-sim-data HOURS_BEFORE=$(HOURS_BEFORE) NO_ZIP=true; \
+		OPTIMIZE_CSV_PATH=$$(find simulation -name "*.csv" -print0 | xargs -0 ls -t | head -n 1); \
+		if [ -z "$$OPTIMIZE_CSV_PATH" ]; then \
+			echo "Error: Could not find exported CSV file in simulation directory."; \
 			exit 1; \
 		fi; \
-		\
-		echo "Starting optimization..."; \
-		if [ ! -d "venv" ]; then python3 -m venv venv; fi; \
-		. venv/bin/activate; \
-		pip install -r requirements.txt > /dev/null; \
-		\
-		python optimizer.py; \
+		echo "Using exported data: $$OPTIMIZE_CSV_PATH"; \
+	elif [ -n "$(CSV_PATH)" ]; then \
+		echo "Using provided CSV_PATH: $(CSV_PATH)"; \
+		OPTIMIZE_CSV_PATH=$(CSV_PATH); \
+	else \
+		echo "Error: Please set either HOURS_BEFORE or CSV_PATH."; \
+		echo "Usage: make optimize HOURS_BEFORE=24"; \
+		echo "   or: make optimize CSV_PATH=/path/to/your/trades.csv"; \
+		exit 1; \
+	fi; \
+	echo "Starting optimization..."; \
+	bash -c '\
+		if [ ! -d "venv" ]; then python3 -m venv venv; fi && \
+		source venv/bin/activate && \
+		pip install -r requirements.txt && \
+		export CSV_PATH="'"$${OPTIMIZE_CSV_PATH}"'" && \
+		export N_TRIALS="$${N_TRIALS:-100}" && \
+		export STUDY_NAME="$${STUDY_NAME:-obi-scalp-bot-optimization}" && \
+		export STORAGE_URL="$${STORAGE_URL:-sqlite:///optuna_study.db}" && \
+		python optimizer.py \
 	'
 
 	@if [ "$(OVERRIDE)" = "true" ]; then \
