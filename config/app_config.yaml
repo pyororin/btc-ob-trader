@@ -50,3 +50,5 @@ alert:
     bot_token: "dummy_token"
     # 通知を送信するユーザーのID (環境変数 DISCORD_USER_ID で上書きされます)
     user_id: "dummy_user_id"
+    # エラー通知をまとめて送信する間隔（分）
+    buffer_interval_minutes: 10
