@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
@@ -40,8 +39,6 @@ type Client struct {
 	apiKey     string
 	secretKey  string
 	httpClient *http.Client
-	mu         sync.Mutex
-	lastNonce  int64
 }
 
 // NewClient creates a new Coincheck API client.
@@ -50,7 +47,6 @@ func NewClient(apiKey, secretKey string) *Client {
 		apiKey:     apiKey,
 		secretKey:  secretKey,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
-		lastNonce:  time.Now().UnixNano(),
 	}
 }
 
@@ -61,15 +57,7 @@ func (c *Client) newRequest(method, endpoint string, body io.Reader) (*http.Requ
 		return nil, err
 	}
 
-	c.mu.Lock()
-	nonceVal := time.Now().UnixNano()
-	if nonceVal <= c.lastNonce {
-		nonceVal = c.lastNonce + 1
-	}
-	c.lastNonce = nonceVal
-	c.mu.Unlock()
-
-	nonce := strconv.FormatInt(nonceVal, 10)
+	nonce := strconv.FormatInt(time.Now().UnixNano(), 10)
 	message := nonce + url
 	if body != nil && body != http.NoBody {
 		buf := new(bytes.Buffer)
