@@ -214,7 +214,7 @@ optimize: build ## Run hyperparameter optimization using Optuna. Accepts HOURS_B
 		echo "   or: make optimize CSV_PATH=/path/to/your/trades.csv"; \
 		exit 1; \
 	fi; \
-	rm ./optuna_study.db \
+	rm ./optuna_study.db; \
 	echo "Starting optimization..."; \
 	bash -c '\
 		if [ ! -d "venv" ]; then python3 -m venv venv; fi && \
