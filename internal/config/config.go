@@ -60,9 +60,8 @@ type AlertConfig struct {
 
 // DiscordConfig holds Discord notification settings.
 type DiscordConfig struct {
-	BotToken             string `yaml:"bot_token"`
-	UserID               string `yaml:"user_id"`
-	BufferIntervalMinutes int    `yaml:"buffer_interval_minutes"`
+	BotToken string `yaml:"bot_token"`
+	UserID   string `yaml:"user_id"`
 }
 
 // RiskConfig holds risk management settings.
