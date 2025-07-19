@@ -2,10 +2,10 @@
 setlocal
 
 rem --- 引数のデフォルト値を設定 ---
-set N_TRIALS=1000
-set HOURS_BEFORE=12
+set N_TRIALS=5000
+set HOURS_BEFORE=6
 set OVERRIDE=true
-set INTERVAL=60
+set INTERVAL=360
 
 rem --- 引数を取得 ---
 if not "%~1"=="" set N_TRIALS=%~1
