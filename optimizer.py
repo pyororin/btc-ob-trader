@@ -63,8 +63,8 @@ def objective(trial):
         'twap_partial_exit_enabled': trial.suggest_categorical('twap_partial_exit_enabled', [True, False]),
         'twap_profit_threshold': trial.suggest_float('twap_profit_threshold', 0.1, 2.0),
         'twap_exit_ratio': trial.suggest_float('twap_exit_ratio', 0.1, 1.0),
-        'risk_max_drawdown_percent': trial.suggest_int('risk_max_drawdown_percent', 5, 20),
-        'risk_max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.1, 1.0),
+        'risk_max_drawdown_percent': trial.suggest_int('risk_max_drawdown_percent', 15, 25),
+        'risk_max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.5, 0.9),
     }
 
     # 2. テンプレートから設定ファイルを生成
