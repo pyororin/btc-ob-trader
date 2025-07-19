@@ -6,6 +6,7 @@ import re
 import json
 import zipfile
 import tempfile
+from jinja2 import Template
 
 # --- ZIP展開処理を関数の外に移動 ---
 csv_path = os.getenv('CSV_PATH')
@@ -59,41 +60,13 @@ def objective(trial):
         'risk_max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.1, 1.0),
     }
 
-    # 2. trade_config.yaml の読み込みと更新
-    with open('config/trade_config.yaml', 'r') as f:
-        trade_config = yaml.safe_load(f)
+    # 2. テンプレートから設定ファイルを生成
+    with open('config/trade_config.yaml.template', 'r') as f:
+        template_str = f.read()
+    template = Template(template_str)
+    rendered_config_str = template.render(params)
+    trade_config = yaml.safe_load(rendered_config_str)
 
-    # パラメータを trade_config に設定 (trial.paramsから取得するように修正)
-    trade_config['spread_limit'] = trial.params['spread_limit']
-    trade_config['lot_max_ratio'] = trial.params['lot_max_ratio']
-    trade_config['order_ratio'] = trial.params['order_ratio']
-    trade_config['adaptive_position_sizing']['enabled'] = trial.params['adaptive_position_sizing_enabled']
-    trade_config['adaptive_position_sizing']['num_trades'] = trial.params['adaptive_num_trades']
-    trade_config['adaptive_position_sizing']['reduction_step'] = trial.params['adaptive_reduction_step']
-    trade_config['adaptive_position_sizing']['min_ratio'] = trial.params['adaptive_min_ratio']
-    trade_config['long']['obi_threshold'] = trial.params['long_obi_threshold']
-    trade_config['long']['tp'] = trial.params['long_tp']
-    trade_config['long']['sl'] = trial.params['long_sl']
-    trade_config['short']['obi_threshold'] = trial.params['short_obi_threshold']
-    trade_config['short']['tp'] = trial.params['short_tp']
-    trade_config['short']['sl'] = trial.params['short_sl']
-    trade_config['signal']['hold_duration_ms'] = trial.params['hold_duration_ms']
-    trade_config['signal']['slope_filter']['enabled'] = trial.params['slope_filter_enabled']
-    trade_config['signal']['slope_filter']['period'] = trial.params['slope_period']
-    trade_config['signal']['slope_filter']['threshold'] = trial.params['slope_threshold']
-    trade_config['volatility']['ewma_lambda'] = trial.params['ewma_lambda']
-    trade_config['volatility']['dynamic_obi']['enabled'] = trial.params['dynamic_obi_enabled']
-    trade_config['volatility']['dynamic_obi']['volatility_factor'] = trial.params['volatility_factor']
-    trade_config['volatility']['dynamic_obi']['min_threshold_factor'] = trial.params['min_threshold_factor']
-    trade_config['volatility']['dynamic_obi']['max_threshold_factor'] = trial.params['max_threshold_factor']
-    trade_config['twap']['enabled'] = trial.params['twap_enabled']
-    trade_config['twap']['max_order_size_btc'] = trial.params['twap_max_order_size_btc']
-    trade_config['twap']['interval_seconds'] = trial.params['twap_interval_seconds']
-    trade_config['twap']['partial_exit_enabled'] = trial.params['twap_partial_exit_enabled']
-    trade_config['twap']['profit_threshold'] = trial.params['twap_profit_threshold']
-    trade_config['twap']['exit_ratio'] = trial.params['twap_exit_ratio']
-    trade_config['risk']['max_drawdown_percent'] = trial.params['risk_max_drawdown_percent']
-    trade_config['risk']['max_position_ratio'] = trial.params['risk_max_position_ratio']
 
     # 更新した設定を一時ファイルに保存 (Goバイナリに渡すため)
     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as temp_config_file:
@@ -164,43 +137,14 @@ if __name__ == '__main__':
     for key, value in trial.params.items():
         print(f"    {key}: {value}")
 
-    # 最適な設定をYAMLファイルとして出力
+    # 最適な設定をテンプレートからYAMLファイルとして出力
     best_params = trial.params
-    with open('config/trade_config.yaml', 'r') as f:
-        best_config = yaml.safe_load(f)
-
-    best_config['spread_limit'] = best_params.get('spread_limit')
-    best_config['lot_max_ratio'] = best_params.get('lot_max_ratio')
-    best_config['order_ratio'] = best_params.get('order_ratio')
-    best_config['adaptive_position_sizing']['enabled'] = best_params.get('adaptive_position_sizing_enabled')
-    best_config['adaptive_position_sizing']['num_trades'] = best_params.get('adaptive_num_trades')
-    best_config['adaptive_position_sizing']['reduction_step'] = best_params.get('adaptive_reduction_step')
-    best_config['adaptive_position_sizing']['min_ratio'] = best_params.get('adaptive_min_ratio')
-    best_config['long']['obi_threshold'] = best_params.get('long_obi_threshold')
-    best_config['long']['tp'] = best_params.get('long_tp')
-    best_config['long']['sl'] = best_params.get('long_sl')
-    best_config['short']['obi_threshold'] = best_params.get('short_obi_threshold')
-    best_config['short']['tp'] = best_params.get('short_tp')
-    best_config['short']['sl'] = best_params.get('short_sl')
-    best_config['signal']['hold_duration_ms'] = best_params.get('hold_duration_ms')
-    best_config['signal']['slope_filter']['enabled'] = best_params.get('slope_filter_enabled')
-    best_config['signal']['slope_filter']['period'] = best_params.get('slope_period')
-    best_config['signal']['slope_filter']['threshold'] = best_params.get('slope_threshold')
-    best_config['volatility']['ewma_lambda'] = best_params.get('ewma_lambda')
-    best_config['volatility']['dynamic_obi']['enabled'] = best_params.get('dynamic_obi_enabled')
-    best_config['volatility']['dynamic_obi']['volatility_factor'] = best_params.get('volatility_factor')
-    best_config['volatility']['dynamic_obi']['min_threshold_factor'] = best_params.get('min_threshold_factor')
-    best_config['volatility']['dynamic_obi']['max_threshold_factor'] = best_params.get('max_threshold_factor')
-    best_config['twap']['enabled'] = best_params.get('twap_enabled')
-    best_config['twap']['max_order_size_btc'] = best_params.get('twap_max_order_size_btc')
-    best_config['twap']['interval_seconds'] = best_params.get('twap_interval_seconds')
-    best_config['twap']['partial_exit_enabled'] = best_params.get('twap_partial_exit_enabled')
-    best_config['twap']['profit_threshold'] = best_params.get('twap_profit_threshold')
-    best_config['twap']['exit_ratio'] = best_params.get('twap_exit_ratio')
-    best_config['risk']['max_drawdown_percent'] = best_params.get('risk_max_drawdown_percent')
-    best_config['risk']['max_position_ratio'] = best_params.get('risk_max_position_ratio')
+    with open('config/trade_config.yaml.template', 'r') as f:
+        template_str = f.read()
+    template = Template(template_str)
+    best_config_str = template.render(best_params)
 
     with open('config/best_trade_config.yaml', 'w') as f:
-        yaml.dump(best_config, f)
+        f.write(best_config_str)
 
     print("\nBest trade config saved to config/best_trade_config.yaml")
