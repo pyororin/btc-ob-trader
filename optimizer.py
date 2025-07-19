@@ -7,6 +7,7 @@ import json
 import zipfile
 import tempfile
 import logging
+import time
 from jinja2 import Template
 
 # --- ロギング設定 ---
@@ -133,7 +134,19 @@ if __name__ == '__main__':
         direction='maximize'
     )
     # n_jobs=-1 を指定して並列実行
-    study.optimize(objective, n_trials=n_trials, n_jobs=-1, show_progress_bar=True)
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            study.optimize(objective, n_trials=n_trials, n_jobs=-1, show_progress_bar=True)
+            break  # 成功したらループを抜ける
+        except optuna.exceptions.StorageInternalError as e:
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # Exponential backoff
+                print(f"StorageInternalError caught: {e}. Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+            else:
+                print(f"StorageInternalError persisted after {max_retries} attempts. Giving up.")
+                raise e
 
     print("Best trial:")
     trial = study.best_trial
