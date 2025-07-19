@@ -1,4 +1,4 @@
--include .env.local
+-include .env
 export
 
 .PHONY: help up down logs shell clean test build monitor report
