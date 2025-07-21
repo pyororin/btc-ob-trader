@@ -125,47 +125,54 @@ def objective(trial):
             os.remove(temp_config_path)
 
 if __name__ == '__main__':
-    n_trials = int(os.getenv('N_TRIALS', '100'))
-    study_name = os.getenv('STUDY_NAME', 'obi-scalp-bot-optimization')
-    storage_url = os.getenv('STORAGE_URL', 'sqlite:///optuna_study.db')
+    import sys
 
-    # catch 引数で OperationalError と StorageInternalError をリトライ
-    catch_exceptions = (
-        sqlalchemy.exc.OperationalError,
-        optuna.exceptions.StorageInternalError,
-        sqlite3.OperationalError,
-    )
+    try:
+        # ここに今のメイン処理を全部入れてください
+        n_trials = int(os.getenv('N_TRIALS', '100'))
+        study_name = os.getenv('STUDY_NAME', 'obi-scalp-bot-optimization')
+        storage_url = os.getenv('STORAGE_URL', 'sqlite:///optuna_study.db')
 
-    study = optuna.create_study(
-        study_name=study_name,
-        storage=storage_url,
-        load_if_exists=False,
-        direction='maximize'
-    )
+        catch_exceptions = (
+            sqlalchemy.exc.OperationalError,
+            optuna.exceptions.StorageInternalError,
+            sqlite3.OperationalError,
+        )
 
-    study.optimize(
-        objective,
-        n_trials=n_trials,
-        n_jobs=-1,
-        show_progress_bar=True,
-        catch=catch_exceptions,
-    )
+        study = optuna.create_study(
+            study_name=study_name,
+            storage=storage_url,
+            load_if_exists=False,
+            direction='maximize'
+        )
 
-    print("Best trial:")
-    trial = study.best_trial
-    print(f"  Value: {trial.value}")
-    print("  Params: ")
-    for key, value in trial.params.items():
-        print(f"    {key}: {value}")
+        study.optimize(
+            objective,
+            n_trials=n_trials,
+            n_jobs=-1,
+            show_progress_bar=True,
+            catch=catch_exceptions,
+        )
 
-    # 最適な設定をテンプレートからYAMLファイルとして出力
-    best_params = trial.params
-    with open('config/trade_config.yaml.template', 'r') as f:
-        template_str = f.read()
-    template = Template(template_str)
-    best_config_str = template.render(best_params)
+        print("Best trial:")
+        trial = study.best_trial
+        print(f"  Value: {trial.value}")
+        print("  Params: ")
+        for key, value in trial.params.items():
+            print(f"    {key}: {value}")
 
-    with open('config/best_trade_config.yaml', 'w') as f:
-        f.write(best_config_str)
+        best_params = trial.params
+        with open('config/trade_config.yaml.template', 'r') as f:
+            template_str = f.read()
+        template = Template(template_str)
+        best_config_str = template.render(best_params)
 
-    print("\nBest trade config saved to config/best_trade_config.yaml")
+        with open('config/best_trade_config.yaml', 'w') as f:
+            f.write(best_config_str)
+
+        print("\nBest trade config saved to config/best_trade_config.yaml")
+
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        # traceback.print_exc()  # 必要な時だけ有効化
+        sys.exit(1)

@@ -24,11 +24,7 @@ while true; do
 
     # --- make optimize 実行 ---
     # --- make optimize 実行（Traceback 抑制）---
-    make optimize N_TRIALS="$N_TRIALS" HOURS_BEFORE="$HOURS_BEFORE" OVERRIDE="$OVERRIDE" \
-  1> >(cat) \
-  2> >(sed '/^Traceback/,/^$/d' >&2)
-
-
+    make optimize N_TRIALS="$N_TRIALS" HOURS_BEFORE="$HOURS_BEFORE" OVERRIDE="$OVERRIDE"
 
     echo "$(date '+%Y-%m-%d %H:%M:%S') : 実行完了"
     echo "$INTERVAL 分後に再実行します..."
