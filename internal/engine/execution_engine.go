@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/your-org/obi-scalp-bot/internal/alert"
 	"github.com/your-org/obi-scalp-bot/internal/config"
 	"github.com/your-org/obi-scalp-bot/internal/dbwriter"
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
@@ -45,10 +46,11 @@ type LiveExecutionEngine struct {
 	}
 	partialExitMutex   sync.Mutex
 	isExitingPartially bool
+	notifier           alert.Notifier
 }
 
 // NewLiveExecutionEngine creates a new LiveExecutionEngine.
-func NewLiveExecutionEngine(client *coincheck.Client, dbWriter dbwriter.DBWriter) *LiveExecutionEngine {
+func NewLiveExecutionEngine(client *coincheck.Client, dbWriter dbwriter.DBWriter, notifier alert.Notifier) *LiveExecutionEngine {
 	cfg := config.GetConfig()
 	engine := &LiveExecutionEngine{
 		exchangeClient: client,
@@ -56,6 +58,7 @@ func NewLiveExecutionEngine(client *coincheck.Client, dbWriter dbwriter.DBWriter
 		position:       position.NewPosition(),
 		pnlCalculator:  pnl.NewCalculator(),
 		recentPnLs:     make([]float64, 0),
+		notifier:       notifier,
 	}
 	// Initialize ratios from config
 	engine.currentRatios.OrderRatio = cfg.Trade.OrderRatio
@@ -188,9 +191,11 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	orderResp, orderSentTime, err := e.exchangeClient.NewOrder(req)
 	if err != nil {
 		logger.Errorf("[Live] Error placing order: %v, Response: %+v", err, orderResp)
+		e.sendAlert(fmt.Sprintf("Error placing order: %v, Response: %+v", err, orderResp))
 		return orderResp, err
 	}
 	if !orderResp.Success {
+		e.sendAlert(fmt.Sprintf("Failed to place order: %s", orderResp.Error))
 		return orderResp, fmt.Errorf("failed to place order: %s", orderResp.Error)
 	}
 	logger.Infof("[Live] Order placed successfully: ID=%d", orderResp.ID)
@@ -349,10 +354,20 @@ func (e *LiveExecutionEngine) CancelOrder(ctx context.Context, orderID int64) (*
 	resp, err := e.exchangeClient.CancelOrder(orderID)
 	if err != nil {
 		logger.Errorf("[Live] Error cancelling order: %v, Response: %+v", err, resp)
+		e.sendAlert(fmt.Sprintf("Error cancelling order: %v, Response: %+v", err, resp))
 		return resp, err
 	}
 	logger.Infof("[Live] Order cancelled successfully: %+v", resp)
 	return resp, nil
+}
+
+// sendAlert sends a message using the notifier if it's configured.
+func (e *LiveExecutionEngine) sendAlert(message string) {
+	if e.notifier != nil {
+		if err := e.notifier.Send(message); err != nil {
+			logger.Errorf("Failed to send alert: %v", err)
+		}
+	}
 }
 
 // updateRecentPnLs adds a new PnL to the recent PnL list and keeps it at the configured size.
