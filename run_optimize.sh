@@ -2,9 +2,9 @@
 
 # --- デフォルト値 ---
 N_TRIALS=5000
-HOURS_BEFORE=12
+HOURS_BEFORE=6
 OVERRIDE=true
-INTERVAL=360  # minutes
+INTERVAL=60  # minutes
 
 # --- 引数で上書き ---
 if [ -n "$1" ]; then N_TRIALS="$1"; fi
@@ -23,7 +23,9 @@ while true; do
     echo "  INTERVAL(min): $INTERVAL"
 
     # --- make optimize 実行 ---
-    make optimize N_TRIALS="$N_TRIALS" HOURS_BEFORE="$HOURS_BEFORE" OVERRIDE="$OVERRIDE"
+    # --- make optimize 実行（Traceback 抑制）---
+    make optimize N_TRIALS="$N_TRIALS" HOURS_BEFORE="$HOURS_BEFORE" OVERRIDE="$OVERRIDE" 2>&1 | sed '/^Traceback/,/^$/d'
+
 
     echo "$(date '+%Y-%m-%d %H:%M:%S') : 実行完了"
     echo "$INTERVAL 分後に再実行します..."
