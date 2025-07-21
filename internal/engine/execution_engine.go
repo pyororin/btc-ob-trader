@@ -187,7 +187,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	logger.Infof("[Live] Placing order: %+v", req)
 	orderResp, orderSentTime, err := e.exchangeClient.NewOrder(req)
 	if err != nil {
-		logger.Errorf("[Live] Error placing order: %v, Response: %+v", err, orderResp)
+		logger.Warnf("[Live] Error placing order: %v, Response: %+v", err, orderResp)
 		return orderResp, err
 	}
 	if !orderResp.Success {
