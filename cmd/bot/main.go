@@ -16,7 +16,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/your-org/obi-scalp-bot/internal/alert"
 	"github.com/your-org/obi-scalp-bot/internal/benchmark"
 	"github.com/your-org/obi-scalp-bot/internal/config"
 	"github.com/your-org/obi-scalp-bot/internal/datastore"
@@ -24,13 +26,12 @@ import (
 	"github.com/your-org/obi-scalp-bot/internal/engine"
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
 	"github.com/your-org/obi-scalp-bot/internal/http/handler"
-	"sync"
-	"reflect"
-	"github.com/fsnotify/fsnotify"
 	"github.com/your-org/obi-scalp-bot/internal/indicator"
 	tradingsignal "github.com/your-org/obi-scalp-bot/internal/signal"
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
 	"go.uber.org/zap"
+	"reflect"
+	"sync"
 )
 
 type flags struct {
@@ -474,6 +475,13 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 		go runSimulation(ctx, f, sigs)
 	} else {
 		// Live trading setup
+		notifier, err := alert.NewDiscordNotifier(cfg.App.Alert.Discord)
+		if err != nil {
+			logger.Warnf("Failed to initialize Discord notifier: %v", err)
+		} else {
+			logger.Info("Discord notifier initialized successfully.")
+		}
+
 		var benchmarkService *benchmark.Service
 		if dbWriter != nil {
 			var zapLogger *zap.Logger
@@ -487,7 +495,7 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 			benchmarkService = benchmark.NewService(zapLogger, dbWriter)
 		}
 		client := coincheck.NewClient(cfg.APIKey, cfg.APISecret)
-		execEngine := engine.NewLiveExecutionEngine(client, dbWriter)
+		execEngine := engine.NewLiveExecutionEngine(client, dbWriter, notifier)
 
 		orderBook := indicator.NewOrderBook()
 		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
