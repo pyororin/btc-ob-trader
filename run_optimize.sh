@@ -24,7 +24,10 @@ while true; do
 
     # --- make optimize 実行 ---
     # --- make optimize 実行（Traceback 抑制）---
-    make optimize N_TRIALS="$N_TRIALS" HOURS_BEFORE="$HOURS_BEFORE" OVERRIDE="$OVERRIDE" 2>&1 | sed '/^Traceback/,/^$/d'
+    make optimize N_TRIALS="$N_TRIALS" HOURS_BEFORE="$HOURS_BEFORE" OVERRIDE="$OVERRIDE" \
+  1> >(cat) \
+  2> >(sed '/^Traceback/,/^$/d' >&2)
+
 
 
     echo "$(date '+%Y-%m-%d %H:%M:%S') : 実行完了"
