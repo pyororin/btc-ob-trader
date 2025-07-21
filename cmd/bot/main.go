@@ -401,7 +401,7 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 								if _, ok := err.(*engine.RiskCheckError); ok {
 									logger.Warnf("Failed to place order for signal: %v", err)
 								} else {
-									logger.Errorf("Failed to place order for signal: %v", err)
+									logger.Warnf("Failed to place order for signal: %v", err)
 								}
 							}
 							if resp != nil && !resp.Success {
