@@ -22,12 +22,12 @@ help:
 # ==============================================================================
 up: ## Start all services including the bot for live trading.
 	@echo "Starting all services (including trading bot)..."
-	docker compose up -d --build
+	sudo -E docker compose up -d --build
 	$(MAKE) migrate
 
 migrate: ## Run database migrations
 	@echo "Running database migrations..."
-	@docker compose exec -T timescaledb sh -c '\
+	@sudo -E docker compose exec -T timescaledb sh -c '\
 	for dir in /docker-entrypoint-initdb.d/01_schema /docker-entrypoint-initdb.d/02_migrations; do \
 		for f in $$dir/*.sql; do \
 			if [ -f "$$f" ]; then \
@@ -39,23 +39,23 @@ migrate: ## Run database migrations
 
 monitor: ## Start monitoring services (DB, Grafana) without the bot.
 	@echo "Starting monitoring services (TimescaleDB, Grafana)..."
-	docker compose up -d timescaledb grafana
+	sudo -E docker compose up -d timescaledb grafana
 
 down: ## Stop and remove all application stack containers.
 	@echo "Stopping application stack..."
-	docker compose down
+	sudo -E docker compose down
 
 logs: ## Follow logs from the bot service.
 	@echo "Following logs for 'bot' service..."
-	docker compose logs -f bot
+	sudo -E docker compose logs -f bot
 
 shell: ## Access a shell inside the running bot container.
 	@echo "Accessing shell in 'bot' container..."
-	docker compose exec bot /bin/sh
+	sudo -E docker compose exec bot /bin/sh
 
 clean: ## Stop, remove containers, and remove volumes.
 	@echo "Stopping application stack and removing volumes..."
-	docker compose down -v --remove-orphans
+	sudo -E docker compose down -v --remove-orphans
 
 # ==============================================================================
 # SIMULATE
@@ -115,25 +115,20 @@ export-sim-data: ## Export order book data. Use HOURS_BEFORE or START_TIME/END_T
 		-e DB_HOST=$(DB_HOST) \
 		builder sh -c "cd /app && go run cmd/export/main.go $$FLAGS"
 	@echo "Export complete. Check the 'simulation' directory."
-report: ## Generate and display a PnL report from recent data.
+
+report: ## Generate and display a PnL report from the latest simulation CSV.
 	@echo "Generating PnL report..."
-	@if [ -z "$(HOURS_BEFORE)" ]; then \
-		echo "Error: HOURS_BEFORE environment variable is not set."; \
-		echo "Usage: make report HOURS_BEFORE=24"; \
-		exit 1; \
+	@if [ -n "$(HOURS_BEFORE)" ]; then \
+		echo "Exporting data for the last $(HOURS_BEFORE) hours..."; \
+		$(MAKE) export-sim-data HOURS_BEFORE=$(HOURS_BEFORE) NO_ZIP=true; \
 	fi
-	@echo "Exporting data for the last $(HOURS_BEFORE) hours..."
-	@$(MAKE) export-sim-data HOURS_BEFORE=$(HOURS_BEFORE) NO_ZIP=true
 	@SIM_CSV_PATH=$$(find simulation -name "*.csv" -print0 | xargs -0 ls -t | head -n 1); \
 	if [ -z "$$SIM_CSV_PATH" ]; then \
-		echo "Error: Could not find exported CSV file in simulation directory."; \
+		echo "Error: No CSV file found in simulation directory. Run 'make export-sim-data' first."; \
 		exit 1; \
 	fi; \
 	echo "Running simulation on $$SIM_CSV_PATH..."; \
-	@SIM_OUTPUT=$$(make simulate CSV_PATH=$$SIM_CSV_PATH);
-	@echo "$${SIM_OUTPUT}" | sudo -E docker compose exec -T report-generator build/report
-	@rm "$$SIM_CSV_PATH";
-	@echo "Cleaned up simulation data."
+	@make simulate CSV_PATH=$$SIM_CSV_PATH | sudo -E docker compose exec -T report-generator build/report
 
 optimize: build ## Run hyperparameter optimization using Optuna. Accepts HOURS_BEFORE or CSV_PATH.
 	@echo "Running hyperparameter optimization..."
@@ -247,5 +242,3 @@ grafana-lint: ## Lint and validate Grafana dashboards.
 		$(MAKE) vendor; \
 	fi
 	$(DOCKER_RUN_GO) go test -v ./grafana/jsonnet/...
-
-
