@@ -92,6 +92,11 @@ services:
     working_dir: /app
     networks:
       - bot_network
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /app/build/report"]
+      interval: 1s
+      timeout: 1s
+      retries: 5
 
   grafana:
     image: grafana/grafana-oss:latest
