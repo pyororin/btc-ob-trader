@@ -73,7 +73,7 @@ simulate: build-image ## Run a backtest using trade data from a local CSV file.
 		unzip -o $(CSV_PATH) -d ./simulation; \
 		UNZIPPED_CSV_PATH=/simulation/$$(basename $(CSV_PATH) .zip).csv; \
 		echo "Using unzipped file: $$UNZIPPED_CSV_PATH"; \
-		sudo -E docker compose run --rm --no-deps \
+		docker compose run --rm --no-deps \
 			-v $$(pwd)/simulation:/simulation \
 			bot-simulate \
 			--simulate --config=config/app_config.yaml \
@@ -81,7 +81,7 @@ simulate: build-image ## Run a backtest using trade data from a local CSV file.
 	else \
 		HOST_CSV_PATH=$$(realpath $(CSV_PATH)); \
 		CONTAINER_CSV_PATH=/simulation/$$(basename $(CSV_PATH)); \
-		sudo -E docker compose run --rm --no-deps \
+		docker compose run --rm --no-deps \
 			-v $$HOST_CSV_PATH:$$CONTAINER_CSV_PATH \
 			-v $$(pwd)/simulation:/simulation \
 			bot-simulate \
