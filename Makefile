@@ -60,7 +60,7 @@ clean: ## Stop, remove containers, and remove volumes.
 # ==============================================================================
 # SIMULATE
 # ==============================================================================
-simulate: build-image ## Run a backtest using trade data from a local CSV file.
+simulate: ## Run a backtest using trade data from a local CSV file.
 	@echo "Running simulation task..."
 	@if [ -z "$(CSV_PATH)" ]; then \
 		echo "Error: CSV_PATH environment variable is not set."; \
@@ -77,7 +77,7 @@ simulate: build-image ## Run a backtest using trade data from a local CSV file.
 			-v $$(pwd)/simulation:/simulation \
 			bot-simulate \
 			--simulate --config=config/app_config.yaml \
-			--csv=$$UNZIPPED_CSV_PATH; \
+			--csv=$$UNZIPPED_CSV_PATH --json-output; \
 	else \
 		HOST_CSV_PATH=$$(realpath $(CSV_PATH)); \
 		CONTAINER_CSV_PATH=/simulation/$$(basename $(CSV_PATH)); \
@@ -86,7 +86,7 @@ simulate: build-image ## Run a backtest using trade data from a local CSV file.
 			-v $$(pwd)/simulation:/simulation \
 			bot-simulate \
 			--simulate --config=config/app_config.yaml \
-			--csv=$$CONTAINER_CSV_PATH; \
+			--csv=$$CONTAINER_CSV_PATH --json-output; \
 	fi
 
 export-sim-data: ## Export order book data. Use HOURS_BEFORE or START_TIME/END_TIME.
@@ -115,13 +115,25 @@ export-sim-data: ## Export order book data. Use HOURS_BEFORE or START_TIME/END_T
 		-e DB_HOST=$(DB_HOST) \
 		builder sh -c "cd /app && go run cmd/export/main.go $$FLAGS"
 	@echo "Export complete. Check the 'simulation' directory."
-report: ## Generate and display the PnL report.
-	@echo "Starting report generator service..."
-	sudo -E docker compose up -d --build report-generator
+report: ## Generate and display a PnL report from recent data.
 	@echo "Generating PnL report..."
-	sudo -E docker compose exec report-generator go build -o build/report cmd/report/main.go
-	@echo "Running PnL report..."
-	sudo -E docker compose exec report-generator ./build/report
+	@if [ -z "$(HOURS_BEFORE)" ]; then \
+		echo "Error: HOURS_BEFORE environment variable is not set."; \
+		echo "Usage: make report HOURS_BEFORE=24"; \
+		exit 1; \
+	fi
+	@echo "Exporting data for the last $(HOURS_BEFORE) hours..."
+	@$(MAKE) export-sim-data HOURS_BEFORE=$(HOURS_BEFORE) NO_ZIP=true
+	@SIM_CSV_PATH=$$(find simulation -name "*.csv" -print0 | xargs -0 ls -t | head -n 1); \
+	if [ -z "$$SIM_CSV_PATH" ]; then \
+		echo "Error: Could not find exported CSV file in simulation directory."; \
+		exit 1; \
+	fi; \
+	echo "Running simulation on $$SIM_CSV_PATH..."; \
+	@SIM_OUTPUT=$$(make simulate CSV_PATH=$$SIM_CSV_PATH); \
+	sudo -E docker compose exec -T report-generator sh -c "echo '$${SIM_OUTPUT}' | /app/build/report"
+	@rm "$$SIM_CSV_PATH"; \
+	echo "Cleaned up simulation data."
 
 optimize: build ## Run hyperparameter optimization using Optuna. Accepts HOURS_BEFORE or CSV_PATH.
 	@echo "Running hyperparameter optimization..."
@@ -193,6 +205,7 @@ build: ## Build the Go application binary inside the container.
 	@echo "Building Go application binary..."
 	@mkdir -p build
 	$(DOCKER_RUN_GO) go build -a -ldflags="-s -w" -o build/obi-scalp-bot cmd/bot/main.go
+	$(DOCKER_RUN_GO) go build -a -ldflags="-s -w" -o build/report cmd/report/main.go
 
 build-image: ## Build the Docker image for the bot.
 	@echo "Building Docker image..."
