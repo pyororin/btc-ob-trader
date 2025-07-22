@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- デフォルト値 ---
-N_TRIALS=5000
+N_TRIALS=2000
 HOURS_BEFORE=6
 OVERRIDE=true
 INTERVAL=60  # minutes
