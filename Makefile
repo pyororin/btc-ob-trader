@@ -73,7 +73,7 @@ simulate: build-image ## Run a backtest using trade data from a local CSV file.
 		unzip -o $(CSV_PATH) -d ./simulation; \
 		UNZIPPED_CSV_PATH=/simulation/$$(basename $(CSV_PATH) .zip).csv; \
 		echo "Using unzipped file: $$UNZIPPED_CSV_PATH"; \
-		sudo -E docker compose run --rm --no-deps \
+		docker compose run --rm --no-deps \
 			-v $$(pwd)/simulation:/simulation \
 			bot-simulate \
 			--simulate --config=config/app_config.yaml \
@@ -81,7 +81,7 @@ simulate: build-image ## Run a backtest using trade data from a local CSV file.
 	else \
 		HOST_CSV_PATH=$$(realpath $(CSV_PATH)); \
 		CONTAINER_CSV_PATH=/simulation/$$(basename $(CSV_PATH)); \
-		sudo -E docker compose run --rm --no-deps \
+		docker compose run --rm --no-deps \
 			-v $$HOST_CSV_PATH:$$CONTAINER_CSV_PATH \
 			-v $$(pwd)/simulation:/simulation \
 			bot-simulate \
@@ -107,7 +107,7 @@ export-sim-data: ## Export order book data. Use HOURS_BEFORE or START_TIME/END_T
 		FLAGS="$$FLAGS --no-zip"; \
 	fi; \
 	echo "Running export with flags: $$FLAGS"; \
-	sudo -E docker compose run --rm \
+	docker compose run --rm \
 		-v $$(pwd)/simulation:/app/simulation \
 		-e DB_USER=$(DB_USER) \
 		-e DB_PASSWORD=$(DB_PASSWORD) \
@@ -171,7 +171,7 @@ optimize: build ## Run hyperparameter optimization using Optuna. Accepts HOURS_B
 # GO BUILDS & TESTS
 # ==============================================================================
 # Define a helper to run commands inside a temporary Go builder container
-DOCKER_RUN_GO = sudo -E docker compose run --rm --service-ports --entrypoint "" builder
+DOCKER_RUN_GO = docker compose run --rm --service-ports --entrypoint "" builder
 
 test: ## Run standard Go tests (excluding DB-dependent tests).
 	@echo "Running standard Go tests..."
@@ -196,7 +196,7 @@ build: ## Build the Go application binary inside the container.
 
 build-image: ## Build the Docker image for the bot.
 	@echo "Building Docker image..."
-	sudo -E docker build -t obi-scalp-bot-image:latest .
+	docker build -t obi-scalp-bot-image:latest .
 
 # ==============================================================================
 # GRAFANA DASHBOARDS

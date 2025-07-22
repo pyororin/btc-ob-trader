@@ -15,8 +15,12 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+	"runtime"
+	"runtime/pprof"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/your-org/obi-scalp-bot/internal/alert"
 	"github.com/your-org/obi-scalp-bot/internal/benchmark"
 	"github.com/your-org/obi-scalp-bot/internal/config"
 	"github.com/your-org/obi-scalp-bot/internal/datastore"
@@ -24,13 +28,12 @@ import (
 	"github.com/your-org/obi-scalp-bot/internal/engine"
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
 	"github.com/your-org/obi-scalp-bot/internal/http/handler"
-	"sync"
-	"reflect"
-	"github.com/fsnotify/fsnotify"
 	"github.com/your-org/obi-scalp-bot/internal/indicator"
 	tradingsignal "github.com/your-org/obi-scalp-bot/internal/signal"
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
 	"go.uber.org/zap"
+	"reflect"
+	"sync"
 )
 
 type flags struct {
@@ -39,12 +42,27 @@ type flags struct {
 	simulateMode  bool
 	csvPath       string
 	jsonOutput    bool
+	cpuProfile    string
+	memProfile    string
 }
 
 func main() {
 	// --- Initialization ---
 	_ = pgxpool.Config{}
 	f := parseFlags()
+
+	if f.cpuProfile != "" {
+		file, err := os.Create(f.cpuProfile)
+		if err != nil {
+			logger.Fatalf("could not create CPU profile: %v", err)
+		}
+		defer file.Close()
+		if err := pprof.StartCPUProfile(file); err != nil {
+			logger.Fatalf("could not start CPU profile: %v", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -78,6 +96,19 @@ func main() {
 	// --- Graceful Shutdown ---
 	waitForShutdownSignal(shutdownSigs)
 	logger.Info("Initiating graceful shutdown...")
+
+	if f.memProfile != "" {
+		file, err := os.Create(f.memProfile)
+		if err != nil {
+			logger.Fatalf("could not create memory profile: %v", err)
+		}
+		defer file.Close()
+		runtime.GC() // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(file); err != nil {
+			logger.Fatalf("could not write memory profile: %v", err)
+		}
+	}
+
 	cancel()
 	time.Sleep(1 * time.Second) // Allow time for services to shut down
 	logger.Info("OBI Scalping Bot shut down gracefully.")
@@ -90,6 +121,8 @@ func parseFlags() flags {
 	simulateMode := flag.Bool("simulate", false, "Enable simulation mode from CSV")
 	csvPath := flag.String("csv", "", "Path to the trade data CSV file for simulation")
 	jsonOutput := flag.Bool("json-output", false, "Output simulation summary in JSON format")
+	cpuProfile := flag.String("cpuprofile", "", "write cpu profile to `file`")
+	memProfile := flag.String("memprofile", "", "write memory profile to `file`")
 	flag.Parse()
 	return flags{
 		configPath:      *configPath,
@@ -97,6 +130,8 @@ func parseFlags() flags {
 		simulateMode:    *simulateMode,
 		csvPath:         *csvPath,
 		jsonOutput:      *jsonOutput,
+		cpuProfile:      *cpuProfile,
+		memProfile:      *memProfile,
 	}
 }
 
@@ -474,6 +509,13 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 		go runSimulation(ctx, f, sigs)
 	} else {
 		// Live trading setup
+		notifier, err := alert.NewDiscordNotifier(cfg.App.Alert.Discord)
+		if err != nil {
+			logger.Warnf("Failed to initialize Discord notifier: %v", err)
+		} else {
+			logger.Info("Discord notifier initialized successfully.")
+		}
+
 		var benchmarkService *benchmark.Service
 		if dbWriter != nil {
 			var zapLogger *zap.Logger
@@ -487,7 +529,7 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 			benchmarkService = benchmark.NewService(zapLogger, dbWriter)
 		}
 		client := coincheck.NewClient(cfg.APIKey, cfg.APISecret)
-		execEngine := engine.NewLiveExecutionEngine(client, dbWriter)
+		execEngine := engine.NewLiveExecutionEngine(client, dbWriter, notifier)
 
 		orderBook := indicator.NewOrderBook()
 		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)

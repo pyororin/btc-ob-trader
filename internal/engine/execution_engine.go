@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/your-org/obi-scalp-bot/internal/alert"
 	"github.com/your-org/obi-scalp-bot/internal/config"
 	"github.com/your-org/obi-scalp-bot/internal/dbwriter"
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
@@ -45,10 +46,11 @@ type LiveExecutionEngine struct {
 	}
 	partialExitMutex   sync.Mutex
 	isExitingPartially bool
+	notifier           alert.Notifier
 }
 
 // NewLiveExecutionEngine creates a new LiveExecutionEngine.
-func NewLiveExecutionEngine(client *coincheck.Client, dbWriter dbwriter.DBWriter) *LiveExecutionEngine {
+func NewLiveExecutionEngine(client *coincheck.Client, dbWriter dbwriter.DBWriter, notifier alert.Notifier) *LiveExecutionEngine {
 	cfg := config.GetConfig()
 	engine := &LiveExecutionEngine{
 		exchangeClient: client,
@@ -56,6 +58,7 @@ func NewLiveExecutionEngine(client *coincheck.Client, dbWriter dbwriter.DBWriter
 		position:       position.NewPosition(),
 		pnlCalculator:  pnl.NewCalculator(),
 		recentPnLs:     make([]float64, 0),
+		notifier:       notifier,
 	}
 	// Initialize ratios from config
 	engine.currentRatios.OrderRatio = cfg.Trade.OrderRatio
@@ -191,6 +194,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 		return orderResp, err
 	}
 	if !orderResp.Success {
+		e.sendAlert(fmt.Sprintf("Failed to place order: %s", orderResp.Error))
 		return orderResp, fmt.Errorf("failed to place order: %s", orderResp.Error)
 	}
 	logger.Infof("[Live] Order placed successfully: ID=%d", orderResp.ID)
@@ -355,6 +359,15 @@ func (e *LiveExecutionEngine) CancelOrder(ctx context.Context, orderID int64) (*
 	return resp, nil
 }
 
+// sendAlert sends a message using the notifier if it's configured.
+func (e *LiveExecutionEngine) sendAlert(message string) {
+	if e.notifier != nil {
+		if err := e.notifier.Send(message); err != nil {
+			logger.Errorf("Failed to send alert: %v", err)
+		}
+	}
+}
+
 // updateRecentPnLs adds a new PnL to the recent PnL list and keeps it at the configured size.
 func (e *LiveExecutionEngine) updateRecentPnLs(pnl float64) {
 	cfg := config.GetConfig()
@@ -512,17 +525,17 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 		if rate >= bestAsk && bestAsk > 0 {
 			executed = true
 			executedPrice = bestAsk
-			logger.Infof("[%s] Buy order matched: Rate %.2f >= BestAsk %.2f. Executing at %.2f", mode, rate, bestAsk, executedPrice)
+			logger.Debugf("[%s] Buy order matched: Rate %.2f >= BestAsk %.2f. Executing at %.2f", mode, rate, bestAsk, executedPrice)
 		} else {
-			logger.Infof("[%s] Buy order NOT matched: Rate %.2f < BestAsk %.2f. Order would be on book.", mode, rate, bestAsk)
+			logger.Debugf("[%s] Buy order NOT matched: Rate %.2f < BestAsk %.2f. Order would be on book.", mode, rate, bestAsk)
 		}
 	} else if orderType == "sell" {
 		if rate <= bestBid && bestBid > 0 {
 			executed = true
 			executedPrice = bestBid
-			logger.Infof("[%s] Sell order matched: Rate %.2f <= BestBid %.2f. Executing at %.2f", mode, rate, bestBid, executedPrice)
+			logger.Debugf("[%s] Sell order matched: Rate %.2f <= BestBid %.2f. Executing at %.2f", mode, rate, bestBid, executedPrice)
 		} else {
-			logger.Infof("[%s] Sell order NOT matched: Rate %.2f > BestBid %.2f. Order would be on book.", mode, rate, bestBid)
+			logger.Debugf("[%s] Sell order NOT matched: Rate %.2f > BestBid %.2f. Order would be on book.", mode, rate, bestBid)
 		}
 	}
 
@@ -572,7 +585,7 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 	}
 	trade.RealizedPnL = realizedPnL
 	e.ExecutedTrades = append(e.ExecutedTrades, trade) // Append after PnL calculation
-	logger.Infof("[%s] Position updated: %s", mode, e.position.String())
+	logger.Debugf("[%s] Position updated: %s", mode, e.position.String())
 
 	// Calculate PnL
 	positionSize, avgEntryPrice := e.position.Get()
@@ -580,7 +593,7 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 	totalRealizedPnL := e.pnlCalculator.GetRealizedPnL()
 	totalPnL := totalRealizedPnL + unrealizedPnL
 
-	logger.Infof("[%s] PnL Update: Realized=%.2f, Unrealized=%.2f, Total=%.2f", mode, realizedPnL, unrealizedPnL, totalPnL)
+	logger.Debugf("[%s] PnL Update: Realized=%.2f, Unrealized=%.2f, Total=%.2f", mode, realizedPnL, unrealizedPnL, totalPnL)
 
 	return &coincheck.OrderResponse{
 		Success: true,
@@ -593,7 +606,7 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 
 // CancelOrder simulates cancelling an order.
 func (e *ReplayExecutionEngine) CancelOrder(ctx context.Context, orderID int64) (*coincheck.CancelResponse, error) {
-	logger.Infof("[Simulation] Simulating cancellation of order ID: %d", orderID)
+	logger.Debugf("[Simulation] Simulating cancellation of order ID: %d", orderID)
 	return &coincheck.CancelResponse{
 		Success: true,
 		ID:      orderID,

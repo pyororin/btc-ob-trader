@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # --- デフォルト値 ---
-N_TRIALS=3000
+N_TRIALS=2500
 HOURS_BEFORE=6
 OVERRIDE=true
-INTERVAL=360  # minutes
+INTERVAL=60  # minutes
 
 # --- 引数で上書き ---
 if [ -n "$1" ]; then N_TRIALS="$1"; fi

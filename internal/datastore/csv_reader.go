@@ -47,13 +47,30 @@ func StreamMarketEventsFromCSV(ctx context.Context, filePath string) (<-chan coi
 		var currentPair string
 		var totalSnapshots int
 
+		const timeLayout = "2006-01-02 15:04:05.999999-07"
 		flushSnapshot := func() {
 			if len(currentUpdates) == 0 {
 				return
 			}
-			var bids, asks [][]string
+
+			bidCount := 0
+			askCount := 0
 			for _, u := range currentUpdates {
-				level := []string{fmt.Sprintf("%f", u.Price), fmt.Sprintf("%f", u.Size)}
+				if u.Side == "bid" {
+					bidCount++
+				} else {
+					askCount++
+				}
+			}
+
+			bids := make([][]string, 0, bidCount)
+			asks := make([][]string, 0, askCount)
+
+			for _, u := range currentUpdates {
+				level := []string{
+					strconv.FormatFloat(u.Price, 'f', -1, 64),
+					strconv.FormatFloat(u.Size, 'f', -1, 64),
+				}
 				if u.Side == "bid" {
 					bids = append(bids, level)
 				} else {
@@ -134,17 +151,16 @@ func StreamMarketEventsFromCSV(ctx context.Context, filePath string) (<-chan coi
 }
 
 func parseTime(timeStr string) (time.Time, error) {
-	// First, try RFC3339 format
-	t, err := time.Parse(time.RFC3339, timeStr)
-	if err == nil {
-		return t, nil
-	}
-	// Fallback to psql's default format with space and timezone
+	// The format is assumed to be consistent based on export logic.
 	// e.g., "2025-07-14 04:11:13.484971+00"
-	layout := "2006-01-02 15:04:05.999999-07"
-	t, err = time.Parse(layout, timeStr)
-	if err == nil {
-		return t, nil
+	const layout = "2006-01-02 15:04:05.999999-07"
+	t, err := time.Parse(layout, timeStr)
+	if err != nil {
+		// Fallback for safety, though it shouldn't be hit if data is consistent.
+		t, err = time.Parse(time.RFC3339, timeStr)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("could not parse time '%s' with any known format", timeStr)
+		}
 	}
-	return time.Time{}, fmt.Errorf("could not parse time '%s' with any known format", timeStr)
+	return t, nil
 }
