@@ -67,7 +67,7 @@ func (c *WebSocketClient) Connect() error {
 		if dialErr == nil {
 			break
 		}
-		logger.Errorf("Dial error (attempt %d/%d): %v. Retrying in %v...", retryCount+1, maxRetries, dialErr, backoff)
+		logger.Warnf("Dial error (attempt %d/%d): %v. Retrying in %v...", retryCount+1, maxRetries, dialErr, backoff)
 		time.Sleep(backoff)
 		backoff = time.Duration(float64(backoff) * 1.5)
 		if backoff > 60*time.Second {
@@ -76,7 +76,7 @@ func (c *WebSocketClient) Connect() error {
 		retryCount++
 	}
 	if dialErr != nil {
-		logger.Errorf("Failed to connect after %d attempts: %v", maxRetries, dialErr)
+		logger.Warnf("Failed to connect after %d attempts: %v", maxRetries, dialErr)
 		return dialErr
 	}
 
@@ -91,9 +91,9 @@ func (c *WebSocketClient) Connect() error {
 		for {
 			_, message, err := c.conn.ReadMessage()
 			if err != nil {
-				logger.Errorf("Read error: %v", err)
+				logger.Warnf("Read error: %v", err)
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNormalClosure) {
-					logger.Error("Unexpected close error, attempting to reconnect...")
+					logger.Warn("Unexpected close error, attempting to reconnect...")
 					reconnect <- true
 					return
 				}
@@ -103,7 +103,7 @@ func (c *WebSocketClient) Connect() error {
 				if err == websocket.ErrCloseSent || (isOpError && opError.Err.Error() == "use of closed network connection") {
 					logger.Info("Connection closed gracefully or by network.")
 				} else {
-					logger.Errorf("Unhandled read error: %T %v", err, err)
+					logger.Warnf("Unhandled read error: %T %v", err, err)
 				}
 				return
 			}
@@ -113,12 +113,12 @@ func (c *WebSocketClient) Connect() error {
 	}()
 
 	if err := c.subscribe(targetPair + orderbookChannelSuffix); err != nil {
-		logger.Errorf("Failed to subscribe to orderbook %s: %v", targetPair, err)
+		logger.Warnf("Failed to subscribe to orderbook %s: %v", targetPair, err)
 		c.conn.Close()
 		return err
 	}
 	if err := c.subscribe(targetPair + tradesChannelSuffix); err != nil {
-		logger.Errorf("Failed to subscribe to trades %s: %v", targetPair, err)
+		logger.Warnf("Failed to subscribe to trades %s: %v", targetPair, err)
 		c.conn.Close()
 		return err
 	}
@@ -140,19 +140,19 @@ func (c *WebSocketClient) Connect() error {
 			}
 		case <-pingTicker.C:
 			if err := c.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-				logger.Errorf("Ping error: %v", err)
+				logger.Warnf("Ping error: %v", err)
 				reconnect <- true
 			}
 		case <-c.interrupt:
 			logger.Info("Interrupt signal received. Closing connection...")
 			err := c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 			if err != nil {
-				logger.Errorf("Write close error: %v", err)
+				logger.Warnf("Write close error: %v", err)
 			}
 			select {
 			case <-c.done:
 			case <-time.After(2 * time.Second):
-				logger.Error("Timeout waiting for server to close connection.")
+				logger.Warn("Timeout waiting for server to close connection.")
 			}
 			return nil
 		}
@@ -225,5 +225,5 @@ func (c *WebSocketClient) handleMessage(message []byte, targetPair string) {
 		return
 	}
 
-	logger.Errorf("Unknown message format received: %s", string(message))
+	logger.Warnf("Unknown message format received: %s", string(message))
 }

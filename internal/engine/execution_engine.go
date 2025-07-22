@@ -212,7 +212,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 			logger.Warnf("[Live] Order ID %d did not fill within %v. Cancelling.", orderResp.ID, timeout)
 			_, cancelErr := e.CancelOrder(context.Background(), orderResp.ID) // Use a new context for cancellation
 			if cancelErr != nil {
-				logger.Errorf("[Live] Failed to cancel order ID %d: %v", orderResp.ID, cancelErr)
+				logger.Warnf("[Live] Failed to cancel order ID %d: %v", orderResp.ID, cancelErr)
 				// Even if cancellation fails, we log the attempt as a cancelled trade
 			}
 
@@ -241,7 +241,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 		case <-time.After(pollInterval):
 			transactions, err := e.exchangeClient.GetTransactions()
 			if err != nil {
-				logger.Errorf("[Live] Failed to get transactions to check order status: %v", err)
+				logger.Warnf("[Live] Failed to get transactions to check order status: %v", err)
 				continue // Retry on the next tick
 			}
 
@@ -259,7 +259,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 						// 約定時刻をパース
 						filledTime, err := time.Parse(time.RFC3339, tx.CreatedAt)
 						if err != nil {
-							logger.Errorf("[Live] Failed to parse transaction timestamp: %v. Using current time as fallback.", err)
+							logger.Warnf("[Live] Failed to parse transaction timestamp: %v. Using current time as fallback.", err)
 							filledTime = time.Now().UTC()
 						}
 
@@ -317,7 +317,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 							AvgEntryPrice: avgEntryPrice,
 						}
 						if err := e.dbWriter.SavePnLSummary(ctx, pnlSummary); err != nil {
-							logger.Errorf("[Live] Error saving PnL summary: %v", err)
+							logger.Warnf("[Live] Error saving PnL summary: %v", err)
 						} else {
 							logger.Infof("[Live] Saved PnL summary to DB.")
 						}
@@ -329,7 +329,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 								CreatedAt: trade.Time,
 							}
 							if err := e.dbWriter.SaveTradePnL(ctx, tradePnl); err != nil {
-								logger.Errorf("[Live] Error saving trade PnL: %v", err)
+								logger.Warnf("[Live] Error saving trade PnL: %v", err)
 							} else {
 								logger.Infof("[Live] Saved trade PnL to DB.")
 							}
@@ -352,8 +352,7 @@ func (e *LiveExecutionEngine) CancelOrder(ctx context.Context, orderID int64) (*
 	logger.Infof("[Live] Cancelling order ID: %d", orderID)
 	resp, err := e.exchangeClient.CancelOrder(orderID)
 	if err != nil {
-		logger.Errorf("[Live] Error cancelling order: %v, Response: %+v", err, resp)
-		e.sendAlert(fmt.Sprintf("Error cancelling order: %v, Response: %+v", err, resp))
+		logger.Warnf("[Live] Error cancelling order: %v, Response: %+v", err, resp)
 		return resp, err
 	}
 	logger.Infof("[Live] Order cancelled successfully: %+v", resp)

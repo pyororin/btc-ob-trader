@@ -185,7 +185,7 @@ func watchConfigFiles(appConfigPath, tradeConfigPath string) {
 			}
 			absEventPath, err := filepath.Abs(event.Name)
 			if err != nil {
-				logger.Errorf("Could not get absolute path for event %s: %v", event.Name, err)
+				logger.Warnf("Could not get absolute path for event %s: %v", event.Name, err)
 				continue
 			}
 
@@ -197,7 +197,7 @@ func watchConfigFiles(appConfigPath, tradeConfigPath string) {
 					oldCfg := config.GetConfig()
 					newCfg, err := config.ReloadConfig(appConfigPath, tradeConfigPath)
 					if err != nil {
-						logger.Errorf("Failed to reload configuration: %v", err)
+						logger.Warnf("Failed to reload configuration: %v", err)
 					} else {
 						logger.Info("Configuration reloaded successfully.")
 						logConfigChanges(oldCfg, newCfg)
@@ -209,7 +209,7 @@ func watchConfigFiles(appConfigPath, tradeConfigPath string) {
 			if !ok {
 				return
 			}
-			logger.Errorf("File watcher error: %v", err)
+			logger.Warnf("File watcher error: %v", err)
 		}
 	}
 }
@@ -310,12 +310,12 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pa
 			for _, level := range levels {
 				price, err := strconv.ParseFloat(level[0], 64)
 				if err != nil {
-					logger.Errorf("Failed to parse order book price: %v", err)
+					logger.Warnf("Failed to parse order book price: %v", err)
 					continue
 				}
 				size, err := strconv.ParseFloat(level[1], 64)
 				if err != nil {
-					logger.Errorf("Failed to parse order book size: %v", err)
+					logger.Warnf("Failed to parse order book size: %v", err)
 					continue
 				}
 				update := dbwriter.OrderBookUpdate{
@@ -342,17 +342,17 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pa
 
 		price, err := strconv.ParseFloat(data.Rate(), 64)
 		if err != nil {
-			logger.Errorf("Failed to parse trade price: %v", err)
+			logger.Warnf("Failed to parse trade price: %v", err)
 			return
 		}
 		size, err := strconv.ParseFloat(data.Amount(), 64)
 		if err != nil {
-			logger.Errorf("Failed to parse trade size: %v", err)
+			logger.Warnf("Failed to parse trade size: %v", err)
 			return
 		}
 		txID, err := strconv.ParseInt(data.TransactionID(), 10, 64)
 		if err != nil {
-			logger.Errorf("Failed to parse transaction ID: %v", err)
+			logger.Warnf("Failed to parse transaction ID: %v", err)
 			return
 		}
 
@@ -474,7 +474,7 @@ func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, pa
 			logger.Infof("TWAP chunk %d/%d: Placing order for %.8f BTC.", i+1, numOrders, chunkSize)
 			_, err := execEngine.PlaceOrder(ctx, pair, orderType, price, chunkSize, false)
 			if err != nil {
-				logger.Errorf("Error in TWAP chunk %d: %v. Aborting.", i+1, err)
+				logger.Warnf("Error in TWAP chunk %d: %v. Aborting.", i+1, err)
 				return
 			}
 			logger.Infof("TWAP chunk %d/%d placed. Waiting for %v.", i+1, numOrders, interval)
@@ -491,7 +491,7 @@ func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, pa
 			logger.Infof("TWAP last chunk: Placing order for %.8f BTC.", lastOrderSize)
 			_, err := execEngine.PlaceOrder(ctx, pair, orderType, price, lastOrderSize, false)
 			if err != nil {
-				logger.Errorf("Error in TWAP last chunk: %v. Aborting.", err)
+				logger.Warnf("Error in TWAP last chunk: %v. Aborting.", err)
 			} else {
 				logger.Info("TWAP execution finished successfully.")
 			}
@@ -545,7 +545,7 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 		go func() {
 			logger.Info("Connecting to Coincheck WebSocket API...")
 			if err := wsClient.Connect(); err != nil {
-				logger.Errorf("WebSocket client exited with error: %v", err)
+				logger.Warnf("WebSocket client exited with error: %v", err)
 				sigs <- syscall.SIGTERM
 			}
 		}()
@@ -581,7 +581,7 @@ func startPnlReporter(ctx context.Context) {
 				cfg.App.Database.User, cfg.App.Database.Password, cfg.App.Database.Host, cfg.App.Database.Port, cfg.App.Database.Name, cfg.App.Database.SSLMode)
 			dbpool, err := pgxpool.New(ctx, dbURL)
 			if err != nil {
-				logger.Errorf("PnL reporter unable to connect to database: %v", err)
+				logger.Warnf("PnL reporter unable to connect to database: %v", err)
 				return // Exit goroutine if DB connection fails
 			}
 			defer dbpool.Close()
@@ -616,7 +616,7 @@ func generateAndSaveReport(ctx context.Context, repo *datastore.Repository) {
 	logger.Debug("Generating PnL report...")
 	trades, err := repo.FetchAllTradesForReport(ctx)
 	if err != nil {
-		logger.Errorf("Failed to fetch trades for PnL report: %v", err)
+		logger.Warnf("Failed to fetch trades for PnL report: %v", err)
 		return
 	}
 
@@ -627,12 +627,12 @@ func generateAndSaveReport(ctx context.Context, repo *datastore.Repository) {
 
 	report, err := datastore.AnalyzeTrades(trades)
 	if err != nil {
-		logger.Errorf("Failed to analyze trades for PnL report: %v", err)
+		logger.Warnf("Failed to analyze trades for PnL report: %v", err)
 		return
 	}
 
 	if err := repo.SavePnlReport(ctx, report); err != nil {
-		logger.Errorf("Failed to save PnL report: %v", err)
+		logger.Warnf("Failed to save PnL report: %v", err)
 		return
 	}
 	logger.Debug("Successfully generated and saved PnL report.")
@@ -645,7 +645,7 @@ func deleteOldReports(ctx context.Context, repo *datastore.Repository, maxAgeHou
 	logger.Debugf("Deleting PnL reports older than %d hours...", maxAgeHours)
 	deletedCount, err := repo.DeleteOldPnlReports(ctx, maxAgeHours)
 	if err != nil {
-		logger.Errorf("Failed to delete old PnL reports: %v", err)
+		logger.Warnf("Failed to delete old PnL reports: %v", err)
 		return
 	}
 	if deletedCount > 0 {
@@ -1037,7 +1037,7 @@ func orderMonitor(ctx context.Context, execEngine engine.ExecutionEngine, client
 		case <-ticker.C:
 			openOrders, err := client.GetOpenOrders()
 			if err != nil {
-				logger.Errorf("Order monitor failed to get open orders: %v", err)
+				logger.Warnf("Order monitor failed to get open orders: %v", err)
 				continue
 			}
 
@@ -1056,7 +1056,7 @@ func orderMonitor(ctx context.Context, execEngine engine.ExecutionEngine, client
 			for _, order := range openOrders.Orders {
 				orderRate, err := strconv.ParseFloat(order.Rate, 64)
 				if err != nil {
-					logger.Errorf("Failed to parse order rate '%s' for order ID %d", order.Rate, order.ID)
+					logger.Warnf("Failed to parse order rate '%s' for order ID %d", order.Rate, order.ID)
 					continue
 				}
 
@@ -1083,7 +1083,7 @@ func orderMonitor(ctx context.Context, execEngine engine.ExecutionEngine, client
 					logger.Infof("Adjusting order %d. Cancelling...", order.ID)
 					_, err := execEngine.CancelOrder(ctx, order.ID)
 					if err != nil {
-						logger.Errorf("Failed to cancel order %d for adjustment: %v", order.ID, err)
+						logger.Warnf("Failed to cancel order %d for adjustment: %v", order.ID, err)
 						continue
 					}
 
@@ -1091,14 +1091,14 @@ func orderMonitor(ctx context.Context, execEngine engine.ExecutionEngine, client
 
 					pendingAmount, err := strconv.ParseFloat(order.PendingAmount, 64)
 					if err != nil {
-						logger.Errorf("Failed to parse pending amount for order %d: %v", order.ID, err)
+						logger.Warnf("Failed to parse pending amount for order %d: %v", order.ID, err)
 						continue
 					}
 					currentCfg := config.GetConfig()
 					logger.Infof("Re-placing order for pair %s, type %s, new rate %.2f, amount %.8f", order.Pair, order.OrderType, newRate, pendingAmount)
 					_, err = execEngine.PlaceOrder(ctx, currentCfg.Trade.Pair, order.OrderType, newRate, pendingAmount, false)
 					if err != nil {
-						logger.Errorf("Failed to re-place order after adjustment for original ID %d: %v", order.ID, err)
+						logger.Warnf("Failed to re-place order after adjustment for original ID %d: %v", order.ID, err)
 					} else {
 						logger.Infof("Successfully re-placed order for original ID %d with new rate.", order.ID)
 					}
