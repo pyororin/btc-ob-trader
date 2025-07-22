@@ -128,7 +128,8 @@ report: ## Generate and display a PnL report from the latest simulation CSV.
 		exit 1; \
 	fi; \
 	echo "Running simulation on $$SIM_CSV_PATH..."; \
-	@make simulate CSV_PATH=$$SIM_CSV_PATH | sudo -E docker compose exec -T report-generator build/report
+	sudo -E docker compose up -d report-generator; \
+	make simulate CSV_PATH=$$SIM_CSV_PATH | sudo -E docker compose exec -T report-generator build/report
 
 optimize: build ## Run hyperparameter optimization using Optuna. Accepts HOURS_BEFORE or CSV_PATH.
 	@echo "Running hyperparameter optimization..."
