@@ -19,6 +19,7 @@ import (
 	"runtime/pprof"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/your-org/obi-scalp-bot/internal/alert"
 	"github.com/your-org/obi-scalp-bot/internal/benchmark"
@@ -75,7 +76,7 @@ func main() {
 	}
 
 	if !f.simulateMode {
-		startHealthCheckServer()
+		startHTTPServer(ctx)
 	}
 
 	// --- Main Execution Loop ---
@@ -256,13 +257,33 @@ func setupLogger(logLevel, configPath, pair string) {
 	logger.Infof("Target pair: %s", pair)
 }
 
-// startHealthCheckServer starts the HTTP server for health checks.
-func startHealthCheckServer() {
+// startHTTPServer starts the HTTP server for health checks and other API endpoints.
+func startHTTPServer(ctx context.Context) {
+	cfg := config.GetConfig()
+
+	// Create a new chi router
+	r := chi.NewRouter()
+
+	// Health check endpoint
+	r.Get("/health", handler.HealthCheckHandler)
+
+	// PnL report endpoint
+	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s&timezone=Asia/Tokyo",
+		cfg.App.Database.User, cfg.App.Database.Password, cfg.App.Database.Host, cfg.App.Database.Port, cfg.App.Database.Name, cfg.App.Database.SSLMode)
+	dbpool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		logger.Warnf("HTTP server unable to connect to database for PnL handler: %v", err)
+	} else {
+		repo := datastore.NewRepository(dbpool)
+		pnlHandler := handler.NewPnlHandler(repo)
+		pnlHandler.RegisterRoutes(r)
+		logger.Info("PnL report endpoint /pnl/latest_report registered.")
+	}
+
 	go func() {
-		http.HandleFunc("/health", handler.HealthCheckHandler)
-		logger.Info("Health check server starting on :8080")
-		if err := http.ListenAndServe(":8080", nil); err != nil {
-			logger.Fatalf("Health check server failed: %v", err)
+		logger.Info("HTTP server starting on :8080")
+		if err := http.ListenAndServe(":8080", r); err != nil {
+			logger.Fatalf("HTTP server failed: %v", err)
 		}
 	}()
 }
