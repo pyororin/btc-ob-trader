@@ -196,7 +196,7 @@ build: ## Build the Go application binary inside the container.
 
 build-image: ## Build the Docker image for the bot.
 	@echo "Building Docker image..."
-	sudo -E docker build -t obi-scalp-bot-image:latest .
+	docker build -t obi-scalp-bot-image:latest .
 
 # ==============================================================================
 # GRAFANA DASHBOARDS
