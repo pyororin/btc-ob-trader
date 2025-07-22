@@ -90,10 +90,11 @@ type SignalEngine struct {
 	obiHistory        []float64
 
 	// Fields for regime detection
-	priceHistory []float64
-	maxHistory   int
-	currentRegime Regime
-	hurstExponent float64
+	priceHistory             []float64
+	maxHistory               int
+	currentRegime            Regime
+	hurstExponent            float64
+	lastHurstCalculationTime time.Time
 }
 
 // NewSignalEngine creates a new SignalEngine.
@@ -125,6 +126,7 @@ func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
 		maxHistory:               100,
 		currentRegime:            RegimeUnknown,
 		hurstExponent:            0.0,
+		lastHurstCalculationTime: time.Time{},
 	}, nil
 }
 
@@ -141,8 +143,10 @@ func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, 
 		e.priceHistory = e.priceHistory[1:]
 	}
 
-	// Update regime
-	if len(e.priceHistory) == e.maxHistory {
+	// Update regime, but not on every single tick to save CPU
+	const hurstCalculationInterval = 1 * time.Minute
+	if len(e.priceHistory) == e.maxHistory && currentTime.Sub(e.lastHurstCalculationTime) > hurstCalculationInterval {
+		e.lastHurstCalculationTime = currentTime
 		hurst, err := indicator.CalculateHurstExponent(e.priceHistory, 2, 20)
 		if err == nil {
 			e.hurstExponent = hurst
