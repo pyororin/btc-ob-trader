@@ -131,7 +131,7 @@ report: ## Generate and display a PnL report from recent data.
 	fi; \
 	echo "Running simulation on $$SIM_CSV_PATH..."; \
 	@SIM_OUTPUT=$$(make simulate CSV_PATH=$$SIM_CSV_PATH); \
-	sudo -E docker compose exec -T report-generator sh -c "echo '$${SIM_OUTPUT}' | /app/build/report"
+	ocker compose exec -T report-generator sh -c "echo '$${SIM_OUTPUT}' | /app/build/report"
 	@rm "$$SIM_CSV_PATH"; \
 	echo "Cleaned up simulation data."
 
