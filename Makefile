@@ -130,10 +130,10 @@ report: ## Generate and display a PnL report from recent data.
 		exit 1; \
 	fi; \
 	echo "Running simulation on $$SIM_CSV_PATH..."; \
-	@SIM_OUTPUT=$$(make simulate CSV_PATH=$$SIM_CSV_PATH); \
-	ocker compose exec -T report-generator sh -c "echo '$${SIM_OUTPUT}' | /app/build/report"
-	@rm "$$SIM_CSV_PATH"; \
-	echo "Cleaned up simulation data."
+	@SIM_OUTPUT=$$(make simulate CSV_PATH=$$SIM_CSV_PATH);
+	@echo "$${SIM_OUTPUT}" | sudo -E docker compose exec -T report-generator build/report
+	@rm "$$SIM_CSV_PATH";
+	@echo "Cleaned up simulation data."
 
 optimize: build ## Run hyperparameter optimization using Optuna. Accepts HOURS_BEFORE or CSV_PATH.
 	@echo "Running hyperparameter optimization..."
