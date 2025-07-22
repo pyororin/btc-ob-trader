@@ -107,7 +107,7 @@ export-sim-data: ## Export order book data. Use HOURS_BEFORE or START_TIME/END_T
 		FLAGS="$$FLAGS --no-zip"; \
 	fi; \
 	echo "Running export with flags: $$FLAGS"; \
-	sudo -E docker compose run --rm \
+	docker compose run --rm \
 		-v $$(pwd)/simulation:/app/simulation \
 		-e DB_USER=$(DB_USER) \
 		-e DB_PASSWORD=$(DB_PASSWORD) \
