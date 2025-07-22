@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+	"runtime"
+	"runtime/pprof"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,12 +42,27 @@ type flags struct {
 	simulateMode  bool
 	csvPath       string
 	jsonOutput    bool
+	cpuProfile    string
+	memProfile    string
 }
 
 func main() {
 	// --- Initialization ---
 	_ = pgxpool.Config{}
 	f := parseFlags()
+
+	if f.cpuProfile != "" {
+		file, err := os.Create(f.cpuProfile)
+		if err != nil {
+			logger.Fatalf("could not create CPU profile: %v", err)
+		}
+		defer file.Close()
+		if err := pprof.StartCPUProfile(file); err != nil {
+			logger.Fatalf("could not start CPU profile: %v", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -79,6 +96,19 @@ func main() {
 	// --- Graceful Shutdown ---
 	waitForShutdownSignal(shutdownSigs)
 	logger.Info("Initiating graceful shutdown...")
+
+	if f.memProfile != "" {
+		file, err := os.Create(f.memProfile)
+		if err != nil {
+			logger.Fatalf("could not create memory profile: %v", err)
+		}
+		defer file.Close()
+		runtime.GC() // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(file); err != nil {
+			logger.Fatalf("could not write memory profile: %v", err)
+		}
+	}
+
 	cancel()
 	time.Sleep(1 * time.Second) // Allow time for services to shut down
 	logger.Info("OBI Scalping Bot shut down gracefully.")
@@ -91,6 +121,8 @@ func parseFlags() flags {
 	simulateMode := flag.Bool("simulate", false, "Enable simulation mode from CSV")
 	csvPath := flag.String("csv", "", "Path to the trade data CSV file for simulation")
 	jsonOutput := flag.Bool("json-output", false, "Output simulation summary in JSON format")
+	cpuProfile := flag.String("cpuprofile", "", "write cpu profile to `file`")
+	memProfile := flag.String("memprofile", "", "write memory profile to `file`")
 	flag.Parse()
 	return flags{
 		configPath:      *configPath,
@@ -98,6 +130,8 @@ func parseFlags() flags {
 		simulateMode:    *simulateMode,
 		csvPath:         *csvPath,
 		jsonOutput:      *jsonOutput,
+		cpuProfile:      *cpuProfile,
+		memProfile:      *memProfile,
 	}
 }
 
