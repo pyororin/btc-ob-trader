@@ -129,6 +129,7 @@ report: ## Generate and display a PnL report from the latest simulation CSV.
 	fi; \
 	echo "Running simulation on $$SIM_CSV_PATH..."; \
 	sudo -E docker compose up -d report-generator; \
+	sleep 5; \
 	SIM_OUTPUT=$$(make simulate CSV_PATH=$$SIM_CSV_PATH); \
 	echo "$${SIM_OUTPUT}" | sudo -E docker compose exec -T report-generator build/report
 
