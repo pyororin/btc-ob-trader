@@ -2,6 +2,17 @@
 
 このドキュメントは、`obi-scalp-bot` を本番環境 (Google Cloud Run および Cloud SQL for PostgreSQL + TimescaleDB) で運用するための手順、監視、基本的なSOP (Standard Operating Procedure) を記述します。
 
+## 0. 前提条件
+
+本ドキュメントに記載されている `docker` や `docker-compose`、`make` コマンドを実行するユーザーは、`docker` コマンドをパスワードなしで実行できる必要があります。
+
+多くの場合、以下のコマンドで現在のユーザーを `docker` グループに追加することで解決します。
+
+```bash
+sudo usermod -aG docker $USER
+```
+コマンド実行後、変更を有効にするためにターミナルセッションの再起動や再ログインが必要です。詳細は `OPERATIONS-local.md` も参照してください。
+
 ## 1. アーキテクチャ概要
 
 -   **アプリケーション**: Go言語で実装されたBot本体。Cloud Runサービスとしてコンテナ化され、常に1インスタンスで稼働。
