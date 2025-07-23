@@ -45,6 +45,8 @@ services:
     depends_on:
       timescaledb:
         condition: service_healthy
+      optimizer:
+        condition: service_healthy
     networks:
       - bot_network
 
@@ -146,7 +148,6 @@ services:
       - .:/app
       - ./.env:/app/.env:ro
       - params_volume:/data/params
-      - /var/run/docker.sock:/var/run/docker.sock
     env_file:
       - .env
     environment:
@@ -157,6 +158,12 @@ services:
       timescaledb:
         condition: service_healthy
     command: python optimizer/optimizer.py
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /data/params/trade_config.yaml"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
 
   drift-monitor:
     build:
