@@ -45,9 +45,9 @@ down: ## Stop and remove all application stack containers.
 	@echo "Stopping application stack..."
 	docker compose down
 
-logs: ## Follow logs from the bot service.
-	@echo "Following logs for 'bot' service..."
-	docker compose logs -f bot
+logs: ## Follow logs from the bot, optimizer, and drift-monitor services.
+	@echo "Following logs for 'bot', 'optimizer', and 'drift-monitor' services..."
+	docker compose logs -f bot optimizer drift-monitor
 
 shell: ## Access a shell inside the running bot container.
 	@echo "Accessing shell in 'bot' container..."
