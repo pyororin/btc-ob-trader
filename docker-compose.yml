@@ -182,7 +182,8 @@ services:
     networks:
       - bot_network
     depends_on:
-      - timescaledb
+      timescaledb:
+        condition: service_healthy
     command: python optimizer/drift_monitor.py
 
 networks:
