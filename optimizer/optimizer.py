@@ -319,8 +319,5 @@ def save_optimization_history(history_data):
 
 
 if __name__ == "__main__":
-    # Build the Go binary first
-    logging.info("Ensuring Go binary is built...")
-    # Run make from the root directory
-    subprocess.run(['make', 'build'], check=True, cwd=APP_ROOT)
+    # The Go binary is expected to be built by the Docker build process of the 'bot' service.
     main()
