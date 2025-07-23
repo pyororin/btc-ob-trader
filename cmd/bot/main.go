@@ -118,7 +118,7 @@ func main() {
 // parseFlags parses command-line flags.
 func parseFlags() flags {
 	configPath := flag.String("config", "config/app_config.yaml", "Path to the application configuration file")
-	tradeConfigPath := flag.String("trade-config", "config/trade_config.yaml", "Path to the trade configuration file")
+	tradeConfigPath := flag.String("trade-config", "/data/params/trade_config.yaml", "Path to the trade configuration file")
 	simulateMode := flag.Bool("simulate", false, "Enable simulation mode from CSV")
 	csvPath := flag.String("csv", "", "Path to the trade data CSV file for simulation")
 	jsonOutput := flag.Bool("json-output", false, "Output simulation summary in JSON format")
