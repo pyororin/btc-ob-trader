@@ -1,11 +1,9 @@
 FROM python:3.9-slim
 
-# Install dependencies
+# Install Go
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    make \
-    docker.io \
-    docker-compose-plugin \
+    golang \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a virtual environment
@@ -17,3 +15,6 @@ ENV PATH="$VENV_PATH/bin:$PATH"
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the entire source code
+COPY . .

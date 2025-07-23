@@ -58,15 +58,11 @@ def export_data(hours_before, is_oos_split=False, oos_hours=0):
     db_host = os.getenv('DB_HOST')
 
     cmd = [
-        'docker', 'compose', 'run', '--rm',
-        '-v', f'{os.getcwd()}/simulation:/app/simulation',
-        '-e', f'DB_USER={db_user}',
-        '-e', f'DB_PASSWORD={db_password}',
-        '-e', f'DB_NAME={db_name}',
-        '-e', f'DB_HOST={db_host}',
-        'builder',
-        'sh', '-c',
-        f'cd /app && go run cmd/export/main.go --hours-before={hours_before} --no-zip'
+        'go',
+        'run',
+        'cmd/export/main.go',
+        f'--hours-before={hours_before}',
+        '--no-zip'
     ]
 
 
