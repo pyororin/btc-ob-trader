@@ -153,8 +153,37 @@ def objective(trial):
     return profit_factor
 
 
+def ensure_default_config_exists():
+    """Checks if a trade config exists, and creates a default one if not."""
+    if not BEST_CONFIG_OUTPUT_PATH.exists():
+        logging.info(f"{BEST_CONFIG_OUTPUT_PATH} not found. Creating a default config from template.")
+        try:
+            with open(CONFIG_TEMPLATE_PATH, 'r') as f:
+                template = Template(f.read())
+
+            # Use default values from the template (or define simple defaults here)
+            # This part might need adjustment if the template requires specific variables
+            default_params = {
+                'spread_limit': 100,
+                'lot_max_ratio': 0.1,
+                'order_ratio': 0.1,
+                'long_tp': 100,
+                'long_sl': -100,
+                'short_tp': 100,
+                'short_sl': -100,
+            }
+            default_config_str = template.render(default_params)
+
+            with open(BEST_CONFIG_OUTPUT_PATH, 'w') as f:
+                f.write(default_config_str)
+            logging.info(f"Default trade config created at {BEST_CONFIG_OUTPUT_PATH}")
+
+        except Exception as e:
+            logging.error(f"Could not create default config: {e}")
+
 def main():
     """Main loop for the optimizer."""
+    ensure_default_config_exists()
     logging.info("Optimizer started. Waiting for optimization job...")
     while True:
         if JOB_FILE.exists():
