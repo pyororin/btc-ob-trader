@@ -34,9 +34,9 @@ type SimulationSummary struct {
 	CalmarRatio         float64 `json:"CalmarRatio"`
 	MaxConsecutiveWins  int     `json:"MaxConsecutiveWins"`
 	MaxConsecutiveLosses int    `json:"MaxConsecutiveLosses"`
-	AverageHoldingPeriodSeconds float64 `json:"AverageHoldingPeriodSeconds"`
-	AverageWinningHoldingPeriodSeconds float64 `json:"AverageWinningHoldingPeriodSeconds"`
-	AverageLosingHoldingPeriodSeconds  float64 `json:"AverageLosingHoldingPeriodSeconds"`
+	AverageHoldingPeriodSeconds float64 `json:"average_holding_period_seconds"`
+	AverageWinningHoldingPeriodSeconds float64 `json:"average_winning_holding_period_seconds"`
+	AverageLosingHoldingPeriodSeconds  float64 `json:"average_losing_holding_period_seconds"`
 	BuyAndHoldReturn    float64 `json:"BuyAndHoldReturn"`
 	ReturnVsBuyAndHold  float64 `json:"ReturnVsBuyAndHold"`
 }
