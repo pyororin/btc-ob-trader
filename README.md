@@ -4,6 +4,78 @@
 
 Coincheck APIと連携し、Order Book Imbalance (OBI) を中心としつつ、Order Flow Imbalance (OFI), Cumulative Volume Delta (CVD) などの補助指標を組み合わせて、より精度の高い取引シグナルを生成します。
 
+## アーキテクチャ概要
+
+本システムは、複数のコンテナが連携して動作するマイクロサービスアーキテクチャを採用しています。各サービスは `docker-compose.yml` で定義されており、それぞれが特定の役割を担っています。
+
+```mermaid
+graph TD
+    subgraph " "
+        direction LR
+        subgraph " "
+            A[User] -- "make up/down/logs" --> B(Makefile)
+        end
+        subgraph " "
+            B -- "docker-compose" --> C{Docker Engine}
+        end
+    end
+
+    subgraph Docker Network
+        direction LR
+        subgraph "Core Services"
+            bot(Bot) -- "Read/Write" --> db[(TimescaleDB)]
+            optimizer(Optimizer) -- "Read/Write" --> db
+            drift_monitor(Drift Monitor) -- "Read" --> db
+        end
+
+        subgraph "Monitoring & Analysis"
+            grafana(Grafana) -- "Read" --> db
+            adminer(Adminer) -- "Read/Write" --> db
+            report(Report Generator) -- "Read" --> db
+        end
+
+        subgraph "Data Flow"
+            exchange[Coincheck API] -- "WebSocket/HTTP" --> bot
+            optimizer -- "Update params" --> params_volume[(Params Volume)]
+            bot -- "Read params" --> params_volume
+            drift_monitor -- "Trigger" --> optimizer
+        end
+    end
+
+    C -- "Manages" --> bot
+    C -- "Manages" --> optimizer
+    C -- "Manages" --> drift_monitor
+    C -- "Manages" --> db
+    C -- "Manages" --> grafana
+    C -- "Manages" --> adminer
+    C -- "Manages" --> report
+
+    style bot fill:#c9f,stroke:#333,stroke-width:2px
+    style optimizer fill:#f9c,stroke:#333,stroke-width:2px
+    style drift_monitor fill:#f9c,stroke:#333,stroke-width:2px
+    style db fill:#ccf,stroke:#333,stroke-width:2px
+    style grafana fill:#fc9,stroke:#333,stroke-width:2px
+    style adminer fill:#fc9,stroke:#333,stroke-width:2px
+    style report fill:#fc9,stroke:#333,stroke-width:2px
+```
+
+## サービス概要 (コンテナ一覧)
+
+`docker-compose up` で起動するサービスは以下の通りです。
+
+| サービス名         | コンテナ名                  | 役割                                                                                                                              |
+| ------------------ | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `bot`              | `obi-scalp-bot`             | **取引ボット**: Goで実装されたメインのアプリケーション。市場データをリアルタイムで受信し、シグナルに基づいて取引を実行します。               |
+| `optimizer`        | `obi-scalp-optimizer`       | **パラメータ最適化**: PythonとOptunaを使用。定期的に過去のデータを分析し、最適な取引パラメータ (`trade_config.yaml`) を算出・更新します。 |
+| `drift-monitor`    | `obi-scalp-drift-monitor`   | **ドリフト監視**: パフォーマンスの劣化を監視し、`optimizer`の実行をトリガーします。                                                     |
+| `timescaledb`      | `timescaledb-obi`           | **データベース**: 取引履歴、指標、損益などを保存する時系列データベース (PostgreSQL + TimescaleDB)。                                  |
+| `grafana`          | `grafana-obi`               | **可視化ダッシュボード**: TimescaleDBのデータをグラフで表示し、パフォーマンスをリアルタイムで監視します。                               |
+| `adminer`          | `adminer`                   | **DB管理ツール**: Web UIを通じてデータベースの内容を直接確認・操作できます。                                                          |
+| `report-generator` | `report-generator`          | **レポート生成**: `make report` コマンドで実行され、指定期間のパフォーマンスレポートを生成します。                                    |
+| `bot-simulate`     | `obi-scalp-bot-simulate`    | **シミュレーション実行**: `make simulate` で使用。過去データ(CSV)を使い、取引戦略のバックテストを高速に実行します。                  |
+| `builder`          | -                           | **ビルド用**: Goアプリケーションをビルドするための一時的なコンテナです。                                                            |
+
+
 ## 主な特徴
 
 -   **マルチ指標によるシグナル生成**:
@@ -11,67 +83,19 @@ Coincheck APIと連携し、Order Book Imbalance (OBI) を中心としつつ、O
     -   **OFI (Order Flow Imbalance)**: OBIに約定情報を加え、より市場の実態に近いフローを分析します。
     -   **CVD (Cumulative Volume Delta)**: 一定期間の買い約定と売り約定の差分を累積し、短期的なトレンドの勢いを測ります。
     -   **MicroPrice**: 最良気配値だけでは捉えきれない、板の厚みを考慮した実質的な価格を計算します。
+-   **自律的なパラメータ最適化**: `drift-monitor`が市場の変化やパフォーマンスの劣化を検知し、`optimizer`が自動で最適な取引パラメータを再計算・適用します。
 -   **リアルタイム処理**: CoincheckのWebSocket APIを利用して、リアルタイムに板情報・取引情報を取得し、遅延の少ないシグナル判断を実現します。
--   **動的パラメータ調整**: 市場のボラティリティを算出し、状況に応じて取引パラメータ（利確・損切り幅など）を動的に調整する機能を持ちます。
--   **高度な注文執行**:
-    -   **TWAP注文**: 大きな注文を時間で分割して発注し、市場へのインパクトを抑えます。
-    -   **自動注文調整**: 発注した指値注文が市場価格から乖離した場合、自動でキャンセルして再発注するロジックを搭載しています。
--   **堅牢なデータ永続化**: TimescaleDB（PostgreSQLベースの時系列データベース）に、取引履歴、板情報、計算した各種指標を効率的に保存・圧縮します。
--   **高速なバックテスト機能**:
-    -   **CSVシミュレーション**: データベースからエクスポートした過去の市場データ（CSV形式）を用いて、取引戦略のパフォーマンスを高速に検証できます。これにより、パラメータのチューニングやロジックの改善を効率的に行うことが可能です。
+-   **堅牢なデータ永続化**: TimescaleDBに、取引履歴、板情報、計算した各種指標を効率的に保存・圧縮します。
+-   **高速なバックテスト機能**: `bot-simulate`サービスにより、過去の市場データを用いた取引戦略の高速な検証が可能です。
 -   **パフォーマンス可視化**: Grafanaと連携し、累積損益、勝率、取引履歴などを視覚的に分析できるダッシュボードを提供します。
-
-## アルゴリズムと戦略パラメータ
-
-本ボットは、複数の指標を組み合わせて取引シグナルを生成します。主要なロジックと関連パラメータは以下の通りです。
-
-### 1. 主要指標
-
--   **OBI (Order Book Imbalance)**
-    -   **目的**: 板情報における買い注文と売り注文の圧力の不均衡を測定します。OBIが高い値を示す場合、買い圧力が強い（価格上昇の可能性）と判断し、低い（負の）値の場合は売り圧力が強い（価格下落の可能性）と判断します。
-    -   **関連パラメータ**: `long.obi_threshold`, `short.obi_threshold`
--   **OFI (Order Flow Imbalance)**
-    -   **目的**: OBIが板の静的な状態を捉えるのに対し、OFIは実際に成立した約定情報を加味します。これにより、市場参加者の真の行動（成行注文など）を反映した、より動的な需給バランスを分析します。
--   **CVD (Cumulative Volume Delta)**
-    -   **目的**: 一定期間の「買い約定量」から「売り約定量」を引いた差を累積します。CVDの上昇は買い意欲の継続を、下降は売り意欲の継続を示唆し、短期的なトレンドの勢いを判断するのに役立ちます。
--   **MicroPrice**
-    -   **目的**: 最良気配値だけでなく、その周辺の板の厚み（流動性）も考慮に入れて、実質的な市場価格を算出します。これにより、スプレッドが広い状況や板が薄い状況でも、より安定した価格評価が可能になります。
-
-### 2. シグナル生成ロジック
-
-1.  **OBI閾値超過**: OBIの値が `trade_config.yaml` で設定された `obi_threshold` を超えた場合、エントリーシグナルの「候補」となります。
-2.  **シグナル確定待機 (Hold Duration)**: シグナル候補が発生しても即座にエントリーはしません。`signal.hold_duration_ms` で設定された時間、OBIが閾値を超え続けた場合にのみ、シグナルが「確定」します。これは、瞬間的なノイズ（ダマシ）を避けるためのフィルターです。
-3.  **OBI傾きフィルター (Slope Filter)**: （有効な場合）シグナル確定時に、OBIの短期的な変化率（傾き）を計算します。`signal.slope_filter.threshold` で設定された勢いがない場合、トレンドが弱いと判断しエントリーを見送ります。
-4.  **動的OBI閾値 (Dynamic OBI)**: （有効な場合）市場のボラティリティを常に計算し、変動が激しい相場ではOBIの閾値を自動的に引き上げ（より強いシグナルを要求）、静かな相場では引き下げます。これにより、市場環境に適応した取引判断を目指します。
-
-### 3. 執行戦略とリスク管理
-
--   **ポジションサイズ**: `lot_max_ratio` と `order_ratio` に基づいて決定されます。`adaptive_position_sizing` が有効な場合、直近の損益に応じて `order_ratio` が自動調整されます。
--   **利食い(TP)と損切り(SL)**: `long.tp`/`short.tp` と `long.sl`/`short.sl` で設定された固定幅で執行されます。
--   **TWAP注文**: `twap.enabled` がtrueの場合、大きな注文は `twap.max_order_size_btc` のサイズに分割され、`twap.interval_seconds` の間隔で発注されます。
--   **最大ドローダウン**: `risk.max_drawdown_percent` を超える損失が発生した場合、システムは自動的に新規注文を停止します。
 
 ## 技術スタック
 
--   **言語**: Go
+-   **言語**: Go (Bot), Python (Optimizer)
 -   **データベース**: TimescaleDB (PostgreSQL + TimescaleDB拡張)
 -   **可視化**: Grafana
 -   **コンテナ化**: Docker, Docker Compose
-
-## データベース設計
-
-本ボットは、収集したデータや取引の記録をTimescaleDBに保存します。主要なテーブルとその役割は以下の通りです。
-
-| テーブル/ビュー名                  | 役割と主な用途                                                                                                                               |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `order_book_updates`             | 取引所のオーダーブック（板情報）の更新履歴をすべて保存します。高頻度なデータであり、バックテスト時の市場再現に使用されます。                       |
-| `trades`                         | WebSocketから受信した約定情報（市場全体の取引）を記録します。CVD（Cumulative Volume Delta）などの指標計算やバックテストに使用されます。          |
-| `pnl_summary`                    | ポジションの評価損益を含む、ボットの総資産の推移を時系列で記録します。Grafanaでのリアルタイムな損益グラフの描画に使用されます。                  |
-| `trades_pnl`                     | ボット自身の取引（エントリーからクローズまで）が完了した際の、個別の確定損益を記録します。                                                       |
-| `pnl_reports`                    | `make report`コマンドなどで生成される、指定期間のパフォーマンス分析レポート（勝率、総損益など）の結果を保存します。                               |
-| `benchmark_values`               | パフォーマンス比較の基準となるベンチマーク（例：BTC価格）の時系列データを保存します。                                                          |
-| `latencies`                      | 注文を発行してから約定するまでにかかった時間（レイテンシー）を記録し、システムの応答性能を測定するために使用します。                            |
-| `v_performance_vs_benchmark`     | `pnl_summary`（ボットの損益）と`benchmark_values`（市場価格）を結合し、ボットのパフォーマンスと市場のベンチマークを比較するためのビューです。 |
+-   **主要ライブラリ**: Optuna (Python), Gorilla WebSocket (Go), Zap (Go)
 
 ## セットアップ
 
@@ -111,7 +135,7 @@ GRAFANA_USER="admin"
 GRAFANA_PASSWORD="admin"
 ```
 
-### 3. 設定ファイルの確認
+### 3. 設定ファイルについて
 
 本プロジェクトの設定は、役割に応じて2つのファイルに分割されています。
 
@@ -122,138 +146,76 @@ GRAFANA_PASSWORD="admin"
     -   取引ペア、OBI閾値、利食い・損切り幅、ポジションサイズなど、ボットの売買ロジックに直接関わるパラメータを管理します。
     -   このファイルは、`optimizer`サービスによって自動的に更新されます。手動で編集する代わりに、`config/trade_config.yaml.template` のパラメータ範囲を調整してください。
 
-## 実行方法
+## 実行コマンド (Makefile)
 
-### 通常起動（本番トレード & 自動最適化）
+よく使われる操作は `Makefile` にまとめられています。
 
-以下のコマンドで、ボット、自動最適化、監視サービスをすべて起動します。
+| コマンド                | 説明                                                                                                 |
+| ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| `make up`               | すべてのサービス（取引ボット、最適化、監視等）を起動します。                                          |
+| `make down`             | すべてのサービスを停止します。                                                                       |
+| `make logs`             | 実行中の全サービスのログを表示します。`make logs service=bot` のようにサービス指定も可能です。     |
+| `make monitor`          | ボットを起動せず、データベースとGrafanaのみを起動します。過去の取引結果を分析する際に使用します。    |
+| `make report`           | コンソールに現在のパフォーマンスサマリーを表示します。                                               |
+| `make optimize`         | 手動でパラメータ最適化を一度だけ実行します。                                                         |
+| `make simulate`         | `CSV_PATH`で指定した過去データを用いてバックテストを実行します。                                     |
+| `make export-sim-data`  | バックテスト用のデータをDBからエクスポートします。`HOURS_BEFORE=24` のように時間を指定します。       |
+| `make test`             | Goのユニットテストを実行します。                                                                     |
+| `make build`            | ローカルでGoのバイナリをビルドします。                                                               |
 
-```bash
-make up
-```
-
-### 監視のみ
-
-ボットを起動せず、データベースとGrafanaのみを起動します。過去の取引結果を分析する際などに使用します。
-
-```bash
-make monitor
-```
-
-### ログの確認
-
-```bash
-make logs
-```
-
-### PnLレポートの生成
-
-コンソールに現在のパフォーマンスサマリーを表示します。
-
-```bash
-make report
-```
-
-### サービスの停止
-
-```bash
-make down
-```
 
 ## バックテスト (シミュレーション)
 
-本プロジェクトのバックテストは、過去の市場データをCSVファイルとして用意し、それを用いて取引戦略のパフォーマンスを高速に検証する「シミュレーション」方式を採用しています。これにより、データベースを起動することなく、戦略のパラメータチューニングやロジックの改善を効率的に行うことができます。
-
-バックテストのプロセスは、大きく分けて2つのステップで構成されます。
+過去の市場データ(CSV)を用いて取引戦略のパフォーマンスを高速に検証します。
 
 ### ステップ1: バックテスト用データの準備
 
-まず、データベースに保存されている過去の取引データをCSVファイルとしてエクスポートします。
+データベースに保存されている過去の取引データをCSVファイルとしてエクスポートします。
 
--   **直近のデータをエクスポートする場合:**
-    `HOURS_BEFORE` で何時間前のデータまでを対象とするかを指定します。例えば、直近24時間分のデータをエクスポートするには、以下のコマンドを実行します。
-    ```bash
-    make export-sim-data HOURS_BEFORE=24
-    ```
+```bash
+# 直近24時間分のデータをエクスポート
+make export-sim-data HOURS_BEFORE=24
 
--   **特定の期間を指定してエクスポートする場合:**
-    `START_TIME` と `END_TIME` で期間を `YYYY-MM-DD HH:MM:SS` 形式で指定します。
-    ```bash
-    make export-sim-data START_TIME='2024-07-01 00:00:00' END_TIME='2024-07-01 03:00:00'
-    ```
-
-いずれのコマンドも、成功すると `./simulation/` ディレクトリに `order_book_updates_YYYYMMDD-HHMMSS.zip` のようなZIPファイルが生成されます。`make simulate` コマンドは、このZIPファイルを自動的に解凍して使用します。
+# 期間指定でエクスポート
+make export-sim-data START_TIME='2024-07-01 00:00:00' END_TIME='2024-07-01 03:00:00'
+```
+成功すると `./simulation/` ディレクトリに `order_book_updates_YYYYMMDD-HHMMSS.zip` のようなZIPファイルが生成されます。
 
 ### ステップ2: シミュレーションの実行
 
-次に、`make simulate` コマンドを実行してバックテストを開始します。`CSV_PATH`には、ステップ1で作成したZIPファイルのパスを指定します。
+`make simulate` コマンドでバックテストを開始します。`CSV_PATH`には、ステップ1で作成したZIPファイルのパスを指定します。
 
 ```bash
 make simulate CSV_PATH=./simulation/order_book_updates_YYYYMMDD-HHMMSS.zip
 ```
+結果はコンソールに出力されます。この結果を元に `config/trade_config.yaml` のパラメータを調整し、再度シミュレーションを繰り返すことで戦略を最適化します。
 
-このコマンドは以下の処理を自動的に行います。
-1.  指定されたZIPファイルを `./simulation/` ディレクトリ内に解凍します。
-2.  解凍されたCSVファイルを読み込み、取引シミュレーションを実行します。
-3.  `config/trade_config.yaml` に定義された取引戦略とパラメータを使用します。
-
-### ステップ3: 結果の確認
-
-シミュレーションが完了すると、コンソールにパフォーマンスの概要が出力されます。
-
-```
-==== シミュレーション結果 ====
-総損益　     : +1234.56 JPY
-取引回数     : 20回
-勝率         : 60.00% (12勝/8敗)
-平均利益/損失: +150.00 JPY / -75.00 JPY
-最大ドローダウン: -500.00 JPY
-==========================
-```
-この結果を確認し、`config/trade_config.yaml` のパラメータを調整して再度シミュレーションを実行する、というサイクルを繰り返すことで、戦略の最適化を行います。
 
 ## 自律的ハイパーパラメータ最適化
 
-本プロジェクトは、市場の変化に適応するために、取引パラメータを自律的に最適化する機能を備えています。`make up` で起動する `drift-monitor` と `optimizer` の2つのサービスがこの役割を担います。
+`drift-monitor` と `optimizer` の2つのサービスが連携し、市場の変化に適応するために取引パラメータを自律的に最適化します。
 
 ### 仕組み
 
 1.  **ドリフト検知 (`drift-monitor`)**:
-    -   `drift_monitor.py` スクリプトが、TimescaleDBに保存されているリアルタイムの取引パフォーマンス（Sharpeレシオ、プロフィットファクター、ドローダウン等）を常時監視します。
-    -   以下のいずれかの条件が満たされると、最適化プロセスを起動します。
-        1.  **定時実行**: 4時間ごと。
-        2.  **軽度ドリフト**: 直近1時間のパフォーマンスが、過去の移動平均から著しく低下した場合。
-        3.  **急変動**: 直近15分で急激なドローダウン拡大やパフォーマンス低下が検知された場合。
-
+    -   リアルタイムの取引パフォーマンスを常時監視し、パフォーマンス低下や市場の急変動を検知すると、最適化プロセスを起動します。
 2.  **パラメータ最適化 (`optimizer`)**:
-    -   `optimizer.py` スクリプトが起動のトリガーを受け取ります。
-    -   トリガーの種類に応じて、In-Sample（学習用）とOut-of-Sample（検証用）のデータ期間を動的に決定します（例：急変動時はより短い期間で最適化）。
-    -   データベースから該当期間のデータをエクスポートし、Optuna（Hyperbandプルーナー付き）を用いて高速に最適化計算を実行します。
-    -   **合格基準**: 発見された最適パラメータは、OOS（検証用）データで以下の基準を満たすか検証されます。
-        -   プロフィットファクター ≥ 1.2
-        -   Sharpeレシオ ≥ 0.5
-        -   その他（最大ドローダウン等）
-    -   合格した場合のみ、新しいパラメータ設定が `/data/params/trade_config.yaml` に書き込まれます。
-
+    -   `optimizer`が起動し、`Optuna`を用いて最適なパラメータを探索します。
+    -   見つかったパラメータが検証用データで一定の基準を満たした場合のみ、新しい設定ファイル (`/data/params/trade_config.yaml`) を生成します。
 3.  **パラメータの動的リロード**:
-    -   稼働中の `bot` サービスは、設定ファイルが更新されると自動的に検知し、取引を中断することなく新しいパラメータを即座に読み込んで取引戦略に反映させます。
+    -   稼働中の `bot` サービスは、設定ファイルが更新されると自動的に検知し、取引を中断することなく新しいパラメータを即座に取引戦略に反映させます。
 
-### 手動での最適化実行
+手動で最適化をトリガーする場合は `make optimize` を実行します。
 
-自動最適化サイクルとは別に、手動で最適化をトリガーすることも可能です。
 
-```bash
-make optimize
-```
+## 監視・分析
 
-このコマンドは、`drift-monitor` が発行するのと同じように最適化ジョブを作成し、`optimizer` サービスのログ出力を表示します。これにより、開発やテストのために即時最適化を行いたい場合に便利です。
-
-## Grafanaダッシュボード
+### Grafanaダッシュボード
 
 `make up` または `make monitor` を実行後、ブラウザで http://localhost:3000 にアクセスします。
 `.env` で設定したユーザー名とパスワードでログインしてください（デフォルト: admin/admin）。
 
-## Adminerによるデータベース閲覧
+### Adminerによるデータベース閲覧
 
 `make up` または `make monitor` を実行後、ブラウザで http://localhost:8888 にアクセスすると、Adminerの管理画面が開きます。
 以下の情報でデータベースに接続できます。
