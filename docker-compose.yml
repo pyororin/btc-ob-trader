@@ -22,7 +22,6 @@ services:
       dockerfile: Dockerfile
     container_name: obi-scalp-bot
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - .:/app
       - ./.env:/app/.env:ro
       - params_volume:/data/params
@@ -148,7 +147,6 @@ services:
     container_name: obi-scalp-optimizer
     working_dir: /app
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - .:/app
       - ./.env:/app/.env:ro
       - params_volume:/data/params
@@ -176,7 +174,6 @@ services:
     container_name: obi-scalp-drift-monitor
     working_dir: /app
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - .:/app
       - ./.env:/app/.env:ro
       - params_volume:/data/params
