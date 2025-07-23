@@ -27,7 +27,7 @@ up: ## Start all services including the bot for live trading.
 
 migrate: ## Run database migrations
 	@echo "Running database migrations..."
-	ocker compose exec -T timescaledb sh -c '\
+	docker compose exec -T timescaledb sh -c '\
 	for dir in /docker-entrypoint-initdb.d/01_schema; do \
 		for f in $$dir/*.sql; do \
 			if [ -f "$$f" ]; then \
