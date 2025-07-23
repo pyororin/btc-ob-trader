@@ -1,163 +1,218 @@
 # 本番運用手順 (OPERATIONS.md)
 
-このドキュメントは、`obi-scalp-bot` を本番環境 (Google Cloud Run および Cloud SQL for PostgreSQL + TimescaleDB) で運用するための手順、監視、基本的なSOP (Standard Operating Procedure) を記述します。
-
-## 0. 前提条件
-
-本ドキュメントに記載されている `docker` や `docker-compose`、`make` コマンドを実行するユーザーは、`docker` コマンドをパスワードなしで実行できる必要があります。
-
-多くの場合、以下のコマンドで現在のユーザーを `docker` グループに追加することで解決します。
-
-```bash
-sudo usermod -aG docker $USER
-```
-コマンド実行後、変更を有効にするためにターミナルセッションの再起動や再ログインが必要です。詳細は `OPERATIONS-local.md` も参照してください。
+このドキュメントは、`obi-scalp-bot` をDocker Composeを利用して単一サーバー上で本番運用するための手順、監視、標準的な運用手順 (SOP) を記述します。
 
 ## 1. アーキテクチャ概要
 
--   **アプリケーション**: Go言語で実装されたBot本体。Cloud Runサービスとしてコンテナ化され、常に1インスタンスで稼働。
--   **データベース**: Cloud SQL for PostgreSQL に TimescaleDB 拡張を追加したもの。市場データ、取引履歴、PnLなどを保存。
--   **監視**: Cloud Logging, Cloud Monitoring, そしてパフォーマンス可視化のためのGrafanaで構成。
+本システムは、`docker-compose.yml` で定義された複数のサービスが連携して動作します。主要なコンポーネントは以下の通りです。
 
-## 2. デプロイ手順
+-   **アプリケーション**: `bot` (Go), `optimizer` (Python), `drift-monitor` (Python)
+-   **データベース**: `timescaledb` (PostgreSQL + TimescaleDB)
+-   **監視・管理**: `grafana`, `adminer`
 
-### 2.1. Cloud Run へのデプロイ
+詳細は `README.md` のアーキテクチャ図とサービス概要を参照してください。
 
-デプロイにはサービス定義ファイル (`service.yaml`) の利用を推奨します。
+## 2. 前提条件とサーバー設定
 
-```yaml
-# service.yaml
-apiVersion: serving.knative.dev/v1
-kind: Service
-metadata:
-  name: obi-scalp-bot-prod
-spec:
-  template:
-    metadata:
-      annotations:
-        autoscaling.knative.dev/maxScale: '1' # 常に1インスタンスで実行
-    spec:
-      containerConcurrency: 80
-      timeoutSeconds: 300
-      containers:
-      - image: gcr.io/YOUR_PROJECT_ID/obi-scalp-bot:latest
-        ports:
-        - name: http1
-          containerPort: 8080
-        env:
-        - name: GIN_MODE
-          value: "release"
-        # APIキーやDBパスワードはSecret Manager経由でのマウントを強く推奨
-        # - name: COINCHECK_API_KEY
-        #   valueFrom:
-        #     secretKeyRef:
-        #       name: bot-secrets
-        #       key: coincheck-api-key
-        resources:
-          limits:
-            memory: 512Mi
-            cpu: "1"
-        startupProbe:
-          timeoutSeconds: 300
-          periodSeconds: 60
-          failureThreshold: 5
-          httpGet:
-            path: "/health" # ヘルスチェックエンドポイントを指定
-            port: 8080
-```
+-   **OS**: Ubuntu 22.04 LTSなどの安定したLinuxディストリビューション。
+-   **ソフトウェア**:
+    -   `git`
+    -   `make`
+    -   `docker`
+    -   `docker-compose`
+-   **推奨設定**:
+    -   運用ユーザーを`docker`グループに追加し、`sudo`なしでDockerコマンドを実行できるようにしてください。
+      ```bash
+      sudo usermod -aG docker $USER
+      ```
+      (実行後、再ログインが必要です)
+    -   システムのファイアウォールを設定し、Grafana (3000), Adminer (8888) などのポートへのアクセスを信頼できるIPアドレスのみに制限してください。
 
-**デプロイコマンド:**
-```bash
-gcloud run services replace service.yaml --region YOUR_REGION --platform managed
-```
+## 3. 初回デプロイ手順
 
-### 2.2. データベース接続
+1.  **リポジトリのクローン**:
+    ```bash
+    git clone https://github.com/your-org/obi-scalp-bot.git
+    cd obi-scalp-bot
+    ```
 
-Goアプリケーション内で `cloud.google.com/go/cloudsqlconn` パッケージを利用し、Cloud SQL Auth Proxyクライアントとして機能させることを推奨します。これにより、IPホワイトリストやSSL証明書の管理が不要になります。
+2.  **環境変数の設定**:
+    `.env.sample`をコピーして`.env`を作成し、APIキーやデータベースの認証情報を設定します。
+    ```bash
+    cp .env.sample .env
+    nano .env
+    ```
 
-## 3. 監視
+3.  **設定ファイルの確認**:
+    `config/app_config.yaml` と `config/trade_config.yaml.template` の内容を確認し、必要に応じて調整します。特に、`trade_config.yaml.template` は自動最適化の際のパラメータ範囲を定義するため重要です。
 
-効果的な運用には、システムの健全性とBotのパフォーマンスの両面からの監視が不可欠です。
+4.  **Dockerイメージのビルド**:
+    初回起動前、またはアプリケーションのコードを更新した際に実行します。
+    ```bash
+    make build
+    ```
 
-### 3.1. 主要な監視対象とログ
+5.  **初回起動**:
+    データベースの初期化なども含め、すべてのサービスをバックグラウンドで起動します。
+    ```bash
+    make up
+    ```
 
-Cloud Logging で以下のキーワードに注目し、必要に応じてログベースのアラートを設定します。
+6.  **起動確認**:
+    ```bash
+    # すべてのコンテナが "Up" または "healthy" 状態であることを確認
+    docker-compose ps -a
 
--   `"Health check server starting"`: Botの正常起動を示す。
--   `"Connecting to Coincheck WebSocket API"`: WebSocketへの接続開始。
--   `"Order monitor starting"`: **未約定注文の監視機能**の起動。この機能は、不利な価格に置かれた指値注文を自動でキャンセル・再発注します。
-    -   `"Adjusting order"`: このログは、注文調整が実行されたことを示します。頻発する場合は、市場の急変動やパラメータの問題を示唆している可能性があります。
--   `"Starting PnL reporter"`: **PnLレポートの定期生成機能**の起動。
-    -   `"Successfully generated and saved PnL report"`: 定期的なレポートが正常に作成されていることを示します。
--   `"Failed to ..."` / `"Error ..."`: 想定外のエラー。特に `PlaceOrder`, `CancelOrder`, `GetOpenOrders` に関連するエラーは取引機会の損失やリスクに直結するため、即時通知アラートを設定します。
--   `"WebSocket client exited with error"`: WebSocketが切断されたことを示す重大なエラー。Botは自動で停止します。
+    # ボットのログを確認し、エラーなく起動していることを確認
+    make logs s=bot
+    ```
 
-### 3.2. アラート設定 (Cloud Monitoring)
+## 4. 日常運用
 
-以下の事象に対してアラートを設定します。
+### 4.1. サービスの操作
 
--   **ヘルスチェック失敗**: `startupProbe` の失敗はコンテナの起動失敗を意味し、即時対応が必要です。
--   **エラーログの急増**: 上記 3.1 でリストしたエラーログの発生頻度に基づきアラートを設定します。
--   **DB接続エラー**: データベースへの接続失敗を示すログに対するアラート。
--   **取引APIエラー**: Coincheck APIからのエラーレスポンス（4xx, 5xx系）を示すログに対するアラート。
--   **Cloud SQL のリソース逼迫**: ディスク容量、CPU使用率、メモリ使用率が閾値を超えた場合に通知します。
+基本的なサービスの操作（起動、停止、ログ確認など）は `Makefile` に集約されています。詳細は `README.md` の「実行コマンド (Makefile)」セクションを参照してください。
 
-### 3.3. パフォーマンス監視 (Grafana)
+-   **状態確認**: 全サービスの稼働状態、ポート、ヘルスチェック状況を確認するには、以下のコマンドを実行します。
+    ```bash
+    docker-compose ps -a
+    ```
 
-本番環境のGrafanaダッシュボード (`http://<your-prod-ip>:3000` など、アクセス制御されたURL) は、Botの経済的パフォーマンスを評価する上で最も重要なツールです。
+-   **単体サービスの再起動**: 特定のサービス（例: `bot`）だけを再起動したい場合は、以下のコマンドが便利です。
+    ```bash
+    docker-compose restart bot
+    ```
 
--   **累積損益 (Cumulative PnL)**: 最も重要な指標。予期せぬ下降トレンドが発生していないか、常に監視します。
--   **勝率 (Win Rate) とプロフィットファクター**: 戦略の有効性を示します。これらの指標が市場の変化によって悪化していないか確認します。
--   **取引履歴 (Recent Trades)**: Botが想定通りのロジックで取引しているか（価格、量、タイミング）をスポットチェックします。
+### 4.2. パフォーマンス監視 (Grafana)
 
-## 4. 標準運用手順 (SOP)
+**URL**: `http://<サーバーIP>:3000`
 
-### 4.1. 定期チェック
+Grafanaはシステムの健全性とパフォーマンスを監視するための主要ツールです。
 
--   **毎日**:
-    -   Grafanaダッシュボードで累積損益、勝率、ドローダウンを確認。
-    -   Cloud Loggingで前日分のエラーログを確認。
-    -   取引所の口座残高とBotが認識している残高に大きな乖離がないか確認。
--   **毎週**:
-    -   PnLレポートの結果を確認し、週次のパフォーマンスを評価。
-    -   Cloud SQLのディスク使用量やリソース使用率のトレンドを確認。
+-   **確認すべきダッシュボード**:
+    -   **PNL Dashboard**: 累積損益、勝率、ドローダウンなど、ボットの経済的パフォーマンスを評価します。
+    -   **Latency Dashboard**: 注文の遅延などを監視し、システムの応答性能を確認します。
+    -   **Optimizer Dashboard**: パラメータ最適化の履歴やパフォーマンスを確認します。
+-   **監視のポイント**:
+    -   累積損益が予期せず下降トレンドになっていないか？
+    -   勝率やプロフィットファクターが時間とともに悪化していないか？ (ドリフトの兆候)
+    -   レイテンシーが異常に増加していないか？
 
-### 4.2. 緊急対応
+### 4.3. データ確認 (Adminer)
 
-#### シナリオ1: Botインスタンスがクラッシュ・再起動を繰り返す
+**URL**: `http://<サーバーIP>:8888`
 
-1.  **Cloud Runのログ確認**: Cloud Loggingでコンテナの終了直前のログを確認し、`panic` や `fatal` エラーの原因を特定します。
-2.  **原因調査**: 設定ミス（環境変数）、外部APIの障害、コードのバグなどが考えられます。
+緊急時や詳細な調査が必要な場合に、データベースの内容を直接確認・操作します。
+接続情報は `README.md` を参照してください。
+
+## 5. パラメータ最適化の運用
+
+`drift-monitor`と`optimizer`サービスが連携し、取引パラメータを自律的に更新します。
+
+-   **自動フロー**:
+    1. `drift-monitor`が定期的に`bot`のパフォーマンスをDBから評価します。
+    2. パフォーマンスの低下（ドリフト）や市場の急変動を検知すると、`optimizer`の実行をトリガーします。
+    3. `optimizer`が過去データを元に最適なパラメータを計算し、検証後に`/data/params/trade_config.yaml`を更新します。
+    4. `bot`は設定ファイルの変更を検知し、自動で新しいパラメータをリロードします。
+
+-   **手動介入**:
+    市場の大きな変動の後など、能動的に最適化を実行したい場合は、以下のコマンドを使用します。
+    ```bash
+    make optimize
+    ```
+    実行後、`make logs s=optimizer`で進捗を確認できます。
+
+-   **設定ファイルの管理**:
+    `optimizer`によって更新される`/data/params/trade_config.yaml`は、Dockerボリューム(`params_volume`)内に保存されています。重要なファイルなので、定期的にバックアップすることを推奨します。
+
+## 6. 緊急時対応手順 (SOP)
+
+#### シナリオ1: システム全体が不安定、または意図しない動作をしている
+
+1.  **全サービスを即時停止**:
+    ```bash
+    make down
+    ```
+2.  **原因調査**:
+    `make logs`で各サービスのログを確認し、エラーの原因を特定します。特に`bot`, `optimizer`, `timescaledb`のログに注目します。
 3.  **対応**:
-    -   設定ミスなら、修正して再デプロイ。
-    -   コードのバグなら、安全なリビジョンにロールバックし、修正後に再度デプロイ。
+    -   **設定ミスの場合**: `.env`や`config/*.yaml`を修正します。
+    -   **データ破損の疑いがある場合**: `Adminer`や`psql`でDBの状態を確認します。必要であればバックアップからリストアします。
+    -   **コードのバグの場合**: 修正パッチを適用し、`make build`でイメージを再ビルドします。
+4.  **再起動**:
+    原因を解決した後、`make up`でサービスを再起動し、`make logs`で正常に動作することを確認します。
 
 #### シナリオ2: 過大な損失が発生している
 
-1.  **即時Bot停止**: Cloud Runコンソールまたはgcloudコマンドで、インスタンス数を0にスケールダウンします。
+1.  **全サービスを即時停止**:
     ```bash
-    gcloud run services update obi-scalp-bot-prod --update-annotations autoscaling.knative.dev/maxScale=0 --region YOUR_REGION
+    make down
     ```
-2.  **ポジションの手動クローズ**: 取引所のWebサイト等で、残っている危険なポジションを手動で解消します。
-3.  **原因分析**: Grafanaの取引履歴と市場チャートを照らし合わせ、ロジックの欠陥か、予期せぬ市場の急変動かを分析します。
-4.  **修正とバックテスト**: 原因を特定し、修正後に十分なバックテスト（シミュレーション）を行ってから再稼働させます。
+2.  **ポジションの手動クローズ**:
+    取引所のWebサイトにログインし、残っているポジションを手動で決済します。
+3.  **原因分析**:
+    -   `make monitor`でGrafanaとDBのみを起動します。
+    -   Grafanaダッシュボードで問題の取引履歴を特定し、市場チャートと照らし合わせて原因（ロジックの欠陥、パラメータ不適合、市場の異常な動きなど）を分析します。
+4.  **修正とバックテスト**:
+    原因を特定し、コードや設定を修正します。修正後は、必ず**ローカル環境**で十分なシミュレーション(`make simulate`)を行い、安全性を確認してから本番環境にデプロイします。
 
-#### シナリオ3: 注文が約定せず、一方的に溜まり続ける
+## 7. バックアップとリストア
 
-1.  **ログ確認**: Cloud Loggingで `"Adjusting order"` ログが頻発していないか確認します。
-2.  **原因調査**:
-    -   ログが頻発している場合: `orderMonitor` が機能しているが、市場の流動性が極端に低いか、価格変動が激しすぎて追いつけていない可能性があります。
-    -   ログが出ていない場合: `orderMonitor` 自体が機能していないか、閾値の設定が緩すぎる可能性があります。
-3.  **対応**:
-    -   一時的にBotを停止し、`config.yaml` の注文調整に関するパラメータを見直します。
-    -   市場が落ち着くのを待ってから再開するか、ロジックを修正してデプロイします。
+### 7.1. バックアップ対象
 
-## 5. セキュリティ
+-   **データベース**: `timescaledb_data` Dockerボリューム。最も重要なデータです。
+-   **パラメータ設定**: `params_volume` Dockerボリューム。`optimizer`が生成した`trade_config.yaml`が保存されています。
+-   **設定ファイル**: ` .env`, `config/` ディレクトリ。Gitで管理されていますが、` .env`は別途バックアップが必要です。
 
--   **APIキー**: 必要最小限の権限（取引、残高確認など）を付与し、Secret Managerで管理します。出金権限は絶対に付与しないでください。
--   **DBアクセス**: 強力なパスワードを使用し、Secret Managerで管理します。
--   **サービスアクセス**: Cloud Runサービスは、原則として外部からのリクエストを受け付けないように設定します (`--no-allow-unauthenticated`)。ヘルスチェックはVPC内部からのみ行われるように構成します。
--   **脆弱性スキャン**: `govulncheck` をCI/CDパイプラインに組み込み、依存関係の脆弱性を定期的にスキャンします。
+### 7.2. バックアップ手順 (例)
 
----
-*このドキュメントは一般的なガイドラインです。実際の運用に合わせて、具体的な監視クエリ、アラート閾値、障害復旧コマンドなどを整備・追記してください。*
+`docker-compose down`でサービスを停止してから実行することを推奨します。
+
+```bash
+# データベースボリュームのバックアップ
+docker run --rm -v timescaledb_data:/data -v $(pwd)/backups:/backup ubuntu tar cvf /backup/timescaledb_data_$(date +%Y%m%d).tar /data
+
+# パラメータボリュームのバックアップ
+docker run --rm -v params_volume:/data -v $(pwd)/backups:/backup ubuntu tar cvf /backup/params_volume_$(date +%Y%m%d).tar /data
+
+# .envファイルのバックアップ
+cp .env ./backups/.env_$(date +%Y%m%d)
+```
+バックアップファイルは、サーバー外の安全な場所に保管してください。
+
+### 7.3. リストア手順 (例)
+
+新しいサーバーやクリーンな状態で復元する場合の手順です。
+
+1.  リポジトリをクローンし、`.env`ファイルを復元します。
+2.  `docker-compose up -d timescaledb` などでボリュームを初回作成します。
+3.  `docker-compose down`で一度停止します。
+4.  バックアップファイルからデータをボリュームに展開します。
+    ```bash
+    # データベースボリュームのリストア
+    docker run --rm -v timescaledb_data:/data -v $(pwd)/backups:/backup ubuntu bash -c "cd /data && tar xvf /backup/timescaledb_data_YYYYMMDD.tar --strip 1"
+
+    # パラメータボリュームのリストア
+    docker run --rm -v params_volume:/data -v $(pwd)/backups:/backup ubuntu bash -c "cd /data && tar xvf /backup/params_volume_YYYYMMDD.tar --strip 1"
+    ```
+5.  `make up`で全サービスを起動します。
+
+## 8. アップデート手順
+
+1.  **最新のコードを取得**:
+    ```bash
+    git pull origin main
+    ```
+2.  **（必要に応じて）依存関係の更新**:
+    `go.mod`, `requirements.txt` に変更があった場合は、ビルド前に反映させます。
+3.  **Dockerイメージの再ビルド**:
+    ```bash
+    make build
+    ```
+4.  **サービスの再起動**:
+    `make up`コマンドは、イメージが更新されているサービスのみを再作成して起動します。
+    ```bash
+    make up
+    ```
+5.  **動作確認**:
+    `make ps`と`make logs`で、すべてのサービスが正常に新しいバージョンで起動していることを確認します。
