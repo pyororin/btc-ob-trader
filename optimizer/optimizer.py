@@ -158,6 +158,9 @@ def ensure_default_config_exists():
     if not BEST_CONFIG_OUTPUT_PATH.exists():
         logging.info(f"{BEST_CONFIG_OUTPUT_PATH} not found. Creating a default config from template.")
         try:
+            # Ensure the parent directory exists
+            PARAMS_DIR.mkdir(parents=True, exist_ok=True)
+
             with open(CONFIG_TEMPLATE_PATH, 'r') as f:
                 template = Template(f.read())
 
