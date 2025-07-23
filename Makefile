@@ -135,12 +135,12 @@ report: ## Generate and display a PnL report from the latest simulation CSV.
 optimize: ## Manually trigger a 'scheduled' optimization run.
 	@echo "Manually triggering a 'scheduled' optimization run..."
 	@echo "Ensure services are running with 'make monitor' or 'make up'."
-	@mkdir -p ./data/params
-	@if [ -f "./data/params/optimization_job.json" ]; then \
+	@mkdir -p /data/params
+	@if [ -f "/data/params/optimization_job.json" ]; then \
 		echo "Error: An optimization job is already in progress. Please wait for it to complete or remove the job file."; \
 		exit 1; \
 	fi
-	@echo '{"trigger_type": "manual", "window_is_hours": 4, "window_oos_hours": 1, "timestamp": '$(shell date +%s)'}' > ./data/params/optimization_job.json
+	@echo '{"trigger_type": "manual", "window_is_hours": 4, "window_oos_hours": 1, "timestamp": '$(shell date +%s)'}' > /data/params/optimization_job.json
 	@echo "Job file created. Tailing optimizer logs..."
 	@echo "Press Ctrl+C to stop tailing."
 	@docker compose logs -f optimizer
@@ -148,7 +148,7 @@ optimize: ## Manually trigger a 'scheduled' optimization run.
 force_optimize: ## Force a new optimization run by removing any existing job file.
 	@echo "Forcibly starting a new optimization run..."
 	@echo "Ensure services are running with 'make monitor' or 'make up'."
-	@rm -f ./data/params/optimization_job.json
+	@rm -f /data/params/optimization_job.json
 	$(MAKE) optimize
 	
 # ==============================================================================
