@@ -126,9 +126,9 @@ type Report struct {
 	CalmarRatio                      float64         `json:"calmar_ratio"`
 	MaxConsecutiveWins               int             `json:"max_consecutive_wins"`
 	MaxConsecutiveLosses             int             `json:"max_consecutive_losses"`
-	AvgHoldingPeriodSeconds      float64         `json:"avg_holding_period_seconds"`
-	AvgWinningHoldingPeriodSeconds float64       `json:"avg_winning_holding_period_seconds"`
-	AvgLosingHoldingPeriodSeconds  float64       `json:"avg_losing_holding_period_seconds"`
+	AverageHoldingPeriodSeconds      float64         `json:"average_holding_period_seconds"`
+	AverageWinningHoldingPeriodSeconds float64       `json:"average_winning_holding_period_seconds"`
+	AverageLosingHoldingPeriodSeconds  float64       `json:"average_losing_holding_period_seconds"`
 	BuyAndHoldReturn                 decimal.Decimal `json:"buy_and_hold_return"`
 	ReturnVsBuyAndHold               decimal.Decimal `json:"return_vs_buy_and_hold"`
 }
@@ -438,9 +438,9 @@ func AnalyzeTrades(trades []Trade) (Report, error) {
 		CalmarRatio:                      calmarRatio,
 		MaxConsecutiveWins:               maxConsecutiveWins,
 		MaxConsecutiveLosses:             maxConsecutiveLosses,
-		AvgHoldingPeriodSeconds:      avgHoldingPeriod,
-		AvgWinningHoldingPeriodSeconds: avgWinningHoldingPeriod,
-		AvgLosingHoldingPeriodSeconds:  avgLosingHoldingPeriod,
+		AverageHoldingPeriodSeconds:      avgHoldingPeriod,
+		AverageWinningHoldingPeriodSeconds: avgWinningHoldingPeriod,
+		AverageLosingHoldingPeriodSeconds:  avgLosingHoldingPeriod,
 		BuyAndHoldReturn:                 buyAndHoldReturn,
 		ReturnVsBuyAndHold:               returnVsBuyAndHold,
 	}, nil
@@ -457,8 +457,8 @@ func (r *Repository) SavePnlReport(ctx context.Context, report Report) error {
             total_pnl, average_profit, average_loss, risk_reward_ratio,
             profit_factor, max_drawdown, recovery_factor, sharpe_ratio,
             sortino_ratio, calmar_ratio, max_consecutive_wins, max_consecutive_losses,
-            avg_holding_period_seconds, avg_winning_holding_period_seconds,
-            avg_losing_holding_period_seconds, buy_and_hold_return, return_vs_buy_and_hold
+            average_holding_period_seconds, average_winning_holding_period_seconds,
+            average_losing_holding_period_seconds, buy_and_hold_return, return_vs_buy_and_hold
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
             $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32
@@ -472,8 +472,8 @@ func (r *Repository) SavePnlReport(ctx context.Context, report Report) error {
 		report.TotalPnL, report.AverageProfit, report.AverageLoss, report.RiskRewardRatio,
 		report.ProfitFactor, report.MaxDrawdown, report.RecoveryFactor, report.SharpeRatio,
 		report.SortinoRatio, report.CalmarRatio, report.MaxConsecutiveWins, report.MaxConsecutiveLosses,
-		report.AvgHoldingPeriodSeconds, report.AvgWinningHoldingPeriodSeconds,
-		report.AvgLosingHoldingPeriodSeconds, report.BuyAndHoldReturn, report.ReturnVsBuyAndHold,
+		report.AverageHoldingPeriodSeconds, report.AverageWinningHoldingPeriodSeconds,
+		report.AverageLosingHoldingPeriodSeconds, report.BuyAndHoldReturn, report.ReturnVsBuyAndHold,
 	)
 	return err
 }
@@ -503,8 +503,8 @@ func (r *Repository) FetchLatestPnlReport(ctx context.Context) (*Report, error) 
             total_pnl, average_profit, average_loss, risk_reward_ratio,
             profit_factor, max_drawdown, recovery_factor, sharpe_ratio,
             sortino_ratio, calmar_ratio, max_consecutive_wins, max_consecutive_losses,
-            avg_holding_period_seconds, avg_winning_holding_period_seconds,
-            avg_losing_holding_period_seconds, buy_and_hold_return, return_vs_buy_and_hold
+            average_holding_period_seconds, average_winning_holding_period_seconds,
+            average_losing_holding_period_seconds, buy_and_hold_return, return_vs_buy_and_hold
         FROM pnl_reports
         ORDER BY time DESC
         LIMIT 1;
@@ -519,8 +519,8 @@ func (r *Repository) FetchLatestPnlReport(ctx context.Context) (*Report, error) 
 		&report.TotalPnL, &report.AverageProfit, &report.AverageLoss, &report.RiskRewardRatio,
 		&report.ProfitFactor, &report.MaxDrawdown, &report.RecoveryFactor, &report.SharpeRatio,
 		&report.SortinoRatio, &report.CalmarRatio, &report.MaxConsecutiveWins, &report.MaxConsecutiveLosses,
-		&report.AvgHoldingPeriodSeconds, &report.AvgWinningHoldingPeriodSeconds,
-		&report.AvgLosingHoldingPeriodSeconds, &report.BuyAndHoldReturn, &report.ReturnVsBuyAndHold,
+		&report.AverageHoldingPeriodSeconds, &report.AverageWinningHoldingPeriodSeconds,
+		&report.AverageLosingHoldingPeriodSeconds, &report.BuyAndHoldReturn, &report.ReturnVsBuyAndHold,
 	)
 	if err != nil {
 		return nil, err
