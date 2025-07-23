@@ -52,15 +52,26 @@ def export_data(hours_before, is_oos_split=False, oos_hours=0):
     SIMULATION_DIR.mkdir()
 
     # Base command
+    db_user = os.getenv('DB_USER')
+    db_password = os.getenv('DB_PASSWORD')
+    db_name = os.getenv('DB_NAME')
+    db_host = os.getenv('DB_HOST')
+
     cmd = [
-        'make',
-        'export-sim-data',
-        f'HOURS_BEFORE={hours_before}',
-        'NO_ZIP=true'
+        'docker', 'compose', 'run', '--rm',
+        '-v', f'{os.getcwd()}/simulation:/app/simulation',
+        '-e', f'DB_USER={db_user}',
+        '-e', f'DB_PASSWORD={db_password}',
+        '-e', f'DB_NAME={db_name}',
+        '-e', f'DB_HOST={db_host}',
+        'builder',
+        'sh', '-c',
+        f'cd /app && go run cmd/export/main.go --hours-before={hours_before} --no-zip'
     ]
 
+
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=APP_ROOT)
 
         # Find the exported CSV file
         exported_files = list(SIMULATION_DIR.glob("*.csv"))
