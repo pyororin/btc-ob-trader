@@ -22,7 +22,7 @@ help:
 # ==============================================================================
 up: ## Start all services including the bot for live trading.
 	@echo "Starting all services (including trading bot)..."
-	sudo -E docker compose up -d --build
+	docker compose up -d --build
 	$(MAKE) migrate
 
 migrate: ## Run database migrations
