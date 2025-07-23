@@ -24,8 +24,10 @@ services:
     volumes:
       - .:/app
       - ./.env:/app/.env:ro
+      - params_volume:/data/params
       - ./config:/app/config:ro
     entrypoint: ["/usr/local/bin/obi-scalp-bot"]
+    # The trade_config.yaml is now loaded from /data/params by default in the Go app
     command: ["-config", "/app/config/app_config.yaml"]
     env_file:
       - .env
@@ -134,6 +136,46 @@ services:
     depends_on:
       - timescaledb
 
+  optimizer:
+    build:
+      context: ./optimizer
+      dockerfile: ../Dockerfile.python
+    container_name: obi-scalp-optimizer
+    working_dir: /app
+    volumes:
+      - .:/app
+      - ./.env:/app/.env:ro
+      - params_volume:/data/params
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=timescaledb
+    networks:
+      - bot_network
+    depends_on:
+      - timescaledb
+    command: python /app/optimizer/optimizer.py
+
+  drift-monitor:
+    build:
+      context: ./optimizer
+      dockerfile: ../Dockerfile.python
+    container_name: obi-scalp-drift-monitor
+    working_dir: /app
+    volumes:
+      - .:/app
+      - ./.env:/app/.env:ro
+      - params_volume:/data/params
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=timescaledb
+    networks:
+      - bot_network
+    depends_on:
+      - timescaledb
+    command: python /app/optimizer/drift_monitor.py
+
 networks:
   bot_network:
     driver: bridge
@@ -141,3 +183,4 @@ networks:
 volumes:
   timescaledb_data:
   grafana_data:
+  params_volume:

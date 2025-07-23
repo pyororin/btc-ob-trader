@@ -20,9 +20,9 @@ help:
 # ==============================================================================
 # MAIN DOCKER COMPOSE
 # ==============================================================================
-up: ## Start all services including the bot for live trading.
-	@echo "Starting all services (including trading bot)..."
-	docker compose up -d --build
+up: ## Start all services including the bot, optimizer, and drift monitor.
+	@echo "Starting all services (bot, optimizer, drift-monitor)..."
+	docker compose up -d --build bot drift-monitor optimizer
 	$(MAKE) migrate
 
 migrate: ## Run database migrations
@@ -132,49 +132,18 @@ report: ## Generate and display a PnL report from the latest simulation CSV.
 	SIM_OUTPUT=$$(make simulate CSV_PATH=$$SIM_CSV_PATH); \
 	echo "$${SIM_OUTPUT}" | docker compose exec -T report-generator build/report
 
-optimize: build ## Run hyperparameter optimization using Optuna. Accepts HOURS_BEFORE or CSV_PATH.
-	@echo "Running hyperparameter optimization..."
-	@OPTIMIZE_CSV_PATH=""; \
-	if [ -n "$(HOURS_BEFORE)" ]; then \
-		echo "HOURS_BEFORE is set to $(HOURS_BEFORE). Exporting data..."; \
-		$(MAKE) export-sim-data HOURS_BEFORE=$(HOURS_BEFORE) NO_ZIP=true; \
-		OPTIMIZE_CSV_PATH=$$(find simulation -name "*.csv" -print0 | xargs -0 ls -t | head -n 1); \
-		if [ -z "$$OPTIMIZE_CSV_PATH" ]; then \
-			echo "Error: Could not find exported CSV file in simulation directory."; \
-			exit 1; \
-		fi; \
-		echo "Using exported data: $$OPTIMIZE_CSV_PATH"; \
-	elif [ -n "$(CSV_PATH)" ]; then \
-		echo "Using provided CSV_PATH: $(CSV_PATH)"; \
-		OPTIMIZE_CSV_PATH=$(CSV_PATH); \
-	else \
-		echo "Error: Please set either HOURS_BEFORE or CSV_PATH."; \
-		echo "Usage: make optimize HOURS_BEFORE=24"; \
-		echo "   or: make optimize CSV_PATH=/path/to/your/trades.csv"; \
+optimize: ## Manually trigger a 'scheduled' optimization run.
+	@echo "Manually triggering a 'scheduled' optimization run..."
+	@echo "Ensure services are running with 'make monitor' or 'make up'."
+	@mkdir -p ./data/params
+	@if [ -f "./data/params/optimization_job.json" ]; then \
+		echo "Error: An optimization job is already in progress. Please wait for it to complete or remove the job file."; \
 		exit 1; \
-	fi; \
-	rm ./optuna_study.db; \
-	echo "Starting optimization..."; \
-	bash -c '\
-		if [ ! -d "venv" ]; then python3 -m venv venv; fi && \
-		source venv/bin/activate && \
-		pip install -r requirements.txt && \
-		export CSV_PATH="'"$${OPTIMIZE_CSV_PATH}"'" && \
-		export N_TRIALS="$${N_TRIALS:-100}" && \
-		export STUDY_NAME="$${STUDY_NAME:-obi-scalp-bot-optimization}" && \
-		export STORAGE_URL="$${STORAGE_URL:-sqlite:///optuna_study.db}" && \
-		python optimizer.py \
-	'
-
-	@if [ "$(OVERRIDE)" = "true" ]; then \
-		echo "OVERRIDE is set to true. Backing up and updating trade_config.yaml..."; \
-		mkdir -p config/history; \
-		TIMESTAMP=$$(date +%Y%m%d%H%M); \
-		cp config/trade_config.yaml config/history/trade_config.yaml_$$TIMESTAMP; \
-		echo "Backup created at config/history/trade_config.yaml_$$TIMESTAMP"; \
-		cp config/best_trade_config.yaml config/trade_config.yaml; \
-		echo "trade_config.yaml has been updated with the best parameters."; \
 	fi
+	@echo '{"trigger_type": "manual", "window_is_hours": 4, "window_oos_hours": 1, "timestamp": '$(shell date +%s)'}' > ./data/params/optimization_job.json
+	@echo "Job file created. Tailing optimizer logs..."
+	@echo "Press Ctrl+C to stop tailing."
+	@docker compose logs -f optimizer
 	
 # ==============================================================================
 # GO BUILDS & TESTS

@@ -1,0 +1,295 @@
+{
+   "__inputs": [ ],
+   "__requires": [ ],
+   "annotations": {
+      "list": [ ]
+   },
+   "editable": false,
+   "gnetId": null,
+   "graphTooltip": 0,
+   "hideControls": false,
+   "id": null,
+   "links": [ ],
+   "refresh": "",
+   "rows": [
+      {
+         "collapse": false,
+         "collapsed": false,
+         "panels": [
+            {
+               "aliasColors": { },
+               "bars": false,
+               "dashLength": 10,
+               "dashes": false,
+               "datasource": "TimescaleDB",
+               "description": "Out-of-Sample (OOS) Profit Factor and Sharpe Ratio for each optimization run.",
+               "fill": 1,
+               "gridPos": { },
+               "id": 2,
+               "legend": {
+                  "alignAsTable": false,
+                  "avg": false,
+                  "current": false,
+                  "max": false,
+                  "min": false,
+                  "rightSide": false,
+                  "show": true,
+                  "sideWidth": null,
+                  "total": false,
+                  "values": false
+               },
+               "lines": true,
+               "linewidth": 1,
+               "links": [ ],
+               "nullPointMode": "null",
+               "percentage": false,
+               "pointradius": 5,
+               "points": false,
+               "renderer": "flot",
+               "repeat": null,
+               "seriesOverrides": [ ],
+               "spaceLength": 10,
+               "stack": false,
+               "steppedLine": false,
+               "targets": [
+                  {
+                     "format": "time_series",
+                     "rawSql": "SELECT time, oos_profit_factor AS \"Profit Factor\" FROM optimization_history WHERE $__timeFilter(time) ORDER BY time",
+                     "refId": "A"
+                  },
+                  {
+                     "format": "time_series",
+                     "rawSql": "SELECT time, oos_sharpe_ratio AS \"Sharpe Ratio\" FROM optimization_history WHERE $__timeFilter(time) ORDER BY time",
+                     "refId": "B"
+                  }
+               ],
+               "thresholds": [ ],
+               "timeFrom": null,
+               "timeShift": null,
+               "title": "OOS Performance Over Time",
+               "tooltip": {
+                  "shared": true,
+                  "sort": 0,
+                  "value_type": "individual"
+               },
+               "type": "graph",
+               "xaxis": {
+                  "buckets": null,
+                  "mode": "time",
+                  "name": null,
+                  "show": true,
+                  "values": [ ]
+               },
+               "yaxes": [
+                  {
+                     "format": "short",
+                     "label": null,
+                     "logBase": 1,
+                     "max": null,
+                     "min": null,
+                     "show": true
+                  },
+                  {
+                     "format": "short",
+                     "label": null,
+                     "logBase": 1,
+                     "max": null,
+                     "min": null,
+                     "show": true
+                  }
+               ]
+            },
+            {
+               "cacheTimeout": null,
+               "colorBackground": false,
+               "colorValue": false,
+               "colors": [
+                  "#299c46",
+                  "rgba(237, 129, 40, 0.89)",
+                  "#d44a3a"
+               ],
+               "datasource": "TimescaleDB",
+               "description": "Number of successful (passed OOS validation) optimizations in the last 24 hours.",
+               "format": "none",
+               "gauge": {
+                  "maxValue": 100,
+                  "minValue": 0,
+                  "show": false,
+                  "thresholdLabels": false,
+                  "thresholdMarkers": true
+               },
+               "gridPos": { },
+               "id": 3,
+               "interval": null,
+               "links": [ ],
+               "mappingType": 1,
+               "mappingTypes": [
+                  {
+                     "name": "value to text",
+                     "value": 1
+                  },
+                  {
+                     "name": "range to text",
+                     "value": 2
+                  }
+               ],
+               "maxDataPoints": 100,
+               "nullPointMode": "connected",
+               "nullText": null,
+               "postfix": "",
+               "postfixFontSize": "50%",
+               "prefix": "",
+               "prefixFontSize": "50%",
+               "rangeMaps": [
+                  {
+                     "from": "null",
+                     "text": "N/A",
+                     "to": "null"
+                  }
+               ],
+               "sparkline": {
+                  "fillColor": "rgba(31, 118, 189, 0.18)",
+                  "full": false,
+                  "lineColor": "rgb(31, 120, 193)",
+                  "show": false
+               },
+               "tableColumn": "",
+               "targets": [
+                  {
+                     "format": "table",
+                     "rawSql": "SELECT count(*) FROM optimization_history WHERE validation_passed = true AND time > NOW() - INTERVAL '24 hours'",
+                     "refId": "A"
+                  }
+               ],
+               "thresholds": "",
+               "title": "Successful Optimizations (24h)",
+               "type": "singlestat",
+               "valueFontSize": "80%",
+               "valueMaps": [
+                  {
+                     "op": "=",
+                     "text": "N/A",
+                     "value": "null"
+                  }
+               ],
+               "valueName": "current"
+            }
+         ],
+         "repeat": null,
+         "repeatIteration": null,
+         "repeatRowId": null,
+         "showTitle": false,
+         "title": "Dashboard Row",
+         "titleSize": "h6",
+         "type": "row"
+      },
+      {
+         "collapse": false,
+         "collapsed": false,
+         "panels": [
+            {
+               "columns": [ ],
+               "datasource": "TimescaleDB",
+               "description": "Detailed log of all optimization runs.",
+               "gridPos": { },
+               "id": 4,
+               "styles": [ ],
+               "targets": [
+                  {
+                     "format": "table",
+                     "rawSql": "SELECT time, trigger_type, is_hours, oos_hours, is_profit_factor, oos_profit_factor, oos_sharpe_ratio, validation_passed, best_params FROM optimization_history WHERE $__timeFilter(time) ORDER BY time DESC",
+                     "refId": "A"
+                  }
+               ],
+               "timeFrom": null,
+               "timeShift": null,
+               "title": "Optimization History",
+               "type": "table"
+            }
+         ],
+         "repeat": null,
+         "repeatIteration": null,
+         "repeatRowId": null,
+         "showTitle": false,
+         "title": "Dashboard Row",
+         "titleSize": "h6",
+         "type": "row"
+      }
+   ],
+   "schemaVersion": 14,
+   "style": "dark",
+   "tags": [
+      "optimizer",
+      "bot"
+   ],
+   "templating": {
+      "list": [
+         {
+            "current": {
+               "text": "Prometheus",
+               "value": "Prometheus"
+            },
+            "hide": 1,
+            "label": null,
+            "name": "DS_PROMETHEUS",
+            "options": [ ],
+            "query": "prometheus",
+            "refresh": 1,
+            "regex": "",
+            "type": "datasource"
+         },
+         {
+            "allValue": "1h",
+            "current": { },
+            "datasource": "${DS_PROMETHEUS}",
+            "hide": 0,
+            "includeAll": false,
+            "label": "Interval",
+            "multi": false,
+            "name": "interval",
+            "options": [ ],
+            "query": "1m,5m,10m,30m,1h,6h,12h",
+            "refresh": 0,
+            "regex": "",
+            "sort": 0,
+            "tagValuesQuery": "",
+            "tags": [ ],
+            "tagsQuery": "",
+            "type": "query",
+            "useTags": false
+         }
+      ]
+   },
+   "time": {
+      "from": "now-7d",
+      "to": "now"
+   },
+   "timepicker": {
+      "refresh_intervals": [
+         "5s",
+         "10s",
+         "30s",
+         "1m",
+         "5m",
+         "15m",
+         "30m",
+         "1h",
+         "2h",
+         "1d"
+      ],
+      "time_options": [
+         "5m",
+         "15m",
+         "1h",
+         "6h",
+         "12h",
+         "24h",
+         "2d",
+         "7d",
+         "30d"
+      ]
+   },
+   "timezone": "browser",
+   "title": "Optimizer Performance",
+   "version": 0
+}
