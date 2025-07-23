@@ -45,6 +45,8 @@ services:
     depends_on:
       timescaledb:
         condition: service_healthy
+      optimizer:
+        condition: service_healthy
     networks:
       - bot_network
 
@@ -155,6 +157,12 @@ services:
     depends_on:
       - timescaledb
     command: python optimizer/optimizer.py
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /data/params/trade_config.yaml"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   drift-monitor:
     build:
