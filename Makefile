@@ -144,6 +144,12 @@ optimize: ## Manually trigger a 'scheduled' optimization run.
 	@echo "Job file created. Tailing optimizer logs..."
 	@echo "Press Ctrl+C to stop tailing."
 	@docker compose logs -f optimizer
+
+force_optimize: ## Force a new optimization run by removing any existing job file.
+	@echo "Forcibly starting a new optimization run..."
+	@echo "Ensure services are running with 'make monitor' or 'make up'."
+	@rm -f ./data/params/optimization_job.json
+	$(MAKE) optimize
 	
 # ==============================================================================
 # GO BUILDS & TESTS
