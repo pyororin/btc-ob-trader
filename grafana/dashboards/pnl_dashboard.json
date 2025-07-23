@@ -96,7 +96,7 @@
       "title": "累積勝ちトレード数",
       "type": "stat",
       "datasource": "TimescaleDB",
-      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 9 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 9 },
       "targets": [
         {
           "rawSql": "SELECT cumulative_winning_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
@@ -109,10 +109,202 @@
       "title": "累積負けトレード数",
       "type": "stat",
       "datasource": "TimescaleDB",
-      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 9 },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 9 },
       "targets": [
         {
           "rawSql": "SELECT cumulative_losing_trades FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 504,
+      "title": "勝率",
+      "type": "stat",
+      "datasource": "TimescaleDB",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 9 },
+      "targets": [
+        {
+          "rawSql": "SELECT win_rate FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent" } }
+    },
+    {
+      "id": 505,
+      "title": "合計損益",
+      "type": "stat",
+      "datasource": "TimescaleDB",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 9 },
+      "targets": [
+        {
+          "rawSql": "SELECT total_pnl FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "currencyJPY" } }
+    },
+    {
+      "title": "パフォーマンス指標",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 }
+    },
+    {
+      "id": 506,
+      "title": "平均利益",
+      "type": "stat",
+      "datasource": "TimescaleDB",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "rawSql": "SELECT average_win FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "currencyJPY" } }
+    },
+    {
+      "id": 507,
+      "title": "平均損失",
+      "type": "stat",
+      "datasource": "TimescaleDB",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 14 },
+      "targets": [
+        {
+          "rawSql": "SELECT average_loss FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "currencyJPY" } }
+    },
+    {
+      "id": 508,
+      "title": "リスクリワードレシオ",
+      "type": "stat",
+      "datasource": "TimescaleDB",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 14 },
+      "targets": [
+        {
+          "rawSql": "SELECT risk_reward_ratio FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 509,
+      "title": "プロフィットファクター",
+      "type": "stat",
+      "datasource": "TimescaleDB",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 14 },
+      "targets": [
+        {
+          "rawSql": "SELECT profit_factor FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 510,
+      "title": "シャープレシオ",
+      "type": "stat",
+      "datasource": "TimescaleDB",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 18 },
+      "targets": [
+        {
+          "rawSql": "SELECT sharpe_ratio FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 511,
+      "title": "ソルティノレシオ",
+      "type": "stat",
+      "datasource": "TimescaleDB",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 18 },
+      "targets": [
+        {
+          "rawSql": "SELECT sortino_ratio FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 512,
+      "title": "カルマーレシオ",
+      "type": "stat",
+      "datasource": "TimescaleDB",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 18 },
+      "targets": [
+        {
+          "rawSql": "SELECT calmar_ratio FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 513,
+      "title": "最大ドローダウン",
+      "type": "stat",
+      "datasource": "TimescaleDB",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 18 },
+      "targets": [
+        {
+          "rawSql": "SELECT max_drawdown FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "currencyJPY" } }
+    },
+    {
+      "id": 514,
+      "title": "リカバリーファクター",
+      "type": "stat",
+      "datasource": "TimescaleDB",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 22 },
+      "targets": [
+        {
+          "rawSql": "SELECT recovery_factor FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 515,
+      "title": "平均保有期間(秒)",
+      "type": "stat",
+      "datasource": "TimescaleDB",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 22 },
+      "targets": [
+        {
+          "rawSql": "SELECT average_holding_period_seconds FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 516,
+      "title": "最大連勝数",
+      "type": "stat",
+      "datasource": "TimescaleDB",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 22 },
+      "targets": [
+        {
+          "rawSql": "SELECT max_consecutive_wins FROM pnl_reports ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 517,
+      "title": "最大連敗数",
+      "type": "stat",
+      "datasource": "TimescaleDB",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 22 },
+      "targets": [
+        {
+          "rawSql": "SELECT max_consecutive_losses FROM pnl_reports ORDER BY time DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -131,5 +323,5 @@
   "timezone": "browser",
   "title": "損益レポート",
   "uid": "unique-pnl-dashboard-uid",
-  "version": 15
+  "version": 17
 }
