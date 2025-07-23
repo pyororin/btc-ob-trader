@@ -44,25 +44,25 @@ BEGIN
         ALTER TABLE pnl_reports ADD COLUMN recovery_factor DOUBLE PRECISION;
     END IF;
 
-    -- avg_holding_period_seconds
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pnl_reports' AND column_name='avg_holding_period_seconds') THEN
-        ALTER TABLE pnl_reports ALTER COLUMN avg_holding_period_seconds TYPE DOUBLE PRECISION;
+    -- average_holding_period_seconds
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pnl_reports' AND column_name='average_holding_period_seconds') THEN
+        ALTER TABLE pnl_reports ALTER COLUMN average_holding_period_seconds TYPE DOUBLE PRECISION;
     ELSE
-        ALTER TABLE pnl_reports ADD COLUMN avg_holding_period_seconds DOUBLE PRECISION;
+        ALTER TABLE pnl_reports ADD COLUMN average_holding_period_seconds DOUBLE PRECISION;
     END IF;
 
-    -- avg_winning_holding_period_seconds
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pnl_reports' AND column_name='avg_winning_holding_period_seconds') THEN
-        ALTER TABLE pnl_reports ALTER COLUMN avg_winning_holding_period_seconds TYPE DOUBLE PRECISION;
+    -- average_winning_holding_period_seconds
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pnl_reports' AND column_name='average_winning_holding_period_seconds') THEN
+        ALTER TABLE pnl_reports ALTER COLUMN average_winning_holding_period_seconds TYPE DOUBLE PRECISION;
     ELSE
-        ALTER TABLE pnl_reports ADD COLUMN avg_winning_holding_period_seconds DOUBLE PRECISION;
+        ALTER TABLE pnl_reports ADD COLUMN average_winning_holding_period_seconds DOUBLE PRECISION;
     END IF;
 
-    -- avg_losing_holding_period_seconds
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pnl_reports' AND column_name='avg_losing_holding_period_seconds') THEN
-        ALTER TABLE pnl_reports ALTER COLUMN avg_losing_holding_period_seconds TYPE DOUBLE PRECISION;
+    -- average_losing_holding_period_seconds
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pnl_reports' AND column_name='average_losing_holding_period_seconds') THEN
+        ALTER TABLE pnl_reports ALTER COLUMN average_losing_holding_period_seconds TYPE DOUBLE PRECISION;
     ELSE
-        ALTER TABLE pnl_reports ADD COLUMN avg_losing_holding_period_seconds DOUBLE PRECISION;
+        ALTER TABLE pnl_reports ADD COLUMN average_losing_holding_period_seconds DOUBLE PRECISION;
     END IF;
 
     -- max_consecutive_wins
