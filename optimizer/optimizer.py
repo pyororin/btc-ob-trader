@@ -167,13 +167,44 @@ def ensure_default_config_exists():
             # Use default values from the template (or define simple defaults here)
             # This part might need adjustment if the template requires specific variables
             default_params = {
-                'spread_limit': 100,
-                'lot_max_ratio': 0.1,
-                'order_ratio': 0.1,
-                'long_tp': 100,
-                'long_sl': -100,
-                'short_tp': 100,
-                'short_sl': -100,
+                # Basic Trading
+                "pair": "btc_jpy",
+                "spread_limit": 100,
+                # Position Sizing
+                "lot_max_ratio": 0.1,
+                "order_ratio": 0.1,
+                "adaptive_position_sizing_enabled": False,
+                "adaptive_num_trades": 10,
+                "adaptive_reduction_step": 0.8,
+                "adaptive_min_ratio": 0.5,
+                # Entry Strategy
+                "long_obi_threshold": 1.0,
+                "long_tp": 150,
+                "long_sl": -150,
+                "short_obi_threshold": -1.0,
+                "short_tp": 150,
+                "short_sl": -150,
+                # Signal Filters
+                "hold_duration_ms": 500,
+                "slope_filter_enabled": False,
+                "slope_period": 10,
+                "slope_threshold": 0.1,
+                # Dynamic Parameters
+                "ewma_lambda": 0.1,
+                "dynamic_obi_enabled": False,
+                "volatility_factor": 1.0,
+                "min_threshold_factor": 0.8,
+                "max_threshold_factor": 1.5,
+                # Execution Strategy
+                "twap_enabled": False,
+                "twap_max_order_size_btc": 0.01,
+                "twap_interval_seconds": 5,
+                "twap_partial_exit_enabled": False,
+                "twap_profit_threshold": 0.5,
+                "twap_exit_ratio": 0.5,
+                # Risk Management
+                "risk_max_drawdown_percent": 20,
+                "risk_max_position_ratio": 0.9,
             }
             default_config_str = template.render(default_params)
 
