@@ -5,6 +5,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     make \
     docker.io \
+    docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a virtual environment
