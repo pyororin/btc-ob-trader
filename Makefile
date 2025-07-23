@@ -27,8 +27,8 @@ up: ## Start all services including the bot for live trading.
 
 migrate: ## Run database migrations
 	@echo "Running database migrations..."
-	@sudo -E docker compose exec -T timescaledb sh -c '\
-	for dir in /docker-entrypoint-initdb.d/01_schema /docker-entrypoint-initdb.d/02_migrations; do \
+	ocker compose exec -T timescaledb sh -c '\
+	for dir in /docker-entrypoint-initdb.d/01_schema; do \
 		for f in $$dir/*.sql; do \
 			if [ -f "$$f" ]; then \
 				echo "Applying $$f..."; \
@@ -39,23 +39,23 @@ migrate: ## Run database migrations
 
 monitor: ## Start monitoring services (DB, Grafana) without the bot.
 	@echo "Starting monitoring services (TimescaleDB, Grafana)..."
-	sudo -E docker compose up -d timescaledb grafana
+	docker compose up -d timescaledb grafana
 
 down: ## Stop and remove all application stack containers.
 	@echo "Stopping application stack..."
-	sudo -E docker compose down
+	docker compose down
 
 logs: ## Follow logs from the bot service.
 	@echo "Following logs for 'bot' service..."
-	sudo -E docker compose logs -f bot
+	docker compose logs -f bot
 
 shell: ## Access a shell inside the running bot container.
 	@echo "Accessing shell in 'bot' container..."
-	sudo -E docker compose exec bot /bin/sh
+	docker compose exec bot /bin/sh
 
 clean: ## Stop, remove containers, and remove volumes.
 	@echo "Stopping application stack and removing volumes..."
-	sudo -E docker compose down -v --remove-orphans
+	docker compose down -v --remove-orphans
 
 # ==============================================================================
 # SIMULATE
