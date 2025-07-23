@@ -138,8 +138,8 @@ services:
 
   optimizer:
     build:
-      context: ./optimizer
-      dockerfile: ../Dockerfile.python
+      context: .
+      dockerfile: optimizer/Dockerfile
     container_name: obi-scalp-optimizer
     working_dir: /app
     volumes:
@@ -154,12 +154,12 @@ services:
       - bot_network
     depends_on:
       - timescaledb
-    command: python /app/optimizer/optimizer.py
+    command: python optimizer/optimizer.py
 
   drift-monitor:
     build:
-      context: ./optimizer
-      dockerfile: ../Dockerfile.python
+      context: .
+      dockerfile: optimizer/Dockerfile
     container_name: obi-scalp-drift-monitor
     working_dir: /app
     volumes:
@@ -174,7 +174,7 @@ services:
       - bot_network
     depends_on:
       - timescaledb
-    command: python /app/optimizer/drift_monitor.py
+    command: python optimizer/drift_monitor.py
 
 networks:
   bot_network:
