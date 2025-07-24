@@ -389,7 +389,7 @@ def main():
                 objective_with_pruning,
                 n_trials=N_TRIALS,
                 n_jobs=-1,
-                show_progress_bar=True,
+                show_progress_bar=False,
                 catch=catch_exceptions,
             )
 
