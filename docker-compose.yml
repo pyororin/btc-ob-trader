@@ -74,7 +74,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
     volumes:
-      - ./db/data:/var/lib/postgresql/data
+      - timescaledb_data:/var/lib/postgresql/data
       - ./db/schema:/docker-entrypoint-initdb.d/01_schema
       - ./db/migrations:/docker-entrypoint-initdb.d/02_migrations
 
@@ -85,7 +85,6 @@ services:
       timeout: 10s
       retries: 10
     restart: unless-stopped
-    user: "${UID}:${GID}"
     networks:
       - bot_network
 
@@ -194,5 +193,6 @@ networks:
     driver: bridge
 
 volumes:
+  timescaledb_data:
   grafana_data:
   params_volume:
