@@ -71,7 +71,7 @@ graph TD
 | `timescaledb`      | `timescaledb-obi`           | **データベース**: 取引履歴、指標、損益などを保存する時系列データベース (PostgreSQL + TimescaleDB)。                                  |
 | `grafana`          | `grafana-obi`               | **可視化ダッシュボード**: TimescaleDBのデータをグラフで表示し、パフォーマンスをリアルタイムで監視します。                               |
 | `adminer`          | `adminer`                   | **DB管理ツール**: Web UIを通じてデータベースの内容を直接確認・操作できます。                                                          |
-| `report-generator` | `report-generator`          | **レポート生成**: `make report` コマンドで実行され、指定期間のパフォーマンスレポートを生成します。                                    |
+| `report-generator` | `obi-scalp-report-generator` | **PnLレポート生成**: 定期的に`trades`テーブルの全取引履歴を集計し、`pnl_reports`テーブルにパフォーマンス指標を保存するマイクロサービスです。<br>生成間隔は`.env`の`REPORT_INTERVAL_MINUTES`（デフォルト: 60分）で変更可能です。 |
 | `bot-simulate`     | `obi-scalp-bot-simulate`    | **シミュレーション実行**: `make simulate` で使用。過去データ(CSV)を使い、取引戦略のバックテストを高速に実行します。                  |
 | `builder`          | -                           | **ビルド用**: Goアプリケーションをビルドするための一時的なコンテナです。                                                            |
 
