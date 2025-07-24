@@ -107,49 +107,27 @@ def export_data(hours_before, is_oos_split=False, oos_hours=0):
             first_timestamp_str = data_lines[0].split(',')[0]
             last_timestamp_str = data_lines[-1].split(',')[0]
 
-            # Handle potential parsing errors if format is inconsistent
             def parse_timestamp(ts_str):
-                # Normalize timezone
+                # The incoming format is like '2025-07-24 03:06:51.769817+00'
+                # The +00 timezone can be handled by strptime if we remove the colon.
+                # However, Python's %z directive expects HHMM, not HH.
+                # A more robust way is to handle the timezone separately.
                 if ts_str.endswith('+00'):
-                    ts_str = ts_str[:-2] + '00'
+                    ts_str = ts_str[:-3] + '+0000'
                 elif ts_str.endswith('Z'):
-                    ts_str = ts_str[:-1] + '+0000'
+                     ts_str = ts_str[:-1] + '+0000'
 
-                # Normalize fractional seconds
-                if '.' in ts_str:
-                    parts = ts_str.split('.')
-                    main_part = parts[0]
-                    frac_part = parts[1]
-
-                    # Separate fraction from timezone
-                    tz_part = ''
-                    if '+' in frac_part:
-                        frac_parts = frac_part.split('+')
-                        frac_part = frac_parts[0]
-                        tz_part = '+' + frac_parts[1]
-                    elif '-' in frac_part:
-                        frac_parts = frac_part.split('-')
-                        frac_part = frac_parts[0]
-                        tz_part = '-' + frac_parts[1]
-
-                    # Pad fractional part to 6 digits
-                    frac_part = frac_part.ljust(6, '0')[:6]
-                    ts_str = f"{main_part}.{frac_part}{tz_part}"
-
+                # Try parsing with and without fractional seconds
                 try:
                     return datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S.%f%z')
                 except ValueError:
-                    # Fallback for timestamps without fractional seconds
-                    if '.' not in ts_str:
-                         return datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S%z')
-                    else:
-                        raise
+                    return datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S%z')
 
             try:
                 first_time = parse_timestamp(first_timestamp_str)
                 last_time = parse_timestamp(last_timestamp_str)
-            except ValueError:
-                logging.error(f"Could not parse timestamps: '{first_timestamp_str}' and '{last_timestamp_str}'")
+            except ValueError as e:
+                logging.error(f"Could not parse timestamps: '{first_timestamp_str}' and '{last_timestamp_str}' with error: {e}")
                 # Fallback to line-based split if time parsing fails
                 split_index = int(len(data_lines) * is_ratio)
                 f_is.write(header)
