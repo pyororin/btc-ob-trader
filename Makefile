@@ -23,7 +23,6 @@ help:
 up: ## Start all services including the bot, optimizer, and drift monitor.
 	@echo "Starting all services (bot, optimizer, drift-monitor)..."
 	docker compose up -d --build bot drift-monitor optimizer grafana adminer
-	$(MAKE) migrate
 
 migrate: ## Run database migrations
 	@echo "Running database migrations..."
