@@ -1,7 +1,7 @@
 import yaml
 import optuna
 import numpy as np
-from optuna.pruners import HyperbandPruner
+from optuna.pruners import BasePruner, HyperbandPruner
 import sqlalchemy
 import sqlite3
 import subprocess
@@ -19,6 +19,21 @@ import shutil
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 optuna_logger = logging.getLogger("optuna")
 optuna_logger.setLevel(logging.WARNING)
+
+# --- Custom Pruner ---
+class MinTradesPruner(BasePruner):
+    """Prunes trials with fewer trades than a threshold in IS."""
+    def __init__(self, min_trades: int):
+        self.min_trades = min_trades
+
+    def prune(self, study: optuna.study.Study, trial: optuna.trial.FrozenTrial) -> bool:
+        """Prune if the number of trades is below the minimum."""
+        # We retrieve the number of trades from user attributes.
+        trades = trial.user_attrs.get("trades", 0)
+        if trades < self.min_trades:
+            logging.info(f"Trial {trial.number} pruned with {trades} trades (min: {self.min_trades}).")
+            return True # Prune the trial
+        return False # Do not prune
 
 # --- Environment & Constants ---
 APP_ROOT = Path('/app')
@@ -251,9 +266,16 @@ def objective(trial):
     sharpe_ratio = summary.get('SharpeRatio', 0.0)
     total_trades = summary.get('TotalTrades', 0)
 
+    # Store trades in user_attrs for the pruner
+    trial.set_user_attr("trades", total_trades)
+
     # Handle cases where PF is infinite (no losses)
     if profit_factor > 1e6:
         profit_factor = 1e6
+
+    # The pruner needs to be called to decide if the trial should be pruned.
+    if trial.should_prune():
+        raise optuna.exceptions.TrialPruned()
 
     return profit_factor, sharpe_ratio, total_trades
 
@@ -350,6 +372,10 @@ def main():
             global CURRENT_SIM_CSV_PATH
             CURRENT_SIM_CSV_PATH = is_csv_path
 
+            # Get min_trades from job, with a default
+            min_trades_for_pruning = job.get('min_trades', 30)
+            logging.info(f"Using MinTradesPruner with min_trades = {min_trades_for_pruning}")
+
             # Remove old study DB
             if os.path.exists(STORAGE_URL.replace('sqlite:///', '')):
                 os.remove(STORAGE_URL.replace('sqlite:///', ''))
@@ -358,7 +384,7 @@ def main():
                 study_name='obi-scalp-optimization',
                 storage=STORAGE_URL,
                 directions=['maximize', 'maximize', 'maximize'],
-                pruner=HyperbandPruner()
+                pruner=MinTradesPruner(min_trades=min_trades_for_pruning)
             )
             catch_exceptions = (
                 sqlalchemy.exc.OperationalError,
@@ -380,30 +406,32 @@ def main():
                 continue
 
             # --- IS Trials Ranking ---
-            logging.info(f"Ranking the {len(best_trials)} best trials from In-Sample optimization...")
-            pfs = np.array([t.values[0] for t in best_trials])
-            srs = np.array([t.values[1] for t in best_trials])
+            logging.info(f"Ranking the {len(best_trials)} best trials from In-Sample optimization using SQN...")
 
-            # Z-score normalization
-            def z_score_normalize(data):
-                mean = np.mean(data)
-                std = np.std(data)
-                if std == 0:
-                    return np.zeros_like(data)
-                return (data - mean) / std
+            # Calculate SQN for each trial
+            sqn_scores = []
+            for t in best_trials:
+                sr = t.values[1]
+                trades = t.values[2]
+                # Avoid division by zero or negative sqrt
+                if trades > 0 and sr is not None:
+                    sqn = sr * np.sqrt(trades)
+                else:
+                    sqn = -1.0 # Assign a poor score
+                sqn_scores.append(sqn)
 
-            pfs_z = z_score_normalize(pfs)
-            srs_z = z_score_normalize(srs)
-            combined_scores = pfs_z + srs_z
-
-            # Sort trials by combined score in descending order
-            sorted_indices = np.argsort(combined_scores)[::-1]
+            # Sort trials by SQN in descending order
+            sorted_indices = np.argsort(sqn_scores)[::-1]
             sorted_trials = [best_trials[i] for i in sorted_indices]
+            sorted_sqn_scores = [sqn_scores[i] for i in sorted_indices]
 
-            logging.info("Top 5 IS trials (Trial #, PF, SR, Trades, Z-Score):")
+            logging.info("Top 5 IS trials (Trial #, PF, SR, Trades, SQN):")
             for i, trial in enumerate(sorted_trials[:5]):
-                trades = trial.values[2] if len(trial.values) > 2 else 'N/A'
-                logging.info(f"  Rank {i+1}: Trial {trial.number}, PF: {trial.values[0]:.2f}, SR: {trial.values[1]:.2f}, Trades: {trades}, Score: {combined_scores[sorted_indices[i]]:.2f}")
+                pf = trial.values[0]
+                sr = trial.values[1]
+                trades = trial.values[2]
+                sqn = sorted_sqn_scores[i]
+                logging.info(f"  Rank {i+1}: Trial {trial.number}, PF: {pf:.2f}, SR: {sr:.2f}, Trades: {trades}, SQN: {sqn:.2f}")
 
             # --- Out-of-Sample Validation with Retry ---
             oos_validation_passed = False
