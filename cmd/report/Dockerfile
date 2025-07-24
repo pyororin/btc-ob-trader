@@ -18,7 +18,7 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /app/report-generator ./cmd/report
 
 # --- Final Stage ---
-FROM alpine:latest
+FROM alpine:3.19
 
 WORKDIR /app
 
