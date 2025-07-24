@@ -74,7 +74,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
     volumes:
-      - timescaledb_data:/var/lib/postgresql/data
+      - ./db/data:/var/lib/postgresql/data
       - ./db/schema:/docker-entrypoint-initdb.d/01_schema
       - ./db/migrations:/docker-entrypoint-initdb.d/02_migrations
 
@@ -193,6 +193,5 @@ networks:
     driver: bridge
 
 volumes:
-  timescaledb_data:
   grafana_data:
   params_volume:
