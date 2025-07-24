@@ -802,6 +802,8 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine, jsonOutp
 	profitFactor := 0.0
 	if totalLossAmount != 0 {
 		profitFactor = math.Abs(totalWinAmount / totalLossAmount)
+	} else if totalWinAmount > 0 {
+		profitFactor = 999999 // Representing infinity
 	}
 
 	// Max Drawdown
