@@ -355,6 +355,7 @@ def main():
                 sqlalchemy.exc.OperationalError,
                 optuna.exceptions.StorageInternalError,
                 sqlite3.OperationalError,
+                AssertionError
             )
 
             # Wrap objective to pass the min_trades parameter
