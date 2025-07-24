@@ -40,24 +40,75 @@ def get_db_connection():
 
 def get_performance_metrics(conn, hours):
     """Calculates Sharpe Ratio, Profit Factor, and Drawdown for a given time window."""
-    # This is a simplified query. A real implementation would need more complex SQL
-    # to accurately calculate Sharpe Ratio and Max Drawdown.
-    # For now, we'll simulate the output.
-    # In a real scenario, this would query pnl_summary and trades_pnl.
     logging.info(f"Calculating performance metrics for the last {hours} hours...")
-    # TODO: Replace with actual SQL queries
+    query = """
+        SELECT
+            sharpe_ratio,
+            profit_factor,
+            max_drawdown
+        FROM pnl_reports
+        WHERE start_date >= NOW() - INTERVAL '%s hours'
+        ORDER BY time DESC
+        LIMIT 1;
+    """
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute(query, (hours,))
+            result = cur.fetchone()
+            if result:
+                logging.info(f"Metrics for last {hours}h: Sharpe={result['sharpe_ratio']:.2f}, PF={result['profit_factor']:.2f}, MDD={result['max_drawdown']:.2f}")
+                return {
+                    "sharpe_ratio": result["sharpe_ratio"],
+                    "profit_factor": result["profit_factor"],
+                    "max_drawdown": result["max_drawdown"]
+                }
+    except psycopg2.Error as e:
+        logging.error(f"Database error in get_performance_metrics: {e}")
+        conn.rollback() # Rollback on error
+
+    # Fallback to simulated data if query fails or returns no data
+    logging.warning(f"Could not retrieve performance metrics for the last {hours} hours. Using simulated data.")
     return {
-        "sharpe_ratio": 0.8, # Simulated
-        "profit_factor": 1.1, # Simulated
-        "max_drawdown": 0.05 # Simulated
+        "sharpe_ratio": 0.8,
+        "profit_factor": 1.1,
+        "max_drawdown": 0.05
     }
 
 def get_moving_averages(conn):
-    """Calculates moving averages and standard deviations for metrics."""
-    # TODO: Query the database to get historical metrics to calculate rolling stats.
+    """Calculates moving averages and standard deviations for metrics from the last 7 days."""
+    logging.info("Calculating moving averages for the last 7 days...")
+    query = """
+        SELECT
+            AVG(sharpe_ratio) AS sharpe_ratio_mu,
+            STDDEV(sharpe_ratio) AS sharpe_ratio_sigma
+        FROM pnl_reports
+        WHERE time >= NOW() - INTERVAL '7 days';
+    """
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute(query)
+            result = cur.fetchone()
+            # Handle case where result might be None or contain None values
+            if result and result['sharpe_ratio_mu'] is not None and result['sharpe_ratio_sigma'] is not None:
+                logging.info(f"Moving Averages: Sharpe Mu={result['sharpe_ratio_mu']:.2f}, Sigma={result['sharpe_ratio_sigma']:.2f}")
+                return {
+                    "sharpe_ratio_mu": result["sharpe_ratio_mu"],
+                    "sharpe_ratio_sigma": result["sharpe_ratio_sigma"]
+                }
+            # If sigma is 0 or null, return a small default value to avoid division by zero
+            elif result and result['sharpe_ratio_mu'] is not None:
+                 logging.warning("Standard deviation of Sharpe ratio is zero or null. Using default value.")
+                 return {"sharpe_ratio_mu": result["sharpe_ratio_mu"], "sharpe_ratio_sigma": 0.1}
+
+    except psycopg2.Error as e:
+        logging.error(f"Database error in get_moving_averages: {e}")
+        conn.rollback()
+
+    # Fallback to simulated data if query fails or returns no data
+    logging.warning("Could not retrieve moving averages. Using simulated data.")
     return {
-        "sharpe_ratio_mu": 1.0, # Simulated
-        "sharpe_ratio_sigma": 0.4 # Simulated
+        "sharpe_ratio_mu": 1.0,
+        "sharpe_ratio_sigma": 0.4
     }
 
 def trigger_optimization(trigger_type, window_is, window_oos):
@@ -77,45 +128,27 @@ def trigger_optimization(trigger_type, window_is, window_oos):
 def main():
     """Main loop for the drift monitor."""
     logging.info("Drift monitor started.")
-    last_scheduled_run = 0
 
-    while True:
-        conn = get_db_connection()
-        if not conn:
-            time.sleep(CHECK_INTERVAL_SECONDS)
-            continue
+    # --- Single run for testing ---
+    conn = get_db_connection()
+    if not conn:
+        logging.error("Failed to get DB connection. Exiting.")
+        return
 
-        now = time.time()
+    logging.info("--- Testing get_performance_metrics (1 hour) ---")
+    metrics_1h = get_performance_metrics(conn, 1)
+    logging.info(f"Result: {metrics_1h}")
 
-        # 1. Scheduled Trigger (every 4 hours)
-        if now - last_scheduled_run >= 4 * 3600:
-            logging.info("Executing 4-hour scheduled optimization.")
-            trigger_optimization("scheduled", 4, 1)
-            last_scheduled_run = now
-            # Continue to next check after scheduled run
-            time.sleep(CHECK_INTERVAL_SECONDS)
-            continue
+    logging.info("--- Testing get_performance_metrics (15 min) ---")
+    metrics_15m = get_performance_metrics(conn, 0.25)
+    logging.info(f"Result: {metrics_15m}")
 
-        # 2. Drift & Emergency Triggers
-        stats = get_moving_averages(conn)
-        metrics_1h = get_performance_metrics(conn, 1)
-        metrics_15m = get_performance_metrics(conn, 0.25) # 15 minutes
+    logging.info("--- Testing get_moving_averages ---")
+    stats = get_moving_averages(conn)
+    logging.info(f"Result: {stats}")
 
-        # Mild Drift Condition
-        if metrics_1h["sharpe_ratio"] < (stats["sharpe_ratio_mu"] + SHARPE_DRIFT_THRESHOLD_SD * stats["sharpe_ratio_sigma"]) or \
-           metrics_1h["profit_factor"] < PF_DRIFT_THRESHOLD:
-            logging.warning("Mild drift detected. Triggering optimization.")
-            trigger_optimization("drift", 2, 0.5)
-
-        # Emergency/Sudden Change Condition
-        # This needs a way to check for "expanding DD", which is complex.
-        # For now, we'll just check the Sharpe ratio.
-        elif metrics_15m["sharpe_ratio"] < (stats["sharpe_ratio_mu"] + SHARPE_EMERGENCY_THRESHOLD_SD * stats["sharpe_ratio_sigma"]):
-            logging.error("Sudden performance drop detected. Triggering emergency optimization.")
-            trigger_optimization("emergency", 1, 0.16) # 1h IS, 10min OOS
-
-        conn.close()
-        time.sleep(CHECK_INTERVAL_SECONDS)
+    conn.close()
+    logging.info("Test run finished.")
 
 
 if __name__ == "__main__":
