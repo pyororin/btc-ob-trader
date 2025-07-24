@@ -109,16 +109,41 @@ def export_data(hours_before, is_oos_split=False, oos_hours=0):
 
             # Handle potential parsing errors if format is inconsistent
             def parse_timestamp(ts_str):
-                # Accommodate for '+00' timezone format by replacing it with '+0000'
+                # Normalize timezone
                 if ts_str.endswith('+00'):
                     ts_str = ts_str[:-2] + '00'
                 elif ts_str.endswith('Z'):
                     ts_str = ts_str[:-1] + '+0000'
 
+                # Normalize fractional seconds
+                if '.' in ts_str:
+                    parts = ts_str.split('.')
+                    main_part = parts[0]
+                    frac_part = parts[1]
+
+                    # Separate fraction from timezone
+                    tz_part = ''
+                    if '+' in frac_part:
+                        frac_parts = frac_part.split('+')
+                        frac_part = frac_parts[0]
+                        tz_part = '+' + frac_parts[1]
+                    elif '-' in frac_part:
+                        frac_parts = frac_part.split('-')
+                        frac_part = frac_parts[0]
+                        tz_part = '-' + frac_parts[1]
+
+                    # Pad fractional part to 6 digits
+                    frac_part = frac_part.ljust(6, '0')[:6]
+                    ts_str = f"{main_part}.{frac_part}{tz_part}"
+
                 try:
                     return datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S.%f%z')
                 except ValueError:
-                    return datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S%z')
+                    # Fallback for timestamps without fractional seconds
+                    if '.' not in ts_str:
+                         return datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S%z')
+                    else:
+                        raise
 
             try:
                 first_time = parse_timestamp(first_timestamp_str)
