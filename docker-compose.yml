@@ -85,7 +85,6 @@ services:
       timeout: 10s
       retries: 10
     restart: unless-stopped
-    user: "${UID}:${GID}"
     networks:
       - bot_network
 
