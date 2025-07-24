@@ -28,7 +28,7 @@ up: ## Start all services including the bot, optimizer, and drift monitor.
 migrate: ## Run database migrations
 	@echo "Running database migrations..."
 	docker compose exec -T timescaledb sh -c '\
-	for dir in /docker-entrypoint-initdb.d/01_schema; do \
+	for dir in ./db/schema/01_schema; do \
 		for f in $$dir/*.sql; do \
 			if [ -f "$$f" ]; then \
 				echo "Applying $$f..."; \
