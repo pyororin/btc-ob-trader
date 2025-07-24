@@ -24,7 +24,7 @@ services:
     volumes:
       - .:/app
       - ./.env:/app/.env:ro
-      - params_volume:/data/params
+      - ./data/params:/data/params
       - ./config:/app/config:ro
     entrypoint: ["/app/entrypoint.sh"]
     # The trade_config.yaml is now loaded from /data/params by default in the Go app
@@ -148,7 +148,7 @@ services:
     volumes:
       - .:/app
       - ./.env:/app/.env:ro
-      - params_volume:/data/params
+      - ./data/params:/data/params
     env_file:
       - .env
     environment:
@@ -175,7 +175,7 @@ services:
     volumes:
       - .:/app
       - ./.env:/app/.env:ro
-      - params_volume:/data/params
+      - ./data/params:/data/params
     env_file:
       - .env
     environment:
