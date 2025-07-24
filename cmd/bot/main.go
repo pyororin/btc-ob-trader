@@ -34,7 +34,6 @@ import (
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
 	"go.uber.org/zap"
 	"reflect"
-	"sync"
 )
 
 type flags struct {
