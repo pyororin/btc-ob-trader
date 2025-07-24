@@ -20,7 +20,7 @@ ENV PATH="$VENV_PATH/bin:$PATH"
 
 # Install Python packages into the virtual environment
 WORKDIR /app
-COPY requirements.txt .
+COPY optimizer/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the entire source code
