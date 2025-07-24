@@ -75,8 +75,8 @@ services:
       POSTGRES_DB: ${DB_NAME}
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
-      - ./db/schema:/docker-entrypoint-initdb.d/01_schema
-      - ./db/migrations:/docker-entrypoint-initdb.d/02_migrations
+      # - ./db/schema:/docker-entrypoint-initdb.d/01_schema
+      # - ./db/migrations:/docker-entrypoint-initdb.d/02_migrations
 
     command: postgres -c timezone=Asia/Tokyo
     healthcheck:
