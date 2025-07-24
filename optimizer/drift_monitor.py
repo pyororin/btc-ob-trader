@@ -4,6 +4,7 @@ import psycopg2
 import psycopg2.extras
 import logging
 import json
+import yaml
 from pathlib import Path
 
 # --- Logging Setup ---
@@ -12,20 +13,42 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-# --- Environment Variables ---
-# --- 環境変数 ---
-# データベース接続情報
-DB_USER = os.getenv('DB_USER')  # データベースのユーザー名
-DB_PASSWORD = os.getenv('DB_PASSWORD')  # データベースのパスワード
-DB_NAME = os.getenv('DB_NAME')  # データベース名
-DB_HOST = os.getenv('DB_HOST', 'timescaledb')  # データベースのホスト名 (デフォルト: timescaledb)
-DB_PORT = os.getenv('DB_PORT', '5432')  # データベースのポート番号 (デフォルト: 5432)
+# --- Config Loading ---
+def load_config():
+    """YAML設定ファイルを読み込む"""
+    try:
+        # スクリプト自身の場所を基準にconfigファイルを探す
+        script_dir = Path(__file__).parent
+        config_path = script_dir.parent / 'config' / 'optimizer_config.yaml'
+        with open(config_path, 'r') as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        logging.warning("optimizer_config.yaml not found. Using default values.")
+        return {}
+    except yaml.YAMLError as e:
+        logging.error(f"Error parsing YAML file: {e}")
+        return {}
 
-# スクリプトの動作設定
+config = load_config()
+
+# --- Environment Variables & Config ---
+# --- 環境変数と設定ファイル ---
+# データベース接続情報 (環境変数からのみ取得)
+DB_USER = os.getenv('DB_USER')
+DB_PASSWORD = os.getenv('DB_PASSWORD')
+DB_NAME = os.getenv('DB_NAME')
+DB_HOST = os.getenv('DB_HOST', 'timescaledb')
+DB_PORT = os.getenv('DB_PORT', '5432')
+
+# スクリプトの動作設定 (環境変数を優先し、なければ設定ファイルから取得)
 CHECK_INTERVAL_SECONDS = int(
-    os.getenv('CHECK_INTERVAL_SECONDS', '300')
-)  # パフォーマンスチェックを実行する間隔（秒単位, デフォルト: 300秒 = 5分）
-PARAMS_DIR = Path(os.getenv('PARAMS_DIR', '/data/params'))  # 最適化ジョブファイルを配置するディレクトリ
+    os.getenv('CHECK_INTERVAL_SECONDS') or
+    config.get('check_interval_seconds', 300)
+)
+PARAMS_DIR = Path(
+    os.getenv('PARAMS_DIR') or
+    config.get('params_dir', '/data/params')
+)
 
 
 # --- Trigger Thresholds (can be moved to a config file) ---
