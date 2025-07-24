@@ -35,6 +35,11 @@ OOS_MIN_PROFIT_FACTOR = 1.2
 OOS_MIN_SHARPE_RATIO = 0.5
 # OOS_MAX_DRAWDOWN_PERCENTILE = 0.85 # This is complex and needs historical data. Skipped for now.
 
+# --- Retry & Early Stopping Criteria ---
+MAX_RETRY = 5
+EARLY_STOP_COUNT = 2
+EARLY_STOP_THRESHOLD_RATIO = 0.7
+
 # --- Sample Size Guard ---
 MIN_EXECUTED_TRADES = 5000
 MIN_ORDER_BOOK_SNAPSHOTS = 100000
@@ -372,66 +377,110 @@ def main():
                 os.remove(JOB_FILE)
                 continue
 
-            # Normalize ProfitFactor and SharpeRatio to select the best trial
+            # --- IS Trials Ranking ---
+            logging.info(f"Ranking the {len(best_trials)} best trials from In-Sample optimization...")
             pfs = np.array([t.values[0] for t in best_trials])
             srs = np.array([t.values[1] for t in best_trials])
 
-            # Avoid division by zero if all values are the same
-            pfs_normalized = (pfs - pfs.min()) / (pfs.max() - pfs.min()) if pfs.max() > pfs.min() else np.zeros_like(pfs)
-            srs_normalized = (srs - srs.min()) / (srs.max() - srs.min()) if srs.max() > srs.min() else np.zeros_like(srs)
+            # Z-score normalization
+            def z_score_normalize(data):
+                mean = np.mean(data)
+                std = np.std(data)
+                if std == 0:
+                    return np.zeros_like(data)
+                return (data - mean) / std
 
-            # Find the trial with the best combined score
-            combined_scores = pfs_normalized + srs_normalized
-            best_trial_index = np.argmax(combined_scores)
-            best_trial = best_trials[best_trial_index]
+            pfs_z = z_score_normalize(pfs)
+            srs_z = z_score_normalize(srs)
+            combined_scores = pfs_z + srs_z
 
-            best_params = best_trial.params
-            logging.info(f"Best In-Sample Params from trial {best_trial.number}: {best_params} (PF: {best_trial.values[0]}, SR: {best_trial.values[1]})")
+            # Sort trials by combined score in descending order
+            sorted_indices = np.argsort(combined_scores)[::-1]
+            sorted_trials = [best_trials[i] for i in sorted_indices]
 
-            # --- Out-of-Sample Validation ---
-            with open(CONFIG_TEMPLATE_PATH, 'r') as f:
-                template = Template(f.read())
-            best_config_str = template.render(best_params)
+            logging.info("Top 5 IS trials (Trial #, PF, SR, Z-Score):")
+            for i, trial in enumerate(sorted_trials[:5]):
+                logging.info(f"  Rank {i+1}: Trial {trial.number}, PF: {trial.values[0]:.2f}, SR: {trial.values[1]:.2f}, Score: {combined_scores[sorted_indices[i]]:.2f}")
 
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as temp_config_file:
-                temp_config_file.write(best_config_str)
-                best_config_path = temp_config_file.name
+            # --- Out-of-Sample Validation with Retry ---
+            oos_validation_passed = False
+            best_oos_trial = None
+            best_oos_summary = None
+            retries_attempted = 0
+            consecutive_severe_failures = 0
 
-            logging.info("Running Out-of-Sample validation...")
-            oos_summary = run_simulation(best_config_path, oos_csv_path)
-            os.remove(best_config_path)
+            for i, trial_to_validate in enumerate(sorted_trials[:MAX_RETRY]):
+                is_rank = i + 1
+                retries_attempted = is_rank
+                logging.info(f"--- OOS Validation Attempt #{is_rank}/{MAX_RETRY} (IS Trial: {trial_to_validate.number}) ---")
 
-            if oos_summary is None:
-                logging.error("OOS validation failed. Discarding parameters.")
-                os.remove(JOB_FILE)
-                continue
+                current_params = trial_to_validate.params
+                with open(CONFIG_TEMPLATE_PATH, 'r') as f:
+                    template = Template(f.read())
+                config_str = template.render(current_params)
 
-            # --- Check Pass Criteria ---
-            oos_pf = oos_summary.get('ProfitFactor', 0.0)
-            oos_sharpe = oos_summary.get('SharpeRatio', 0.0)
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as temp_config_file:
+                    temp_config_file.write(config_str)
+                    temp_config_path = temp_config_file.name
 
-            logging.info(f"OOS Results: Profit Factor = {oos_pf}, Sharpe Ratio = {oos_sharpe}")
+                oos_summary = run_simulation(temp_config_path, oos_csv_path)
+                os.remove(temp_config_path)
 
-            if oos_pf >= OOS_MIN_PROFIT_FACTOR and oos_sharpe >= OOS_MIN_SHARPE_RATIO:
-                logging.info("OOS validation PASSED. Updating live parameters.")
-                with open(BEST_CONFIG_OUTPUT_PATH, 'w') as f:
-                    f.write(best_config_str)
-                logging.info(f"Successfully updated {BEST_CONFIG_OUTPUT_PATH}")
-            else:
-                logging.warning("OOS validation FAILED. Parameters will not be updated.")
+                if oos_summary is None:
+                    logging.warning(f"OOS simulation failed for IS-Rank {is_rank}. Skipping.")
+                    consecutive_severe_failures = 0 # Reset on simulation error
+                    continue
+
+                oos_pf = oos_summary.get('ProfitFactor', 0.0)
+                oos_sharpe = oos_summary.get('SharpeRatio', 0.0)
+                logging.info(f"OOS Result for IS-Rank {is_rank}: PF={oos_pf:.2f}, SR={oos_sharpe:.2f}")
+
+                if oos_pf >= OOS_MIN_PROFIT_FACTOR and oos_sharpe >= OOS_MIN_SHARPE_RATIO:
+                    logging.info(f"OOS validation PASSED for IS-Rank {is_rank}. Selecting this parameter set.")
+                    oos_validation_passed = True
+                    best_oos_trial = trial_to_validate
+                    best_oos_summary = oos_summary
+
+                    # Update config file
+                    with open(BEST_CONFIG_OUTPUT_PATH, 'w') as f:
+                        f.write(config_str)
+                    logging.info(f"Successfully updated {BEST_CONFIG_OUTPUT_PATH}")
+                    break # Exit retry loop on first pass
+                else:
+                    logging.info(f"OOS validation FAILED for IS-Rank {is_rank}.")
+                    # Check for early stopping condition
+                    if oos_sharpe < OOS_MIN_SHARPE_RATIO * EARLY_STOP_THRESHOLD_RATIO:
+                        consecutive_severe_failures += 1
+                        logging.warning(f"Severe failure detected. Consecutive count: {consecutive_severe_failures}/{EARLY_STOP_COUNT}")
+                    else:
+                        consecutive_severe_failures = 0 # Reset if failure is not severe
+
+                    if consecutive_severe_failures >= EARLY_STOP_COUNT:
+                        logging.error(f"Early stopping triggered after {consecutive_severe_failures} consecutive severe failures.")
+                        break
+
+            if not oos_validation_passed:
+                logging.warning(f"OOS validation failed for all top {retries_attempted} IS trials.")
+
 
             # --- Save History ---
+            # Determine which trial's data to save
+            final_trial = best_oos_trial if oos_validation_passed else sorted_trials[0]
+            final_summary = best_oos_summary if oos_validation_passed else {} # Use empty dict if all failed
+
             history = {
                 "time": time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(job['timestamp'])),
                 "trigger_type": job['trigger_type'],
                 "is_hours": is_hours,
                 "oos_hours": oos_hours,
-                "is_profit_factor": best_trial.values[0],
-                "is_sharpe_ratio": best_trial.values[1],
-                "oos_profit_factor": oos_pf,
-                "oos_sharpe_ratio": oos_sharpe,
-                "validation_passed": oos_pf >= OOS_MIN_PROFIT_FACTOR and oos_sharpe >= OOS_MIN_SHARPE_RATIO,
-                "best_params": best_params
+                "is_profit_factor": final_trial.values[0],
+                "is_sharpe_ratio": final_trial.values[1],
+                "oos_profit_factor": final_summary.get('ProfitFactor', 0.0),
+                "oos_sharpe_ratio": final_summary.get('SharpeRatio', 0.0),
+                "validation_passed": oos_validation_passed,
+                "best_params": final_trial.params,
+                "is_rank": retries_attempted if oos_validation_passed else None,
+                "retries_attempted": retries_attempted
             }
             save_optimization_history(history)
 
@@ -457,8 +506,8 @@ def save_optimization_history(history_data):
             INSERT INTO optimization_history (
                 time, trigger_type, is_hours, oos_hours,
                 is_profit_factor, is_sharpe_ratio, oos_profit_factor, oos_sharpe_ratio,
-                validation_passed, best_params
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                validation_passed, best_params, is_rank, retries_attempted
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         cursor.execute(query, (
             history_data['time'],
@@ -470,7 +519,9 @@ def save_optimization_history(history_data):
             history_data.get('oos_profit_factor'),
             history_data.get('oos_sharpe_ratio'),
             history_data['validation_passed'],
-            json.dumps(history_data.get('best_params'))
+            json.dumps(history_data.get('best_params')),
+            history_data.get('is_rank'),
+            history_data.get('retries_attempted')
         ))
         conn.commit()
         cursor.close()

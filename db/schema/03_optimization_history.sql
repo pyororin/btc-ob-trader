@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS optimization_history (
     oos_sharpe_ratio FLOAT,
     validation_passed BOOLEAN,
     best_params JSONB,
+    is_rank INT,
+    retries_attempted INT,
     PRIMARY KEY (time)
 );
 
