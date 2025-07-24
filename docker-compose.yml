@@ -90,22 +90,19 @@ services:
   report-generator:
     build:
       context: .
-      dockerfile: Dockerfile
-      target: builder
-    container_name: report-generator
-    volumes:
-      - .:/app
-    working_dir: /app
+      dockerfile: cmd/report/Dockerfile
+    container_name: obi-scalp-report-generator
     env_file:
       - .env
+    environment:
+      - DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@timescaledb:${DB_PORT}/${DB_NAME}?sslmode=disable
+      - REPORT_INTERVAL_MINUTES=60
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
     networks:
       - bot_network
-    command: ["sleep", "infinity"]
-    healthcheck:
-      test: ["CMD-SHELL", "test -f /app/build/report"]
-      interval: 1s
-      timeout: 1s
-      retries: 5
 
   grafana:
     image: grafana/grafana-oss:latest
