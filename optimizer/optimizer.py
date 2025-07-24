@@ -10,6 +10,7 @@ import json
 import tempfile
 import logging
 import time
+from datetime import datetime, timedelta
 from jinja2 import Template
 from pathlib import Path
 import shutil
@@ -97,13 +98,58 @@ def export_data(hours_before, is_oos_split=False, oos_hours=0):
             lines = f_full.readlines()
             header = lines[0]
             data_lines = lines[1:]
-            split_index = int(len(data_lines) * is_ratio)
+
+            if not data_lines:
+                logging.warning("No data to split.")
+                return is_path, oos_path
+
+            # Assuming the first column is the timestamp
+            first_timestamp_str = data_lines[0].split(',')[0]
+            last_timestamp_str = data_lines[-1].split(',')[0]
+
+            # Handle potential parsing errors if format is inconsistent
+            try:
+                # Use a general format that can handle various precisions
+                first_time = datetime.strptime(first_timestamp_str, '%Y-%m-%d %H:%M:%S.%f%z')
+                last_time = datetime.strptime(last_timestamp_str, '%Y-%m-%d %H:%M:%S.%f%z')
+            except ValueError:
+                 try:
+                    first_time = datetime.strptime(first_timestamp_str, '%Y-%m-%d %H:%M:%S%z')
+                    last_time = datetime.strptime(last_timestamp_str, '%Y-%m-%d %H:%M:%S%z')
+                 except ValueError:
+                    logging.error(f"Could not parse timestamps: '{first_timestamp_str}' and '{last_timestamp_str}'")
+                    # Fallback to line-based split if time parsing fails
+                    split_index = int(len(data_lines) * is_ratio)
+                    f_is.write(header)
+                    f_is.writelines(data_lines[:split_index])
+                    f_oos.write(header)
+                    f_oos.writelines(data_lines[split_index:])
+                    return is_path, oos_path
+
+
+            total_duration_seconds = (last_time - first_time).total_seconds()
+            is_duration_seconds = total_duration_seconds * is_ratio
+            split_time = first_time + timedelta(seconds=is_duration_seconds)
 
             f_is.write(header)
-            f_is.writelines(data_lines[:split_index])
-
             f_oos.write(header)
-            f_oos.writelines(data_lines[split_index:])
+
+            split_found = False
+            for line in data_lines:
+                current_time_str = line.split(',')[0]
+                try:
+                    current_time = datetime.strptime(current_time_str, '%Y-%m-%d %H:%M:%S.%f%z')
+                except ValueError:
+                    current_time = datetime.strptime(current_time_str, '%Y-%m-%d %H:%M:%S%z')
+
+                if current_time < split_time:
+                    f_is.write(line)
+                else:
+                    f_oos.write(line)
+                    split_found = True
+
+            if not split_found:
+                logging.warning("Split time was after all data points. OOS will be empty.")
 
         with open(is_path, 'r') as f_is:
             is_lines = len(f_is.readlines())
