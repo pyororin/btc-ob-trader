@@ -108,23 +108,30 @@ def export_data(hours_before, is_oos_split=False, oos_hours=0):
             last_timestamp_str = data_lines[-1].split(',')[0]
 
             # Handle potential parsing errors if format is inconsistent
+            def parse_timestamp(ts_str):
+                # Accommodate for '+00' timezone format by replacing it with '+0000'
+                if ts_str.endswith('+00'):
+                    ts_str = ts_str[:-2] + '00'
+                elif ts_str.endswith('Z'):
+                    ts_str = ts_str[:-1] + '+0000'
+
+                try:
+                    return datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S.%f%z')
+                except ValueError:
+                    return datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S%z')
+
             try:
-                # Use a general format that can handle various precisions
-                first_time = datetime.strptime(first_timestamp_str, '%Y-%m-%d %H:%M:%S.%f%z')
-                last_time = datetime.strptime(last_timestamp_str, '%Y-%m-%d %H:%M:%S.%f%z')
+                first_time = parse_timestamp(first_timestamp_str)
+                last_time = parse_timestamp(last_timestamp_str)
             except ValueError:
-                 try:
-                    first_time = datetime.strptime(first_timestamp_str, '%Y-%m-%d %H:%M:%S%z')
-                    last_time = datetime.strptime(last_timestamp_str, '%Y-%m-%d %H:%M:%S%z')
-                 except ValueError:
-                    logging.error(f"Could not parse timestamps: '{first_timestamp_str}' and '{last_timestamp_str}'")
-                    # Fallback to line-based split if time parsing fails
-                    split_index = int(len(data_lines) * is_ratio)
-                    f_is.write(header)
-                    f_is.writelines(data_lines[:split_index])
-                    f_oos.write(header)
-                    f_oos.writelines(data_lines[split_index:])
-                    return is_path, oos_path
+                logging.error(f"Could not parse timestamps: '{first_timestamp_str}' and '{last_timestamp_str}'")
+                # Fallback to line-based split if time parsing fails
+                split_index = int(len(data_lines) * is_ratio)
+                f_is.write(header)
+                f_is.writelines(data_lines[:split_index])
+                f_oos.write(header)
+                f_oos.writelines(data_lines[split_index:])
+                return is_path, oos_path
 
 
             total_duration_seconds = (last_time - first_time).total_seconds()
@@ -137,10 +144,7 @@ def export_data(hours_before, is_oos_split=False, oos_hours=0):
             split_found = False
             for line in data_lines:
                 current_time_str = line.split(',')[0]
-                try:
-                    current_time = datetime.strptime(current_time_str, '%Y-%m-%d %H:%M:%S.%f%z')
-                except ValueError:
-                    current_time = datetime.strptime(current_time_str, '%Y-%m-%d %H:%M:%S%z')
+                current_time = parse_timestamp(current_time_str)
 
                 if current_time < split_time:
                     f_is.write(line)
