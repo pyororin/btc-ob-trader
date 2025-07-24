@@ -278,7 +278,7 @@ def objective(trial, min_trades_for_pruning: int):
 
     # Manual Pruning
     if total_trades < min_trades_for_pruning:
-        logging.info(f"Trial {trial.number} pruned with {total_trades} trades (min: {min_trades_for_pruning}).")
+        logging.debug(f"Trial {trial.number} pruned with {total_trades} trades (min: {min_trades_for_pruning}).")
         raise optuna.exceptions.TrialPruned()
 
     # Calculate SQN
