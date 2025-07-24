@@ -25,6 +25,12 @@ up: ## Start all services including the bot, optimizer, and drift monitor.
 	docker compose up -d --build bot drift-monitor optimizer grafana adminer
 	$(MAKE) migrate
 
+update: ## Pull the latest changes and restart the bot, optimizer, and drift-monitor services.
+	@echo "Pulling latest changes..."
+	git pull
+	@echo "Rebuilding and restarting services: bot, optimizer, drift-monitor..."
+	docker compose up -d --build bot drift-monitor optimizer
+
 migrate: ## Run database migrations
 	@echo "Running database migrations..."
 	docker compose exec -T timescaledb sh -c '\
