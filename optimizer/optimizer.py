@@ -244,17 +244,18 @@ def objective(trial):
 
     if summary is None or summary.get('TotalTrades', 0) == 0:
         # Penalize trials that result in no trades
-        return -1.0, -1.0
+        return -1.0, -1.0, 0
 
     # The metrics to optimize
     profit_factor = summary.get('ProfitFactor', 0.0)
     sharpe_ratio = summary.get('SharpeRatio', 0.0)
+    total_trades = summary.get('TotalTrades', 0)
 
     # Handle cases where PF is infinite (no losses)
     if profit_factor > 1e6:
         profit_factor = 1e6
 
-    return profit_factor, sharpe_ratio
+    return profit_factor, sharpe_ratio, total_trades
 
 
 def ensure_default_config_exists():
@@ -356,7 +357,7 @@ def main():
             study = optuna.create_study(
                 study_name='obi-scalp-optimization',
                 storage=STORAGE_URL,
-                directions=['maximize', 'maximize'],
+                directions=['maximize', 'maximize', 'maximize'],
                 pruner=HyperbandPruner()
             )
             catch_exceptions = (
@@ -399,9 +400,10 @@ def main():
             sorted_indices = np.argsort(combined_scores)[::-1]
             sorted_trials = [best_trials[i] for i in sorted_indices]
 
-            logging.info("Top 5 IS trials (Trial #, PF, SR, Z-Score):")
+            logging.info("Top 5 IS trials (Trial #, PF, SR, Trades, Z-Score):")
             for i, trial in enumerate(sorted_trials[:5]):
-                logging.info(f"  Rank {i+1}: Trial {trial.number}, PF: {trial.values[0]:.2f}, SR: {trial.values[1]:.2f}, Score: {combined_scores[sorted_indices[i]]:.2f}")
+                trades = trial.values[2] if len(trial.values) > 2 else 'N/A'
+                logging.info(f"  Rank {i+1}: Trial {trial.number}, PF: {trial.values[0]:.2f}, SR: {trial.values[1]:.2f}, Trades: {trades}, Score: {combined_scores[sorted_indices[i]]:.2f}")
 
             # --- Out-of-Sample Validation with Retry ---
             oos_validation_passed = False
@@ -434,7 +436,8 @@ def main():
 
                 oos_pf = oos_summary.get('ProfitFactor', 0.0)
                 oos_sharpe = oos_summary.get('SharpeRatio', 0.0)
-                logging.info(f"OOS Result for IS-Rank {is_rank}: PF={oos_pf:.2f}, SR={oos_sharpe:.2f}")
+                oos_trades = oos_summary.get('TotalTrades', 'N/A')
+                logging.info(f"OOS Result for IS-Rank {is_rank}: PF={oos_pf:.2f}, SR={oos_sharpe:.2f}, Trades={oos_trades}")
 
                 if oos_pf >= OOS_MIN_PROFIT_FACTOR and oos_sharpe >= OOS_MIN_SHARPE_RATIO:
                     logging.info(f"OOS validation PASSED for IS-Rank {is_rank}. Selecting this parameter set.")
@@ -476,8 +479,10 @@ def main():
                 "oos_hours": oos_hours,
                 "is_profit_factor": final_trial.values[0],
                 "is_sharpe_ratio": final_trial.values[1],
+                "is_total_trades": final_trial.values[2] if len(final_trial.values) > 2 else 0,
                 "oos_profit_factor": final_summary.get('ProfitFactor', 0.0),
                 "oos_sharpe_ratio": final_summary.get('SharpeRatio', 0.0),
+                "oos_total_trades": final_summary.get('TotalTrades', 0),
                 "validation_passed": oos_validation_passed,
                 "best_params": final_trial.params,
                 "is_rank": retries_attempted if oos_validation_passed else None,
@@ -506,9 +511,10 @@ def save_optimization_history(history_data):
         query = """
             INSERT INTO optimization_history (
                 time, trigger_type, is_hours, oos_hours,
-                is_profit_factor, is_sharpe_ratio, oos_profit_factor, oos_sharpe_ratio,
+                is_profit_factor, is_sharpe_ratio, is_total_trades,
+                oos_profit_factor, oos_sharpe_ratio, oos_total_trades,
                 validation_passed, best_params, is_rank, retries_attempted
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         cursor.execute(query, (
             history_data['time'],
@@ -517,8 +523,10 @@ def save_optimization_history(history_data):
             history_data['oos_hours'],
             history_data.get('is_profit_factor'),
             history_data.get('is_sharpe_ratio'),
+            history_data.get('is_total_trades'),
             history_data.get('oos_profit_factor'),
             history_data.get('oos_sharpe_ratio'),
+            history_data.get('oos_total_trades'),
             history_data['validation_passed'],
             json.dumps(history_data.get('best_params')),
             history_data.get('is_rank'),
