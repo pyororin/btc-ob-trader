@@ -373,8 +373,7 @@ def main():
             catch_exceptions = (
                 sqlalchemy.exc.OperationalError,
                 optuna.exceptions.StorageInternalError,
-                sqlite3.OperationalError,
-                AssertionError
+                sqlite3.OperationalError
             )
 
             # Wrap objective to pass the min_trades parameter

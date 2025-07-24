@@ -34,7 +34,6 @@ import (
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
 	"go.uber.org/zap"
 	"reflect"
-	"sync"
 )
 
 type flags struct {
@@ -560,7 +559,6 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 		go processSignalsAndExecute(ctx, obiCalculator, execEngine, benchmarkService)
 		go orderMonitor(ctx, execEngine, client, orderBook)
 		go positionMonitor(ctx, execEngine, orderBook) // Added for partial exit
-		go startPnlReporter(ctx)
 
 		wsClient := coincheck.NewWebSocketClient(orderBookHandler, tradeHandler)
 		go func() {
@@ -573,108 +571,6 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 	}
 }
 
-// startPnlReporter は定期的にPnLレポートを生成し、古いレポートを削除します。
-func startPnlReporter(ctx context.Context) {
-	// Use a ticker that can be stopped
-	var ticker *time.Ticker
-	// Use a wait group to ensure goroutine finishes
-	var wg sync.WaitGroup
-
-	// Function to start the reporter logic
-	start := func() {
-		cfg := config.GetConfig()
-		if cfg.App.PnlReport.IntervalMinutes <= 0 {
-			logger.Info("PnL reporter is disabled.")
-			return
-		}
-
-		logger.Infof("Starting PnL reporter: interval=%d minutes, maxAge=%d hours",
-			cfg.App.PnlReport.IntervalMinutes, cfg.App.PnlReport.MaxAgeHours)
-
-		ticker = time.NewTicker(time.Duration(cfg.App.PnlReport.IntervalMinutes) * time.Minute)
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-			defer ticker.Stop()
-
-			dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s&timezone=Asia/Tokyo",
-				cfg.App.Database.User, cfg.App.Database.Password, cfg.App.Database.Host, cfg.App.Database.Port, cfg.App.Database.Name, cfg.App.Database.SSLMode)
-			dbpool, err := pgxpool.New(ctx, dbURL)
-			if err != nil {
-				logger.Warnf("PnL reporter unable to connect to database: %v", err)
-				return // Exit goroutine if DB connection fails
-			}
-			defer dbpool.Close()
-			repo := datastore.NewRepository(dbpool)
-
-			// Initial run
-			generateAndSaveReport(ctx, repo)
-			deleteOldReports(ctx, repo, cfg.App.PnlReport.MaxAgeHours)
-
-			for {
-				select {
-				case <-ctx.Done():
-					logger.Info("Stopping PnL reporter.")
-					return
-				case <-ticker.C:
-					// Re-fetch config inside the loop to get the latest values
-					loopCfg := config.GetConfig()
-					generateAndSaveReport(ctx, repo)
-					deleteOldReports(ctx, repo, loopCfg.App.PnlReport.MaxAgeHours)
-				}
-			}
-		}()
-	}
-
-	// Initial start
-	start()
-
-}
-
-
-func generateAndSaveReport(ctx context.Context, repo *datastore.Repository) {
-	logger.Debug("Generating PnL report...")
-	trades, err := repo.FetchAllTradesForReport(ctx)
-	if err != nil {
-		logger.Warnf("Failed to fetch trades for PnL report: %v", err)
-		return
-	}
-
-	if len(trades) == 0 {
-		logger.Debug("No trades found for PnL report.")
-		return
-	}
-
-	report, err := datastore.AnalyzeTrades(trades)
-	if err != nil {
-		logger.Warnf("Failed to analyze trades for PnL report: %v", err)
-		return
-	}
-
-	if err := repo.SavePnlReport(ctx, report); err != nil {
-		logger.Warnf("Failed to save PnL report: %v", err)
-		return
-	}
-	logger.Debug("Successfully generated and saved PnL report.")
-}
-
-func deleteOldReports(ctx context.Context, repo *datastore.Repository, maxAgeHours int) {
-	if maxAgeHours <= 0 {
-		return
-	}
-	logger.Debugf("Deleting PnL reports older than %d hours...", maxAgeHours)
-	deletedCount, err := repo.DeleteOldPnlReports(ctx, maxAgeHours)
-	if err != nil {
-		logger.Warnf("Failed to delete old PnL reports: %v", err)
-		return
-	}
-	if deletedCount > 0 {
-		logger.Debugf("Successfully deleted %d old PnL reports.", deletedCount)
-	} else {
-		logger.Debug("No old PnL reports to delete.")
-	}
-}
 
 // waitForShutdownSignal blocks until a shutdown signal is received.
 func waitForShutdownSignal(sigs <-chan os.Signal) {
