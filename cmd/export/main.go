@@ -22,6 +22,7 @@ func main() {
 	startTimeStr := flag.String("start", "", "Start time for the export window (YYYY-MM-DD HH:MM:SS)")
 	endTimeStr := flag.String("end", "", "End time for the export window (YYYY-MM-DD HH:MM:SS)")
 	noZip := flag.Bool("no-zip", false, "Disable ZIP compression")
+	tradeConfigPath := flag.String("trade-config", "/data/params/trade_config.yaml", "Path to the trade configuration file")
 	flag.Parse()
 
 	var startTime, endTime time.Time
@@ -47,7 +48,7 @@ func main() {
 
 	// --- Config and Logger Setup ---
 	// We need dummy config paths to load the DB settings from .env
-	cfg, err := config.LoadConfig("config/app_config.yaml", "config/trade_config.yaml")
+	cfg, err := config.LoadConfig("config/app_config.yaml", *tradeConfigPath)
 	if err != nil {
 		// If files don't exist, we can still proceed if env vars are set.
 		// Create a dummy config to hold env vars.
