@@ -96,7 +96,7 @@ services:
       - .env
     environment:
       - DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@timescaledb:${DB_PORT}/${DB_NAME}?sslmode=disable
-      - REPORT_INTERVAL_MINUTES=60
+      - REPORT_INTERVAL_MINUTES=1
     depends_on:
       timescaledb:
         condition: service_healthy
