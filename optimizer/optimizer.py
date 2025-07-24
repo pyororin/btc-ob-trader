@@ -178,12 +178,18 @@ def objective(trial):
     summary = run_simulation(temp_config_path, CURRENT_SIM_CSV_PATH)
     os.remove(temp_config_path)
 
-    if summary is None:
-        return 0.0, 0.0
+    if summary is None or summary.get('TotalTrades', 0) == 0:
+        # Penalize trials that result in no trades
+        return -1.0, -1.0
 
     # The metrics to optimize
     profit_factor = summary.get('ProfitFactor', 0.0)
     sharpe_ratio = summary.get('SharpeRatio', 0.0)
+
+    # Handle cases where PF is infinite (no losses)
+    if profit_factor > 1e6:
+        profit_factor = 1e6
+
     return profit_factor, sharpe_ratio
 
 
