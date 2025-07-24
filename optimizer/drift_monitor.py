@@ -115,19 +115,25 @@ def get_performance_metrics(conn, hours):
     logging.info(
         f"Calculating performance metrics for the last {hours} hours..."
     )
+    # 時間（hours）を分に変換
+    minutes = int(hours * 60)
+    logging.info(
+        f"Calculating performance metrics for the last {minutes} minutes..."
+    )
+
     query = """
         SELECT
             sharpe_ratio,
             profit_factor,
             max_drawdown
         FROM pnl_reports
-        WHERE time >= NOW() - INTERVAL '1 hour' * %s
+        WHERE time >= NOW() - INTERVAL '1 minute' * %s
         ORDER BY time DESC
         LIMIT 1;
     """
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-            cur.execute(query, (hours,))
+            cur.execute(query, (minutes,))
             result = cur.fetchone()
             if result:
                 log_msg = (
