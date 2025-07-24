@@ -137,10 +137,33 @@ def objective(trial):
         'spread_limit': trial.suggest_int('spread_limit', 10, 150),
         'lot_max_ratio': trial.suggest_float('lot_max_ratio', 0.01, 0.2),
         'order_ratio': trial.suggest_float('order_ratio', 0.05, 0.25),
+        'adaptive_position_sizing_enabled': trial.suggest_categorical('adaptive_position_sizing_enabled', [True, False]),
+        'adaptive_num_trades': trial.suggest_int('adaptive_num_trades', 3, 20),
+        'adaptive_reduction_step': trial.suggest_float('adaptive_reduction_step', 0.5, 1.0),
+        'adaptive_min_ratio': trial.suggest_float('adaptive_min_ratio', 0.1, 0.8),
+        'long_obi_threshold': trial.suggest_float('long_obi_threshold', 0.1, 2.0),
         'long_tp': trial.suggest_int('long_tp', 50, 500),
         'long_sl': trial.suggest_int('long_sl', -500, -50),
+        'short_obi_threshold': trial.suggest_float('short_obi_threshold', -2.0, -0.1),
         'short_tp': trial.suggest_int('short_tp', 50, 500),
         'short_sl': trial.suggest_int('short_sl', -500, -50),
+        'hold_duration_ms': trial.suggest_int('hold_duration_ms', 100, 2000),
+        'slope_filter_enabled': trial.suggest_categorical('slope_filter_enabled', [True, False]),
+        'slope_period': trial.suggest_int('slope_period', 3, 50),
+        'slope_threshold': trial.suggest_float('slope_threshold', 0.0, 0.5),
+        'ewma_lambda': trial.suggest_float('ewma_lambda', 0.05, 0.3),
+        'dynamic_obi_enabled': trial.suggest_categorical('dynamic_obi_enabled', [True, False]),
+        'volatility_factor': trial.suggest_float('volatility_factor', 0.5, 5.0),
+        'min_threshold_factor': trial.suggest_float('min_threshold_factor', 0.5, 1.0),
+        'max_threshold_factor': trial.suggest_float('max_threshold_factor', 1.0, 3.0),
+        'twap_enabled': trial.suggest_categorical('twap_enabled', [True, False]),
+        'twap_max_order_size_btc': trial.suggest_float('twap_max_order_size_btc', 0.01, 0.1),
+        'twap_interval_seconds': trial.suggest_int('twap_interval_seconds', 1, 10),
+        'twap_partial_exit_enabled': trial.suggest_categorical('twap_partial_exit_enabled', [True, False]),
+        'twap_profit_threshold': trial.suggest_float('twap_profit_threshold', 0.1, 2.0),
+        'twap_exit_ratio': trial.suggest_float('twap_exit_ratio', 0.1, 1.0),
+        'risk_max_drawdown_percent': trial.suggest_int('risk_max_drawdown_percent', 15, 25),
+        'risk_max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.5, 0.9),
     }
 
     with open(CONFIG_TEMPLATE_PATH, 'r') as f:
@@ -302,46 +325,9 @@ def main():
             logging.info(f"Best In-Sample Params from trial {best_trial.number}: {best_params} (PF: {best_trial.values[0]}, SR: {best_trial.values[1]})")
 
             # --- Out-of-Sample Validation ---
-            # Create a full parameters dictionary for rendering the template
-            # Start with default values and override with the optimized ones.
-            full_params = {
-                "pair": "btc_jpy",
-                "spread_limit": 100,
-                "lot_max_ratio": 0.1,
-                "order_ratio": 0.1,
-                "adaptive_position_sizing_enabled": False,
-                "adaptive_num_trades": 10,
-                "adaptive_reduction_step": 0.8,
-                "adaptive_min_ratio": 0.5,
-                "long_obi_threshold": 1.0,
-                "long_tp": 150,
-                "long_sl": -150,
-                "short_obi_threshold": -1.0,
-                "short_tp": 150,
-                "short_sl": -150,
-                "hold_duration_ms": 500,
-                "slope_filter_enabled": False,
-                "slope_period": 10,
-                "slope_threshold": 0.1,
-                "ewma_lambda": 0.1,
-                "dynamic_obi_enabled": False,
-                "volatility_factor": 1.0,
-                "min_threshold_factor": 0.8,
-                "max_threshold_factor": 1.5,
-                "twap_enabled": False,
-                "twap_max_order_size_btc": 0.01,
-                "twap_interval_seconds": 5,
-                "twap_partial_exit_enabled": False,
-                "twap_profit_threshold": 0.5,
-                "twap_exit_ratio": 0.5,
-                "risk_max_drawdown_percent": 20,
-                "risk_max_position_ratio": 0.9,
-            }
-            full_params.update(best_params)
-
             with open(CONFIG_TEMPLATE_PATH, 'r') as f:
                 template = Template(f.read())
-            best_config_str = template.render(full_params)
+            best_config_str = template.render(best_params)
 
             with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as temp_config_file:
                 temp_config_file.write(best_config_str)
