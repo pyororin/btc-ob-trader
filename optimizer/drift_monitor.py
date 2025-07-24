@@ -194,11 +194,11 @@ def main():
                         f"Z-score={z_score:.2f} < {SHARPE_DRIFT_THRESHOLD_SD}"
                     )
                     logging.warning(log_msg)
-                    # IS: 7d, OOS: 1d
+                    # Mild Drift: IS=2h, OOS=30m
                     trigger_optimization(
                         "sharpe_drift_short_term",
-                        window_is=7*24,
-                        window_oos=1*24
+                        window_is=2,
+                        window_oos=0.5
                     )
 
                 # Cond 2: Emergency Sharpe Ratio Drop (1h or 15m)
@@ -217,12 +217,14 @@ def main():
                         f"1h Z={z_1h:.2f}, 15m Z={z_15m:.2f}"
                     )
                     logging.critical(log_msg)
-                    # IS: 1d, OOS: 6h
+                    # Shock: IS=60m, OOS=10m
                     trigger_optimization(
-                        "sharpe_emergency_drop", window_is=24, window_oos=6
+                        "sharpe_emergency_drop",
+                        window_is=1,
+                        window_oos=10/60
                     )
 
-            # Cond 3: Profit Factor Drift (1h)
+            # Cond 3: Profit Factor Drift (1h) -> Regular Refresh
             if metrics_1h["profit_factor"] < PF_DRIFT_THRESHOLD:
                 log_msg = (
                     "DRIFT DETECTED (Profit Factor): "
@@ -230,9 +232,11 @@ def main():
                     f"{PF_DRIFT_THRESHOLD}"
                 )
                 logging.warning(log_msg)
-                # IS: 14d, OOS: 2d
+                # Regular Refresh: IS=4h, OOS=1h
                 trigger_optimization(
-                    "profit_factor_drift", window_is=14*24, window_oos=2*24
+                    "profit_factor_drift",
+                    window_is=4,
+                    window_oos=1
                 )
 
             logging.info(
