@@ -302,9 +302,46 @@ def main():
             logging.info(f"Best In-Sample Params from trial {best_trial.number}: {best_params} (PF: {best_trial.values[0]}, SR: {best_trial.values[1]})")
 
             # --- Out-of-Sample Validation ---
+            # Create a full parameters dictionary for rendering the template
+            # Start with default values and override with the optimized ones.
+            full_params = {
+                "pair": "btc_jpy",
+                "spread_limit": 100,
+                "lot_max_ratio": 0.1,
+                "order_ratio": 0.1,
+                "adaptive_position_sizing_enabled": False,
+                "adaptive_num_trades": 10,
+                "adaptive_reduction_step": 0.8,
+                "adaptive_min_ratio": 0.5,
+                "long_obi_threshold": 1.0,
+                "long_tp": 150,
+                "long_sl": -150,
+                "short_obi_threshold": -1.0,
+                "short_tp": 150,
+                "short_sl": -150,
+                "hold_duration_ms": 500,
+                "slope_filter_enabled": False,
+                "slope_period": 10,
+                "slope_threshold": 0.1,
+                "ewma_lambda": 0.1,
+                "dynamic_obi_enabled": False,
+                "volatility_factor": 1.0,
+                "min_threshold_factor": 0.8,
+                "max_threshold_factor": 1.5,
+                "twap_enabled": False,
+                "twap_max_order_size_btc": 0.01,
+                "twap_interval_seconds": 5,
+                "twap_partial_exit_enabled": False,
+                "twap_profit_threshold": 0.5,
+                "twap_exit_ratio": 0.5,
+                "risk_max_drawdown_percent": 20,
+                "risk_max_position_ratio": 0.9,
+            }
+            full_params.update(best_params)
+
             with open(CONFIG_TEMPLATE_PATH, 'r') as f:
                 template = Template(f.read())
-            best_config_str = template.render(best_params)
+            best_config_str = template.render(full_params)
 
             with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as temp_config_file:
                 temp_config_file.write(best_config_str)
