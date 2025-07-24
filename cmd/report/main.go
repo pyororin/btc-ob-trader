@@ -14,11 +14,7 @@ import (
 
 func main() {
 	// --- Logger Setup ---
-	l, err := logger.NewLogger("report-generator")
-	if err != nil {
-		log.Fatalf("Failed to create logger: %v", err)
-	}
-	defer l.Sync()
+	l := logger.NewLogger("info") // Use "info" as a default log level
 
 	// --- Database Connection ---
 	dbURL := os.Getenv("DATABASE_URL")
@@ -65,7 +61,7 @@ func main() {
 }
 
 // runReportGeneration fetches trades, analyzes them, and saves the report.
-func runReportGeneration(repo *datastore.Repository, reportService *report.Service, l *logger.Logger) {
+func runReportGeneration(repo *datastore.Repository, reportService *report.Service, l logger.Logger) {
 	ctx := context.Background()
 
 	// 1. Fetch all trades
