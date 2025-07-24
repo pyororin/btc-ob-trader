@@ -20,20 +20,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 optuna_logger = logging.getLogger("optuna")
 optuna_logger.setLevel(logging.WARNING)
 
-# --- Custom Pruner ---
-class MinTradesPruner(BasePruner):
-    """Prunes trials with fewer trades than a threshold in IS."""
-    def __init__(self, min_trades: int):
-        self.min_trades = min_trades
-
-    def prune(self, study: optuna.study.Study, trial: optuna.trial.FrozenTrial) -> bool:
-        """Prune if the number of trades is below the minimum."""
-        # We retrieve the number of trades from user attributes.
-        trades = trial.user_attrs.get("trades", 0)
-        if trades < self.min_trades:
-            logging.info(f"Trial {trial.number} pruned with {trades} trades (min: {self.min_trades}).")
-            return True # Prune the trial
-        return False # Do not prune
 
 # --- Environment & Constants ---
 APP_ROOT = Path('/app')
@@ -208,7 +194,7 @@ def run_simulation(trade_config_path, sim_csv_path):
         logging.error(f"Simulation failed: {e.stdout} {e.stderr}")
         return None
 
-def objective(trial):
+def objective(trial, min_trades_for_pruning: int):
     """Optuna objective function."""
     global CURRENT_SIM_CSV_PATH
 
@@ -257,27 +243,30 @@ def objective(trial):
     summary = run_simulation(temp_config_path, CURRENT_SIM_CSV_PATH)
     os.remove(temp_config_path)
 
-    if summary is None or summary.get('TotalTrades', 0) == 0:
-        # Penalize trials that result in no trades
-        return -1.0, -1.0, 0
+    if summary is None:
+        return -1.0 # Return a poor score
 
-    # The metrics to optimize
-    profit_factor = summary.get('ProfitFactor', 0.0)
-    sharpe_ratio = summary.get('SharpeRatio', 0.0)
     total_trades = summary.get('TotalTrades', 0)
+    sharpe_ratio = summary.get('SharpeRatio', 0.0)
 
-    # Store trades in user_attrs for the pruner
+    # Store all metrics in user_attrs for later analysis
     trial.set_user_attr("trades", total_trades)
+    trial.set_user_attr("sharpe_ratio", sharpe_ratio)
+    trial.set_user_attr("profit_factor", summary.get('ProfitFactor', 0.0))
 
-    # Handle cases where PF is infinite (no losses)
-    if profit_factor > 1e6:
-        profit_factor = 1e6
 
-    # The pruner needs to be called to decide if the trial should be pruned.
-    if trial.should_prune():
+    # Manual Pruning
+    if total_trades < min_trades_for_pruning:
+        logging.info(f"Trial {trial.number} pruned with {total_trades} trades (min: {min_trades_for_pruning}).")
         raise optuna.exceptions.TrialPruned()
 
-    return profit_factor, sharpe_ratio, total_trades
+    # Calculate SQN
+    if total_trades > 0 and sharpe_ratio is not None:
+        sqn = sharpe_ratio * np.sqrt(total_trades)
+    else:
+        sqn = -1.0  # Assign a poor score for no trades or invalid SR
+
+    return sqn
 
 
 def ensure_default_config_exists():
@@ -374,7 +363,7 @@ def main():
 
             # Get min_trades from job, with a default
             min_trades_for_pruning = job.get('min_trades', 30)
-            logging.info(f"Using MinTradesPruner with min_trades = {min_trades_for_pruning}")
+            logging.info(f"Using manual pruning with min_trades = {min_trades_for_pruning}")
 
             # Remove old study DB
             if os.path.exists(STORAGE_URL.replace('sqlite:///', '')):
@@ -383,138 +372,103 @@ def main():
             study = optuna.create_study(
                 study_name='obi-scalp-optimization',
                 storage=STORAGE_URL,
-                directions=['maximize', 'maximize', 'maximize'],
-                pruner=MinTradesPruner(min_trades=min_trades_for_pruning)
+                direction='maximize' # Single objective: SQN
             )
             catch_exceptions = (
                 sqlalchemy.exc.OperationalError,
                 optuna.exceptions.StorageInternalError,
                 sqlite3.OperationalError,
             )
+
+            # Wrap objective to pass the min_trades parameter
+            objective_with_pruning = lambda trial: objective(trial, min_trades_for_pruning)
+
             study.optimize(
-                objective,
+                objective_with_pruning,
                 n_trials=N_TRIALS,
                 n_jobs=-1,
                 show_progress_bar=True,
                 catch=catch_exceptions,
             )
 
-            best_trials = study.best_trials
-            if not best_trials:
-                logging.error("No best trials found. Aborting optimization run.")
+            try:
+                best_trial = study.best_trial
+                is_sqn = best_trial.value
+                is_trades = best_trial.user_attrs.get('trades', 0)
+                is_sr = best_trial.user_attrs.get('sharpe_ratio', 0)
+                is_pf = best_trial.user_attrs.get('profit_factor', 0)
+
+                logging.info(
+                    f"Best IS trial found: Trial {best_trial.number} -> "
+                    f"SQN: {is_sqn:.2f}, PF: {is_pf:.2f}, SR: {is_sr:.2f}, Trades: {is_trades}"
+                )
+            except ValueError:
+                logging.error("No best trial found (all trials may have been pruned). Aborting optimization run.")
                 os.remove(JOB_FILE)
                 continue
 
-            # --- IS Trials Ranking ---
-            logging.info(f"Ranking the {len(best_trials)} best trials from In-Sample optimization using SQN...")
 
-            # Calculate SQN for each trial
-            sqn_scores = []
-            for t in best_trials:
-                sr = t.values[1]
-                trades = t.values[2]
-                # Avoid division by zero or negative sqrt
-                if trades > 0 and sr is not None:
-                    sqn = sr * np.sqrt(trades)
-                else:
-                    sqn = -1.0 # Assign a poor score
-                sqn_scores.append(sqn)
-
-            # Sort trials by SQN in descending order
-            sorted_indices = np.argsort(sqn_scores)[::-1]
-            sorted_trials = [best_trials[i] for i in sorted_indices]
-            sorted_sqn_scores = [sqn_scores[i] for i in sorted_indices]
-
-            logging.info("Top 5 IS trials (Trial #, PF, SR, Trades, SQN):")
-            for i, trial in enumerate(sorted_trials[:5]):
-                pf = trial.values[0]
-                sr = trial.values[1]
-                trades = trial.values[2]
-                sqn = sorted_sqn_scores[i]
-                logging.info(f"  Rank {i+1}: Trial {trial.number}, PF: {pf:.2f}, SR: {sr:.2f}, Trades: {trades}, SQN: {sqn:.2f}")
-
-            # --- Out-of-Sample Validation with Retry ---
+            # --- Out-of-Sample Validation ---
+            # With single-objective optimization, we directly validate the best trial.
+            # The "retry" logic is no longer applicable in the same way.
             oos_validation_passed = False
-            best_oos_trial = None
             best_oos_summary = None
-            retries_attempted = 0
-            consecutive_severe_failures = 0
+            trial_to_validate = best_trial # Only one trial to validate
 
-            for i, trial_to_validate in enumerate(sorted_trials[:MAX_RETRY]):
-                is_rank = i + 1
-                retries_attempted = is_rank
-                logging.info(f"--- OOS Validation Attempt #{is_rank}/{MAX_RETRY} (IS Trial: {trial_to_validate.number}) ---")
+            logging.info(f"--- OOS Validation for Best IS Trial: {trial_to_validate.number} ---")
 
-                current_params = trial_to_validate.params
-                with open(CONFIG_TEMPLATE_PATH, 'r') as f:
-                    template = Template(f.read())
-                config_str = template.render(current_params)
+            current_params = trial_to_validate.params
+            with open(CONFIG_TEMPLATE_PATH, 'r') as f:
+                template = Template(f.read())
+            config_str = template.render(current_params)
 
-                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as temp_config_file:
-                    temp_config_file.write(config_str)
-                    temp_config_path = temp_config_file.name
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as temp_config_file:
+                temp_config_file.write(config_str)
+                temp_config_path = temp_config_file.name
 
-                oos_summary = run_simulation(temp_config_path, oos_csv_path)
-                os.remove(temp_config_path)
+            oos_summary = run_simulation(temp_config_path, oos_csv_path)
+            os.remove(temp_config_path)
 
-                if oos_summary is None:
-                    logging.warning(f"OOS simulation failed for IS-Rank {is_rank}. Skipping.")
-                    consecutive_severe_failures = 0 # Reset on simulation error
-                    continue
-
+            if oos_summary is None:
+                logging.warning(f"OOS simulation failed for best IS trial. Aborting.")
+            else:
                 oos_pf = oos_summary.get('ProfitFactor', 0.0)
                 oos_sharpe = oos_summary.get('SharpeRatio', 0.0)
                 oos_trades = oos_summary.get('TotalTrades', 'N/A')
-                logging.info(f"OOS Result for IS-Rank {is_rank}: PF={oos_pf:.2f}, SR={oos_sharpe:.2f}, Trades={oos_trades}")
+                logging.info(f"OOS Result: PF={oos_pf:.2f}, SR={oos_sharpe:.2f}, Trades={oos_trades}")
 
                 if oos_pf >= OOS_MIN_PROFIT_FACTOR and oos_sharpe >= OOS_MIN_SHARPE_RATIO:
-                    logging.info(f"OOS validation PASSED for IS-Rank {is_rank}. Selecting this parameter set.")
+                    logging.info(f"OOS validation PASSED. Selecting this parameter set.")
                     oos_validation_passed = True
-                    best_oos_trial = trial_to_validate
                     best_oos_summary = oos_summary
-
                     # Update config file
                     with open(BEST_CONFIG_OUTPUT_PATH, 'w') as f:
                         f.write(config_str)
                     logging.info(f"Successfully updated {BEST_CONFIG_OUTPUT_PATH}")
-                    break # Exit retry loop on first pass
                 else:
-                    logging.info(f"OOS validation FAILED for IS-Rank {is_rank}.")
-                    # Check for early stopping condition
-                    if oos_sharpe < OOS_MIN_SHARPE_RATIO * EARLY_STOP_THRESHOLD_RATIO:
-                        consecutive_severe_failures += 1
-                        logging.warning(f"Severe failure detected. Consecutive count: {consecutive_severe_failures}/{EARLY_STOP_COUNT}")
-                    else:
-                        consecutive_severe_failures = 0 # Reset if failure is not severe
-
-                    if consecutive_severe_failures >= EARLY_STOP_COUNT:
-                        logging.error(f"Early stopping triggered after {consecutive_severe_failures} consecutive severe failures.")
-                        break
-
-            if not oos_validation_passed:
-                logging.warning(f"OOS validation failed for all top {retries_attempted} IS trials.")
+                    logging.warning(f"OOS validation FAILED for the best IS trial.")
 
 
             # --- Save History ---
-            # Determine which trial's data to save
-            final_trial = best_oos_trial if oos_validation_passed else sorted_trials[0]
-            final_summary = best_oos_summary if oos_validation_passed else {} # Use empty dict if all failed
+            final_trial = best_trial
+            final_summary = best_oos_summary if oos_validation_passed else {}
 
             history = {
                 "time": time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(job['timestamp'])),
                 "trigger_type": job['trigger_type'],
                 "is_hours": is_hours,
                 "oos_hours": oos_hours,
-                "is_profit_factor": final_trial.values[0],
-                "is_sharpe_ratio": final_trial.values[1],
-                "is_total_trades": final_trial.values[2] if len(final_trial.values) > 2 else 0,
+                "is_sqn": final_trial.value,
+                "is_profit_factor": final_trial.user_attrs.get('profit_factor', 0.0),
+                "is_sharpe_ratio": final_trial.user_attrs.get('sharpe_ratio', 0.0),
+                "is_total_trades": final_trial.user_attrs.get('trades', 0),
                 "oos_profit_factor": final_summary.get('ProfitFactor', 0.0),
                 "oos_sharpe_ratio": final_summary.get('SharpeRatio', 0.0),
                 "oos_total_trades": final_summary.get('TotalTrades', 0),
                 "validation_passed": oos_validation_passed,
                 "best_params": final_trial.params,
-                "is_rank": retries_attempted if oos_validation_passed else None,
-                "retries_attempted": retries_attempted
+                "is_rank": 1, # Only the best trial is considered
+                "retries_attempted": 1 # Only one attempt is made
             }
             save_optimization_history(history)
 
@@ -539,16 +493,17 @@ def save_optimization_history(history_data):
         query = """
             INSERT INTO optimization_history (
                 time, trigger_type, is_hours, oos_hours,
-                is_profit_factor, is_sharpe_ratio, is_total_trades,
+                is_sqn, is_profit_factor, is_sharpe_ratio, is_total_trades,
                 oos_profit_factor, oos_sharpe_ratio, oos_total_trades,
                 validation_passed, best_params, is_rank, retries_attempted
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         cursor.execute(query, (
             history_data['time'],
             history_data['trigger_type'],
             history_data['is_hours'],
             history_data['oos_hours'],
+            history_data.get('is_sqn'),
             history_data.get('is_profit_factor'),
             history_data.get('is_sharpe_ratio'),
             history_data.get('is_total_trades'),
