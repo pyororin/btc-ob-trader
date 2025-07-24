@@ -567,11 +567,22 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 	realizedPnL := e.position.Update(tradeAmount, trade.Price)
 	newPositionSize, _ := e.position.Get()
 
-	// Set entry and exit times
+	// Set entry and exit times, and position side for closing trades
 	if math.Abs(previousPositionSize) > 1e-8 && math.Abs(newPositionSize) < 1e-8 { // Position closed
+		// Determine position side
+		if previousPositionSize > 0 {
+			trade.PositionSide = "long"
+		} else {
+			trade.PositionSide = "short"
+		}
+
 		// Find the entry trade and set the exit time for all trades in that position
 		for i := len(e.ExecutedTrades) - 1; i >= 0; i-- {
 			if e.ExecutedTrades[i].ExitTime.IsZero() {
+				// Mark all trades in the closing sequence with the same position side
+				if e.ExecutedTrades[i].PositionSide == "" {
+					e.ExecutedTrades[i].PositionSide = trade.PositionSide
+				}
 				e.ExecutedTrades[i].ExitTime = trade.Time
 			} else {
 				break // Stop when we hit a trade that was already part of a closed position

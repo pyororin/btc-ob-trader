@@ -735,9 +735,6 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine, jsonOutp
 				lastPrice = trade.Price
 			}
 
-
-			isLongTrade := trade.Side == "buy"
-
 			if trade.RealizedPnL > 0 {
 				wins++
 				totalWinAmount += trade.RealizedPnL
@@ -746,9 +743,9 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine, jsonOutp
 				if consecutiveWins > maxConsecutiveWins {
 					maxConsecutiveWins = consecutiveWins
 				}
-				if isLongTrade {
+				if trade.PositionSide == "long" {
 					longWins++
-				} else {
+				} else if trade.PositionSide == "short" {
 					shortWins++
 				}
 			} else {
@@ -759,9 +756,9 @@ func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine, jsonOutp
 				if consecutiveLosses > maxConsecutiveLosses {
 					maxConsecutiveLosses = consecutiveLosses
 				}
-				if isLongTrade {
+				if trade.PositionSide == "long" {
 					longLosses++
-				} else {
+				} else if trade.PositionSide == "short" {
 					shortLosses++
 				}
 			}
