@@ -215,9 +215,9 @@ func AnalyzeTrades(trades []Trade) (Report, error) {
 					if consecutiveWins > maxConsecutiveWins {
 						maxConsecutiveWins = consecutiveWins
 					}
-				} else {
+				} else if pnl.IsNegative() {
 					shortLosingTrades++
-					totalLoss = totalLoss.Add(pnl.Abs())
+					totalLoss = totalLoss.Add(pnl)
 					losingHoldingPeriods = append(losingHoldingPeriods, holdingPeriod)
 					consecutiveLosses++
 					consecutiveWins = 0
@@ -255,9 +255,9 @@ func AnalyzeTrades(trades []Trade) (Report, error) {
 					if consecutiveWins > maxConsecutiveWins {
 						maxConsecutiveWins = consecutiveWins
 					}
-				} else {
+				} else if pnl.IsNegative() {
 					longLosingTrades++
-					totalLoss = totalLoss.Add(pnl.Abs())
+					totalLoss = totalLoss.Add(pnl)
 					losingHoldingPeriods = append(losingHoldingPeriods, holdingPeriod)
 					consecutiveLosses++
 					consecutiveWins = 0
@@ -315,12 +315,12 @@ func AnalyzeTrades(trades []Trade) (Report, error) {
 
 	riskRewardRatio := 0.0
 	if !avgLoss.IsZero() {
-		riskRewardRatio = avgProfit.Div(avgLoss).InexactFloat64()
+		riskRewardRatio = avgProfit.Div(avgLoss.Abs()).InexactFloat64()
 	}
 
 	profitFactor := 0.0
-	if totalLoss.IsPositive() {
-		profitFactor = totalProfit.Div(totalLoss).InexactFloat64()
+	if totalLoss.IsNegative() {
+		profitFactor = totalProfit.Div(totalLoss.Abs()).InexactFloat64()
 	}
 
 	// パフォーマンス指標の計算
