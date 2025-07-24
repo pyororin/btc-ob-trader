@@ -215,6 +215,25 @@ def run_simulation(trade_config_path, sim_csv_path):
         logging.error(f"Simulation failed: {e.stdout} {e.stderr}")
         return None
 
+def progress_callback(study, trial):
+    """
+    Callback function to report progress every 100 trials.
+    """
+    if trial.number % 100 == 0 and trial.number > 0:
+        try:
+            best_trial = study.best_trial
+            logging.info(
+                f"Trial {trial.number}: Best trial so far is #{best_trial.number} "
+                f"with SQN: {best_trial.value:.2f}, "
+                f"PF: {best_trial.user_attrs.get('profit_factor', 0.0):.2f}, "
+                f"SR: {best_trial.user_attrs.get('sharpe_ratio', 0.0):.2f}, "
+                f"Trades: {best_trial.user_attrs.get('trades', 0)}"
+            )
+        except ValueError:
+            # This can happen if no trial is completed yet
+            logging.info(f"Trial {trial.number}: No best trial available yet.")
+
+
 def objective(trial, min_trades_for_pruning: int):
     """Optuna objective function."""
     global CURRENT_SIM_CSV_PATH
@@ -367,6 +386,7 @@ def main():
                 n_jobs=-1,
                 show_progress_bar=False,
                 catch=catch_exceptions,
+                callbacks=[progress_callback],
             )
 
             try:
