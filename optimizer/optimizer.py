@@ -313,6 +313,20 @@ def main():
             is_hours = job['window_is_hours']
             oos_hours = job['window_oos_hours']
 
+            # --- N_TRIALS Adjustment based on drift severity ---
+            base_n_trials = config.get('n_trials', 100) # Default to 100 if not in config
+            severity = job.get('severity', 'normal')
+            n_trials = base_n_trials
+            if severity == 'minor':
+                n_trials = int(base_n_trials * 2 / 3)
+                logging.info(f"Minor drift detected. Adjusting N_TRIALS to {n_trials} (2/3 of {base_n_trials}).")
+            elif severity == 'major':
+                n_trials = int(base_n_trials / 3)
+                logging.info(f"Major drift detected. Adjusting N_TRIALS to {n_trials} (1/3 of {base_n_trials}).")
+            else:
+                logging.info(f"Normal operation. Using default N_TRIALS: {n_trials}.")
+
+
             is_csv_path, oos_csv_path = export_data(is_hours + oos_hours, is_oos_split=True, oos_hours=oos_hours)
 
             if not is_csv_path or not oos_csv_path:
@@ -348,7 +362,7 @@ def main():
 
             study.optimize(
                 objective_with_pruning,
-                n_trials=N_TRIALS,
+                n_trials=n_trials,
                 n_jobs=-1,
                 show_progress_bar=False,
                 catch=catch_exceptions,
