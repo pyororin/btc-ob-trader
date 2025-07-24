@@ -22,15 +22,16 @@ func (p *Position) Update(tradeSize float64, tradePrice float64) (realizedPnL fl
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	// If there is no existing position, the trade simply opens a new one.
+	// Case 1: No existing position. The trade opens a new one.
 	if p.Size == 0 {
 		p.Size = tradeSize
 		p.AvgEntryPrice = tradePrice
 		return 0.0
 	}
 
-	// If the trade is in the same direction, it adds to the position.
-	if (p.Size > 0 && tradeSize > 0) || (p.Size < 0 && tradeSize < 0) {
+	// Case 2: Trade is in the same direction as the existing position (increasing the position).
+	isSameDirection := (p.Size > 0 && tradeSize > 0) || (p.Size < 0 && tradeSize < 0)
+	if isSameDirection {
 		currentValue := p.Size * p.AvgEntryPrice
 		tradeValue := tradeSize * tradePrice
 		newSize := p.Size + tradeSize
@@ -39,25 +40,47 @@ func (p *Position) Update(tradeSize float64, tradePrice float64) (realizedPnL fl
 		return 0.0
 	}
 
-	// If the trade is in the opposite direction, it may close or reduce the position.
-	closedSize := 0.0
-	if tradeSize > 0 { // Closing a short position
-		closedSize = min(tradeSize, -p.Size)
-	} else { // Closing a long position
-		closedSize = min(-tradeSize, p.Size)
+	// Case 3: Trade is in the opposite direction (reducing, closing, or flipping the position).
+	tradeAbs := tradeSize
+	if tradeAbs < 0 {
+		tradeAbs = -tradeAbs
+	}
+	positionAbs := p.Size
+	if positionAbs < 0 {
+		positionAbs = -positionAbs
 	}
 
-	realizedPnL = (tradePrice - p.AvgEntryPrice) * closedSize
-	if p.Size < 0 { // If it was a short position, PnL is inverted
-		realizedPnL = -realizedPnL
+	// Subcase 3a: Trade reduces the position but does not close it.
+	if tradeAbs < positionAbs {
+		closedSize := tradeAbs
+		pnlPerUnit := tradePrice - p.AvgEntryPrice
+		if p.Size < 0 { // Short position
+			pnlPerUnit = -pnlPerUnit
+		}
+		realizedPnL = pnlPerUnit * closedSize
+		p.Size += tradeSize // AvgEntryPrice remains the same
+		return realizedPnL
 	}
 
-	newSize := p.Size + tradeSize
-	if newSize == 0 {
+	// Subcase 3b: Trade closes the position exactly.
+	// Subcase 3c: Trade closes the position and opens a new one in the opposite direction (flip).
+	closedSize := positionAbs
+	pnlPerUnit := tradePrice - p.AvgEntryPrice
+	if p.Size < 0 { // Short position
+		pnlPerUnit = -pnlPerUnit
+	}
+	realizedPnL = pnlPerUnit * closedSize
+
+	// Update position state
+	p.Size += tradeSize
+
+	if p.Size == 0 {
+		// Position is now flat
 		p.AvgEntryPrice = 0
+	} else {
+		// Position has been flipped
+		p.AvgEntryPrice = tradePrice
 	}
-	// If the position is not fully closed, AvgEntryPrice remains the same.
-	p.Size = newSize
 
 	return realizedPnL
 }
