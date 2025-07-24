@@ -43,7 +43,7 @@ monitor: ## Start monitoring services (DB, Grafana) without the bot.
 
 down: ## Stop and remove all application stack containers.
 	@echo "Stopping application stack..."
-	docker compose stop
+	docker compose down
 
 logs: ## Follow logs from the bot, optimizer, and drift-monitor services.
 	@echo "Following logs for 'bot', 'optimizer', and 'drift-monitor' services..."
