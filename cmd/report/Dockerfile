@@ -1,5 +1,5 @@
 # --- Builder Stage ---
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /app/report-generator ./cmd/report
 
 # --- Final Stage ---
-FROM alpine:latest
+FROM alpine:3.19
 
 WORKDIR /app
 
