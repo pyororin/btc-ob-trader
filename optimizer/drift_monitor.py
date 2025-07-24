@@ -195,7 +195,7 @@ def get_moving_averages(conn):
     }
 
 
-def trigger_optimization(trigger_type, window_is, window_oos):
+def trigger_optimization(trigger_type, severity, window_is, window_oos):
     """
     別のプロセス（オプティマイザ）に最適化の実行を指示するジョブファイルを作成します。
 
@@ -207,11 +207,13 @@ def trigger_optimization(trigger_type, window_is, window_oos):
 
     Args:
         trigger_type (str): 最適化がトリガーされた理由を示す文字列（例: "sharpe_drift_short_term"）。
+        severity (str): ドリフトの深刻度 ("minor", "major", "normal")。
         window_is (float or int): 最適化のインサンプル期間（学習データ期間）の時間数。
         window_oos (float or int): 最適化のアウトオブサンプル期間（評価データ期間）の時間数。
     """
     job = {
         "trigger_type": trigger_type,
+        "severity": severity,
         "window_is_hours": window_is,
         "window_oos_hours": window_oos,
         "timestamp": time.time()
@@ -278,6 +280,7 @@ def main():
                     #    - IS (In-Sample): 2時間, OOS (Out-of-Sample): 30分
                     trigger_optimization(
                         "sharpe_drift_short_term",
+                        "minor",
                         window_is=2,
                         window_oos=0.5
                     )
@@ -304,6 +307,7 @@ def main():
                     #    - IS: 60分, OOS: 10分
                     trigger_optimization(
                         "sharpe_emergency_drop",
+                        "major",
                         window_is=1,
                         window_oos=10/60
                     )
@@ -321,6 +325,7 @@ def main():
                 #    - IS: 4時間, OOS: 1時間
                 trigger_optimization(
                     "profit_factor_drift",
+                    "normal",
                     window_is=4,
                     window_oos=1
                 )
