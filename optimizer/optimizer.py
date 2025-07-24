@@ -105,7 +105,12 @@ def export_data(hours_before, is_oos_split=False, oos_hours=0):
             f_oos.write(header)
             f_oos.writelines(data_lines[split_index:])
 
-        logging.info(f"Split data into IS ({is_path}) and OOS ({oos_path})")
+        with open(is_path, 'r') as f_is:
+            is_lines = len(f_is.readlines())
+        with open(oos_path, 'r') as f_oos:
+            oos_lines = len(f_oos.readlines())
+
+        logging.info(f"Split data into IS ({is_path}, {is_lines} lines) and OOS ({oos_path}, {oos_lines} lines)")
         return is_path, oos_path
 
     except subprocess.CalledProcessError as e:
