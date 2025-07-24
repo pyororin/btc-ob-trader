@@ -2,6 +2,8 @@ import yaml
 import optuna
 import numpy as np
 from optuna.pruners import HyperbandPruner
+import sqlalchemy
+import sqlite3
 import subprocess
 import os
 import json
@@ -264,7 +266,18 @@ def main():
                 directions=['maximize', 'maximize'],
                 pruner=HyperbandPruner()
             )
-            study.optimize(objective, n_trials=N_TRIALS, n_jobs=-1)
+            catch_exceptions = (
+                sqlalchemy.exc.OperationalError,
+                optuna.exceptions.StorageInternalError,
+                sqlite3.OperationalError,
+            )
+            study.optimize(
+                objective,
+                n_trials=N_TRIALS,
+                n_jobs=-1,
+                show_progress_bar=True,
+                catch=catch_exceptions,
+            )
 
             best_trials = study.best_trials
             if not best_trials:
