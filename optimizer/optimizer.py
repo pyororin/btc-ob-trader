@@ -21,30 +21,50 @@ optuna_logger = logging.getLogger("optuna")
 optuna_logger.setLevel(logging.WARNING)
 
 
-# --- Environment & Constants ---
+# --- Application Root ---
 APP_ROOT = Path('/app')
-PARAMS_DIR = Path(os.getenv('PARAMS_DIR', '/data/params'))
+
+# --- Configuration Loading ---
+def load_config():
+    """Loads configuration from YAML file."""
+    config_path = APP_ROOT / 'config' / 'optimizer_config.yaml'
+    if not config_path.exists():
+        logging.error(f"Configuration file not found at {config_path}")
+        logging.error("Please create the config file based on the template or documentation.")
+        return None
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
+
+config = load_config()
+if config is None:
+    exit(1) # Exit if config loading fails
+
+# --- Environment & Constants ---
+# パス設定
+PARAMS_DIR = Path(os.getenv('PARAMS_DIR', config['params_dir']))
 JOB_FILE = PARAMS_DIR / 'optimization_job.json'
 SIMULATION_DIR = APP_ROOT / 'simulation'
 CONFIG_TEMPLATE_PATH = PARAMS_DIR / 'trade_config.yaml.template'
 BEST_CONFIG_OUTPUT_PATH = PARAMS_DIR / 'trade_config.yaml'
-N_TRIALS = int(os.getenv('N_TRIALS', '100'))
 STORAGE_URL = os.getenv('STORAGE_URL', f"sqlite:///{PARAMS_DIR / 'optuna_study.db'}")
 
-# --- Pass/Fail Criteria ---
-OOS_MIN_PROFIT_FACTOR = 1.2
-OOS_MIN_SHARPE_RATIO = 0.5
-# OOS_MAX_DRAWDOWN_PERCENTILE = 0.85 # This is complex and needs historical data. Skipped for now.
+# 最適化設定
+N_TRIALS = config['n_trials']
+MIN_TRADES_FOR_PRUNING = config['min_trades_for_pruning']
 
-# --- Retry & Early Stopping Criteria ---
-MAX_RETRY = 5
-EARLY_STOP_COUNT = 2
-EARLY_STOP_THRESHOLD_RATIO = 0.7
-TRIGGER_REOPTIMIZE = True # Not implemented in this iteration, but set for future use
+# 合格/不合格基準
+OOS_MIN_PROFIT_FACTOR = config['oos_min_profit_factor']
+OOS_MIN_SHARPE_RATIO = config['oos_min_sharpe_ratio']
 
-# --- Sample Size Guard ---
-MIN_EXECUTED_TRADES = 5000
-MIN_ORDER_BOOK_SNAPSHOTS = 100000
+# リトライ & 早期停止基準
+MAX_RETRY = config['max_retry']
+EARLY_STOP_COUNT = config['early_stop_count']
+EARLY_STOP_THRESHOLD_RATIO = config['early_stop_threshold_ratio']
+TRIGGER_REOPTIMIZE = config['trigger_reoptimize']
+
+# サンプルサイズガード
+MIN_EXECUTED_TRADES = config['min_executed_trades']
+MIN_ORDER_BOOK_SNAPSHOTS = config['min_order_book_snapshots']
 
 # Global variable to hold the path to the current simulation data
 # This is a simple way to pass the data path to the objective function.
@@ -270,71 +290,13 @@ def objective(trial, min_trades_for_pruning: int):
     return sqn
 
 
-def ensure_default_config_exists():
-    """Checks if a trade config exists, and creates a default one if not."""
-    if not BEST_CONFIG_OUTPUT_PATH.exists():
-        logging.info(f"{BEST_CONFIG_OUTPUT_PATH} not found. Creating a default config from template.")
-        try:
-            # Ensure the parent directory exists
-            PARAMS_DIR.mkdir(parents=True, exist_ok=True)
-
-            with open(CONFIG_TEMPLATE_PATH, 'r') as f:
-                template = Template(f.read())
-
-            # Use default values from the template (or define simple defaults here)
-            # This part might need adjustment if the template requires specific variables
-            default_params = {
-                # Basic Trading
-                "pair": "btc_jpy",
-                "spread_limit": 100,
-                # Position Sizing
-                "lot_max_ratio": 0.1,
-                "order_ratio": 0.1,
-                "adaptive_position_sizing_enabled": False,
-                "adaptive_num_trades": 10,
-                "adaptive_reduction_step": 0.8,
-                "adaptive_min_ratio": 0.5,
-                # Entry Strategy
-                "long_obi_threshold": 1.0,
-                "long_tp": 150,
-                "long_sl": -150,
-                "short_obi_threshold": -1.0,
-                "short_tp": 150,
-                "short_sl": -150,
-                # Signal Filters
-                "hold_duration_ms": 500,
-                "slope_filter_enabled": False,
-                "slope_period": 10,
-                "slope_threshold": 0.1,
-                # Dynamic Parameters
-                "ewma_lambda": 0.1,
-                "dynamic_obi_enabled": False,
-                "volatility_factor": 1.0,
-                "min_threshold_factor": 0.8,
-                "max_threshold_factor": 1.5,
-                # Execution Strategy
-                "twap_enabled": False,
-                "twap_max_order_size_btc": 0.01,
-                "twap_interval_seconds": 5,
-                "twap_partial_exit_enabled": False,
-                "twap_profit_threshold": 0.5,
-                "twap_exit_ratio": 0.5,
-                # Risk Management
-                "risk_max_drawdown_percent": 20,
-                "risk_max_position_ratio": 0.9,
-            }
-            default_config_str = template.render(default_params)
-
-            with open(BEST_CONFIG_OUTPUT_PATH, 'w') as f:
-                f.write(default_config_str)
-            logging.info(f"Default trade config created at {BEST_CONFIG_OUTPUT_PATH}")
-
-        except Exception as e:
-            logging.error(f"Could not create default config: {e}")
-
 def main():
     """Main loop for the optimizer."""
-    ensure_default_config_exists()
+    if not CONFIG_TEMPLATE_PATH.exists():
+        logging.error(f"Trade config template not found at {CONFIG_TEMPLATE_PATH}")
+        logging.error("Please ensure the template file exists. Exiting.")
+        exit(1)
+
     logging.info("Optimizer started. Waiting for optimization job...")
     while True:
         if JOB_FILE.exists():
@@ -362,8 +324,8 @@ def main():
             global CURRENT_SIM_CSV_PATH
             CURRENT_SIM_CSV_PATH = is_csv_path
 
-            # Get min_trades from job, with a default
-            min_trades_for_pruning = job.get('min_trades', 30)
+            # Get min_trades from job, with a default from the config file
+            min_trades_for_pruning = job.get('min_trades', MIN_TRADES_FOR_PRUNING)
             logging.info(f"Using manual pruning with min_trades = {min_trades_for_pruning}")
 
             # Remove old study DB
