@@ -36,6 +36,7 @@ type Trade struct {
 	RealizedPnL   float64   // Not stored in DB, but used for simulation summary
 	EntryTime     time.Time // Not stored in DB
 	ExitTime      time.Time // Not stored in DB
+	PositionSide  string    // "long" or "short", not stored in DB, for simulation summary
 }
 
 // TradePnL はデータベースに保存する個別の取引のPnL情報です。
