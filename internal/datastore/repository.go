@@ -2,8 +2,6 @@ package datastore
 
 import (
 	"context"
-	"fmt"
-	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
