@@ -10,7 +10,7 @@ params_dir: '/data/params'
 # --- 最適化設定 ---
 # Optunaが試行する回数。
 # 例: 100
-n_trials: 100
+n_trials: 1500
 
 # --- 合格/不合格基準 ---
 # OOS(Out-of-Sample)評価での合格基準となるプロフィットファクターの最小値。
