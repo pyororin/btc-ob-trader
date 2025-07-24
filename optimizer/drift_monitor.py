@@ -47,7 +47,7 @@ def get_performance_metrics(conn, hours):
             profit_factor,
             max_drawdown
         FROM pnl_reports
-        WHERE start_date >= NOW() - INTERVAL '%s hours'
+        WHERE time >= NOW() - INTERVAL '%s hours'
         ORDER BY time DESC
         LIMIT 1;
     """
