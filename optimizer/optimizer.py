@@ -1,5 +1,6 @@
 import yaml
 import optuna
+import numpy as np
 from optuna.pruners import HyperbandPruner
 import subprocess
 import os
@@ -153,11 +154,12 @@ def objective(trial):
     os.remove(temp_config_path)
 
     if summary is None:
-        return 0.0
+        return 0.0, 0.0
 
-    # The metric to optimize
+    # The metrics to optimize
     profit_factor = summary.get('ProfitFactor', 0.0)
-    return profit_factor
+    sharpe_ratio = summary.get('SharpeRatio', 0.0)
+    return profit_factor, sharpe_ratio
 
 
 def ensure_default_config_exists():
@@ -259,13 +261,32 @@ def main():
             study = optuna.create_study(
                 study_name='obi-scalp-optimization',
                 storage=STORAGE_URL,
-                direction='maximize',
+                directions=['maximize', 'maximize'],
                 pruner=HyperbandPruner()
             )
             study.optimize(objective, n_trials=N_TRIALS, n_jobs=-1)
 
-            best_params = study.best_trial.params
-            logging.info(f"Best In-Sample Params: {best_params}")
+            best_trials = study.best_trials
+            if not best_trials:
+                logging.error("No best trials found. Aborting optimization run.")
+                os.remove(JOB_FILE)
+                continue
+
+            # Normalize ProfitFactor and SharpeRatio to select the best trial
+            pfs = np.array([t.values[0] for t in best_trials])
+            srs = np.array([t.values[1] for t in best_trials])
+
+            # Avoid division by zero if all values are the same
+            pfs_normalized = (pfs - pfs.min()) / (pfs.max() - pfs.min()) if pfs.max() > pfs.min() else np.zeros_like(pfs)
+            srs_normalized = (srs - srs.min()) / (srs.max() - srs.min()) if srs.max() > srs.min() else np.zeros_like(srs)
+
+            # Find the trial with the best combined score
+            combined_scores = pfs_normalized + srs_normalized
+            best_trial_index = np.argmax(combined_scores)
+            best_trial = best_trials[best_trial_index]
+
+            best_params = best_trial.params
+            logging.info(f"Best In-Sample Params from trial {best_trial.number}: {best_params} (PF: {best_trial.values[0]}, SR: {best_trial.values[1]})")
 
             # --- Out-of-Sample Validation ---
             with open(CONFIG_TEMPLATE_PATH, 'r') as f:
@@ -305,8 +326,8 @@ def main():
                 "trigger_type": job['trigger_type'],
                 "is_hours": is_hours,
                 "oos_hours": oos_hours,
-                "is_profit_factor": study.best_value,
-                "is_sharpe_ratio": None, # Not calculated in this version
+                "is_profit_factor": best_trial.values[0],
+                "is_sharpe_ratio": best_trial.values[1],
                 "oos_profit_factor": oos_pf,
                 "oos_sharpe_ratio": oos_sharpe,
                 "validation_passed": oos_pf >= OOS_MIN_PROFIT_FACTOR and oos_sharpe >= OOS_MIN_SHARPE_RATIO,
