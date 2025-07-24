@@ -71,7 +71,8 @@ def export_data(hours_before, is_oos_split=False, oos_hours=0):
         'run',
         'cmd/export/main.go',
         f'--hours-before={hours_before}',
-        '--no-zip'
+        '--no-zip',
+        f'--trade-config={BEST_CONFIG_OUTPUT_PATH}'
     ]
 
 
