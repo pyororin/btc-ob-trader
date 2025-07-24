@@ -20,19 +20,19 @@ func NewPnlHandler(repo *datastore.Repository) *PnlHandler {
 
 // RegisterRoutes はchiルーターにPnL関連のルートを登録します。
 func (h *PnlHandler) RegisterRoutes(r chi.Router) {
-	r.Get("/pnl/latest_report", h.GetLatestPnlReport)
+	r.Get("/pnl/latest_metrics", h.GetLatestPnlMetrics)
 }
 
-// GetLatestPnlReport は最新のPnLレポートを取得します。
-func (h *PnlHandler) GetLatestPnlReport(w http.ResponseWriter, r *http.Request) {
-	report, err := h.repo.FetchLatestPnlReport(r.Context())
+// GetLatestPnlMetrics は最新のパフォーマンス指標を取得します。
+func (h *PnlHandler) GetLatestPnlMetrics(w http.ResponseWriter, r *http.Request) {
+	metrics, err := h.repo.FetchLatestPerformanceMetrics(r.Context())
 	if err != nil {
-		http.Error(w, "Failed to fetch latest PnL report", http.StatusInternalServerError)
+		http.Error(w, "Failed to fetch latest PnL metrics", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(report); err != nil {
-		http.Error(w, "Failed to encode report to JSON", http.StatusInternalServerError)
+	if err := json.NewEncoder(w).Encode(metrics); err != nil {
+		http.Error(w, "Failed to encode metrics to JSON", http.StatusInternalServerError)
 	}
 }
