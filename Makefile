@@ -74,6 +74,7 @@ simulate: ## Run a backtest using trade data from a local CSV file.
 		exit 1; \
 	fi
 	@mkdir -p ./simulation
+	@chmod 777 ./simulation
 	@if echo "$(CSV_PATH)" | grep -q ".zip$$"; then \
 		echo "Unzipping $(CSV_PATH) to ./simulation..."; \
 		unzip -o $(CSV_PATH) -d ./simulation; \
