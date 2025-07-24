@@ -33,7 +33,8 @@ STORAGE_URL = os.getenv('STORAGE_URL', f"sqlite:///{PARAMS_DIR / 'optuna_study.d
 
 # --- Pass/Fail Criteria ---
 OOS_MIN_PROFIT_FACTOR = 1.2
-OOS_MAX_DRAWDOWN_PERCENTILE = 0.85
+OOS_MIN_SHARPE_RATIO = 0.5
+# OOS_MAX_DRAWDOWN_PERCENTILE = 0.85 # This is complex and needs historical data. Skipped for now.
 
 # --- Retry & Early Stopping Criteria ---
 MAX_RETRY = 5
