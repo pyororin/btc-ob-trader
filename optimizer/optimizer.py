@@ -408,7 +408,7 @@ def main(run_once=False):
                 objective_with_pruning,
                 n_trials=n_trials,
                 n_jobs=-1,
-                show_progress_bar=True,
+                show_progress_bar=False,
                 catch=catch_exceptions,
                 callbacks=[progress_callback],
             )
