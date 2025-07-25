@@ -1,0 +1,14 @@
+services:
+  timescaledb:
+    image: timescaledb-lite:pg16-alpine
+    build:
+      context: .
+      dockerfile: docker/jules/Dockerfile.timescaledb
+    volumes:
+      # 🔹 テスト ZIP を読み取り専用で渡す
+      - ./db/schema/jules/order_book_updates_jules.zip:/seed/order_book_updates_jules.zip:ro
+      # 🔹 DB データ領域をホスト側 named volume へ
+      - pgdata_jules:/var/lib/postgresql/data
+volumes:
+  pgdata_jules:
+    driver: local
