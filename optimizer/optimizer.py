@@ -233,15 +233,14 @@ def run_simulation(params, sim_csv_path):
         )
 
         # 4. Parse the JSON output from stdout
-        # The summary is expected to be the last line of the output
-        last_line = result.stdout.strip().split('\n')[-1]
-        return json.loads(last_line)
+        return json.loads(result.stdout)
 
     except subprocess.CalledProcessError as e:
         logging.error(f"Simulation failed for config {temp_config_path}: {e.stderr}")
         return None
-    except (json.JSONDecodeError, IndexError) as e:
+    except json.JSONDecodeError as e:
         logging.error(f"Failed to parse simulation output for {temp_config_path}: {e}")
+        logging.error(f"Received output: {result.stdout}")
         return None
     finally:
         # 5. Clean up the temporary config file
