@@ -1,7 +1,7 @@
 #!/bin/sh -e
 echo "🌱  Streaming order_book_updates …"
-
 DATA_ZIP="/seed/order_book_updates_jules.zip"
+
 if [ ! -f "$DATA_ZIP" ]; then
   echo "⚠️  $DATA_ZIP not found; skipping seed." >&2
   exit 0
@@ -9,7 +9,8 @@ fi
 
 TODAY=$(date -u "+%Y-%m-%d")
 
-psql -v ON_ERROR_STOP=1 --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" <<'EOSQL'
+# DBスキーマ作成
+psql -v ON_ERROR_STOP=1 --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" <<EOSQL
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 CREATE TABLE IF NOT EXISTS order_book_updates (
   time TIMESTAMPTZ NOT NULL,
@@ -22,12 +23,8 @@ CREATE TABLE IF NOT EXISTS order_book_updates (
 EOSQL
 
 unzip -p "$DATA_ZIP" \
-| awk -F',' -v d="$TODAY" 'NR==1{print; next} {
-  $1 = d " " substr($1, index($1, " ") + 1);
-  OFS = ",";
-  print
-}' \
+| awk 'NR==1 { print; next } { gsub(/ +/, ","); sub(/^([0-9]{4}-[0-9]{2}-[0-9]{2}) ([0-9]{2}:[0-9]{2}:[0-9]{2}.[0-9]++\d{2})/, "\1T\2", $1); print }' \
 | psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" \
-       -c "\COPY order_book_updates (time,pair,side,price,size,is_snapshot) FROM STDIN CSV HEADER"
+-c "\COPY order_book_updates (time,pair,side,price,size,is_snapshot) FROM STDIN CSV HEADER"
 
 echo "✅  Seed completed"
