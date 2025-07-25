@@ -28,6 +28,7 @@ up: ## Start all services including the bot, optimizer, and drift monitor.
 update: ## Pull the latest changes and restart the bot, optimizer, and drift-monitor services.
 	@echo "Pulling latest changes..."
 	git pull
+	$(MAKE) build
 	@echo "Rebuilding and restarting services: bot, optimizer, drift-monitor..."
 	docker compose up -d --build bot drift-monitor optimizer
 
