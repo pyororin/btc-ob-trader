@@ -337,6 +337,7 @@ def objective(trial, min_trades_for_pruning: int):
 
 def main(run_once=False):
     """Main loop for the optimizer."""
+    global CURRENT_SIM_CSV_PATH
     if not CONFIG_TEMPLATE_PATH.exists():
         logging.error(f"Trade config template not found at {CONFIG_TEMPLATE_PATH}")
         logging.error("Please ensure the template file exists. Exiting.")
@@ -386,7 +387,6 @@ def main(run_once=False):
                     continue
 
                 # --- In-Sample Optimization ---
-                global CURRENT_SIM_CSV_PATH
                 CURRENT_SIM_CSV_PATH = is_csv_path
 
                 # Get min_trades from job, with a default from the config file
@@ -458,7 +458,6 @@ def main(run_once=False):
                     logging.info(f"Starting OOS validation for top {len(top_n_trials)} IS trials.")
 
                     # For OOS validation, we use the OOS dataset
-                    global CURRENT_SIM_CSV_PATH
                     CURRENT_SIM_CSV_PATH = oos_csv_path
 
                     for is_rank, trial_to_validate in enumerate(top_n_trials, 1):
