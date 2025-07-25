@@ -558,7 +558,19 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 	if f.serveMode {
 		runServerMode(ctx, f, sigs)
 	} else if f.simulateMode {
-		go runSimulation(ctx, f, sigs)
+		summaryCh := make(chan map[string]interface{}, 1)
+		go runSimulation(ctx, f, sigs, summaryCh)
+
+		// Block until simulation is done and summary is received
+		summary := <-summaryCh
+		output, err := json.Marshal(summary)
+		if err != nil {
+			fmt.Printf(`{"error": "failed to marshal summary: %v"}`, err)
+		} else {
+			// The final JSON output for the optimizer
+			fmt.Println(string(output))
+		}
+		// The simulation goroutine will send a signal to shut down.
 	} else {
 		// Live trading setup
 		notifier, err := alert.NewDiscordNotifier(cfg.App.Alert.Discord)
@@ -610,302 +622,9 @@ func waitForShutdownSignal(sigs <-chan os.Signal) {
 	logger.Infof("Received signal: %s", sig)
 }
 
-// printSimulationSummary calculates and prints the performance metrics of the simulation.
-func printSimulationSummary(replayEngine *engine.ReplayExecutionEngine, jsonOutput bool) {
-	executedTrades := replayEngine.ExecutedTrades
-	totalProfit := replayEngine.GetTotalRealizedPnL()
-	totalTrades := len(executedTrades)
-
-	if totalTrades == 0 {
-		if jsonOutput {
-			fmt.Println(`{"error": "No trades were executed"}`)
-		} else {
-			fmt.Println("\n--- 損益分析レポート ---")
-			fmt.Println("取引は実行されませんでした。")
-			fmt.Println("----------------------")
-		}
-		return
-	}
-
-	var wins, losses, closingTrades int
-	var longWins, longLosses, shortWins, shortLosses int
-	var totalWinAmount, totalLossAmount float64
-	var pnlHistory []float64
-	var holdingPeriods, winningHoldingPeriods, losingHoldingPeriods []float64
-	var consecutiveWins, consecutiveLosses, maxConsecutiveWins, maxConsecutiveLosses int
-	var firstTradeTime, lastTradeTime time.Time
-	var lastPrice float64
-
-	if len(executedTrades) > 0 {
-		firstTradeTime = executedTrades[0].EntryTime
-		if firstTradeTime.IsZero() && len(executedTrades) > 1 {
-			firstTradeTime = executedTrades[1].EntryTime
-		}
-	}
-
-	for _, trade := range executedTrades {
-		if trade.RealizedPnL != 0 {
-			closingTrades++
-			pnlHistory = append(pnlHistory, trade.RealizedPnL)
-
-			if !trade.EntryTime.IsZero() && !trade.ExitTime.IsZero() {
-				holdingPeriod := trade.ExitTime.Sub(trade.EntryTime).Seconds()
-				holdingPeriods = append(holdingPeriods, holdingPeriod)
-				if trade.RealizedPnL > 0 {
-					winningHoldingPeriods = append(winningHoldingPeriods, holdingPeriod)
-				} else {
-					losingHoldingPeriods = append(losingHoldingPeriods, holdingPeriod)
-				}
-			}
-
-			if trade.ExitTime.After(lastTradeTime) {
-				lastTradeTime = trade.ExitTime
-				lastPrice = trade.Price
-			}
-
-			if trade.RealizedPnL > 0 {
-				wins++
-				totalWinAmount += trade.RealizedPnL
-				consecutiveWins++
-				consecutiveLosses = 0
-				if consecutiveWins > maxConsecutiveWins {
-					maxConsecutiveWins = consecutiveWins
-				}
-				if trade.PositionSide == "long" {
-					longWins++
-				} else if trade.PositionSide == "short" {
-					shortWins++
-				}
-			} else {
-				losses++
-				totalLossAmount += trade.RealizedPnL
-				consecutiveLosses++
-				consecutiveWins = 0
-				if consecutiveLosses > maxConsecutiveLosses {
-					maxConsecutiveLosses = consecutiveLosses
-				}
-				if trade.PositionSide == "long" {
-					longLosses++
-				} else if trade.PositionSide == "short" {
-					shortLosses++
-				}
-			}
-		}
-	}
-
-
-	winRate := 0.0
-	if closingTrades > 0 {
-		winRate = float64(wins) / float64(closingTrades) * 100
-	}
-
-	longWinRate := 0.0
-	if longWins+longLosses > 0 {
-		longWinRate = float64(longWins) / float64(longWins+longLosses) * 100
-	}
-
-	shortWinRate := 0.0
-	if shortWins+shortLosses > 0 {
-		shortWinRate = float64(shortWins) / float64(shortWins+shortLosses) * 100
-	}
-
-	avgWin := 0.0
-	if wins > 0 {
-		avgWin = totalWinAmount / float64(wins)
-	}
-	avgLoss := 0.0
-	if losses > 0 {
-		// totalLossAmount is negative
-		avgLoss = math.Abs(totalLossAmount / float64(losses))
-	}
-
-	riskRewardRatio := 0.0
-	if avgLoss != 0 {
-		riskRewardRatio = avgWin / avgLoss
-	}
-
-	profitFactor := 0.0
-	if totalLossAmount != 0 {
-		profitFactor = math.Abs(totalWinAmount / totalLossAmount)
-	} else if totalWinAmount > 0 {
-		profitFactor = 999999 // Representing infinity
-	}
-
-	// Max Drawdown
-	var peakPnl, maxDrawdown float64
-	var currentCumulativePnl float64
-	for _, pnl := range pnlHistory {
-		currentCumulativePnl += pnl
-		if currentCumulativePnl > peakPnl {
-			peakPnl = currentCumulativePnl
-		}
-		drawdown := peakPnl - currentCumulativePnl
-		if drawdown > maxDrawdown {
-			maxDrawdown = drawdown
-		}
-	}
-
-	recoveryFactor := 0.0
-	if maxDrawdown > 0 {
-		recoveryFactor = totalProfit / maxDrawdown
-	}
-
-	// Sharpe Ratio (assuming risk-free rate is 0)
-	sharpeRatio := 0.0
-	if len(pnlHistory) > 1 {
-		mean := totalProfit / float64(len(pnlHistory))
-		stdDev := 0.0
-		for _, pnl := range pnlHistory {
-			stdDev += math.Pow(pnl-mean, 2)
-		}
-		stdDev = math.Sqrt(stdDev / float64(len(pnlHistory)-1))
-		if stdDev > 0 {
-			sharpeRatio = mean / stdDev
-		}
-	}
-
-	// Sortino Ratio
-	sortinoRatio := 0.0
-	if len(pnlHistory) > 1 {
-		mean := totalProfit / float64(len(pnlHistory))
-		downsideDeviation := 0.0
-		downsideCount := 0
-		for _, pnl := range pnlHistory {
-			if pnl < mean {
-				downsideDeviation += math.Pow(pnl-mean, 2)
-				downsideCount++
-			}
-		}
-		if downsideCount > 1 {
-			downsideDeviation = math.Sqrt(downsideDeviation / float64(downsideCount-1))
-			if downsideDeviation > 0 {
-				sortinoRatio = mean / downsideDeviation
-			}
-		}
-	}
-
-	// Calmar Ratio
-	calmarRatio := 0.0
-	if maxDrawdown > 0 {
-		calmarRatio = totalProfit / maxDrawdown
-	}
-
-	avgHoldingPeriod, avgWinningHoldingPeriod, avgLosingHoldingPeriod := 0.0, 0.0, 0.0
-	if len(holdingPeriods) > 0 {
-		sum := 0.0
-		for _, hp := range holdingPeriods { sum += hp }
-		avgHoldingPeriod = sum / float64(len(holdingPeriods))
-	}
-	if len(winningHoldingPeriods) > 0 {
-		sum := 0.0
-		for _, hp := range winningHoldingPeriods { sum += hp }
-		avgWinningHoldingPeriod = sum / float64(len(winningHoldingPeriods))
-	}
-	if len(losingHoldingPeriods) > 0 {
-		sum := 0.0
-		for _, hp := range losingHoldingPeriods { sum += hp }
-		avgLosingHoldingPeriod = sum / float64(len(losingHoldingPeriods))
-	}
-
-	// Buy & Hold Return
-	buyAndHoldReturn := 0.0
-	initialPrice := 0.0
-	if len(executedTrades) > 0 {
-		initialPrice = executedTrades[0].Price
-	}
-	if initialPrice > 0 && lastPrice > 0 {
-		buyAndHoldReturn = lastPrice - initialPrice
-	}
-	returnVsBuyAndHold := totalProfit - buyAndHoldReturn
-
-
-	if jsonOutput {
-		summary := map[string]interface{}{
-			"TotalProfit":         totalProfit,
-			"TotalTrades":         closingTrades,
-			"WinningTrades":       wins,
-			"LosingTrades":        losses,
-			"WinRate":             winRate,
-			"LongWinningTrades":   longWins,
-			"LongLosingTrades":    longLosses,
-			"LongWinRate":         longWinRate,
-			"ShortWinningTrades":  shortWins,
-			"ShortLosingTrades":   shortLosses,
-			"ShortWinRate":        shortWinRate,
-			"AverageWin":          avgWin,
-			"AverageLoss":         avgLoss,
-			"RiskRewardRatio":     riskRewardRatio,
-			"ProfitFactor":        profitFactor,
-			"MaxDrawdown":         maxDrawdown,
-			"RecoveryFactor":      recoveryFactor,
-			"SharpeRatio":         sharpeRatio,
-			"SortinoRatio":        sortinoRatio,
-			"CalmarRatio":         calmarRatio,
-			"MaxConsecutiveWins":  maxConsecutiveWins,
-			"MaxConsecutiveLosses": maxConsecutiveLosses,
-			"AverageHoldingPeriodSeconds": avgHoldingPeriod,
-			"AverageWinningHoldingPeriodSeconds": avgWinningHoldingPeriod,
-			"AverageLosingHoldingPeriodSeconds":  avgLosingHoldingPeriod,
-			"BuyAndHoldReturn":    buyAndHoldReturn,
-			"ReturnVsBuyAndHold":  returnVsBuyAndHold,
-		}
-		output, err := json.MarshalIndent(summary, "", "  ")
-		if err != nil {
-			fmt.Printf(`{"error": "failed to marshal summary: %v"}`, err)
-		} else {
-			fmt.Println(string(output))
-		}
-	} else {
-		fmt.Println("--- 損益分析レポート ---")
-		if !firstTradeTime.IsZero() && !lastTradeTime.IsZero() {
-			fmt.Printf("集計期間: %s から %s\n", firstTradeTime.Format(time.RFC3339), lastTradeTime.Format(time.RFC3339))
-		}
-		fmt.Println()
-		fmt.Println("--- 全体 ---")
-		fmt.Printf("約定済み取引数: %d\n", closingTrades)
-		fmt.Println()
-		fmt.Println("--- 約定済み取引の分析 ---")
-		fmt.Printf("勝ちトレード数: %d\n", wins)
-		fmt.Printf("負けトレード数: %d\n", losses)
-		fmt.Printf("勝率: %.2f%%\n", winRate)
-		fmt.Printf("合計損益: %.2f\n", totalProfit)
-		fmt.Printf("平均利益: %.2f\n", avgWin)
-		fmt.Printf("平均損失: %.2f\n", avgLoss)
-		fmt.Printf("リスクリワードレシオ: %.2f\n", riskRewardRatio)
-		fmt.Println()
-		fmt.Println("--- ロング戦略 ---")
-		fmt.Printf("勝ちトレード数: %d\n", longWins)
-		fmt.Printf("負けトレード数: %d\n", longLosses)
-		fmt.Printf("勝率: %.2f%%\n", longWinRate)
-		fmt.Println()
-		fmt.Println("--- ショート戦略 ---")
-		fmt.Printf("勝ちトレード数: %d\n", shortWins)
-		fmt.Printf("負けトレード数: %d\n", shortLosses)
-		fmt.Printf("勝率: %.2f%%\n", shortWinRate)
-		fmt.Println()
-		fmt.Println("--- パフォーマンス指標 ---")
-		fmt.Printf("プロフィットファクター: %.2f\n", profitFactor)
-		fmt.Printf("シャープレシオ: %.2f\n", sharpeRatio)
-		fmt.Printf("ソルティノレシオ: %.2f\n", sortinoRatio)
-		fmt.Printf("カルマーレシオ: %.2f\n", calmarRatio)
-		fmt.Printf("最大ドローダウン: %.2f\n", maxDrawdown)
-		fmt.Printf("リカバリーファクター: %.2f\n", recoveryFactor)
-		fmt.Printf("平均保有期間: %.2f 秒\n", avgHoldingPeriod)
-		fmt.Printf("勝ちトレードの平均保有期間: %.2f 秒\n", avgWinningHoldingPeriod)
-		fmt.Printf("負けトレードの平均保有期間: %.2f 秒\n", avgLosingHoldingPeriod)
-		fmt.Printf("最大連勝数: %d\n", maxConsecutiveWins)
-		fmt.Printf("最大連敗数: %d\n", maxConsecutiveLosses)
-		fmt.Printf("バイ・アンド・ホールドリターン: %.2f\n", buyAndHoldReturn)
-		fmt.Printf("リターン vs バイ・アンド・ホールド: %.2f\n", returnVsBuyAndHold)
-		fmt.Println("----------------------")
-		// For optimizer parsing
-		fmt.Printf("\nTotalProfit: %.2f\n", totalProfit)
-	}
-}
-
-
-// runSimulation runs a backtest using data from a CSV file.
-func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
+// runSimulation runs a backtest using data from a CSV file and sends the summary through a channel.
+func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal, summaryCh chan<- map[string]interface{}) {
+	defer close(summaryCh) // Ensure channel is closed when done.
 	rand.Seed(1)
 	cfg := config.GetConfig()
 	if !f.jsonOutput {
@@ -925,49 +644,56 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
 	orderBookHandler, _ := setupHandlers(orderBook, nil, cfg.Trade.Pair)
 
-	// In simulation, we do not start the periodic calculator. Instead, we manually trigger calculations.
-	// obiCalculator.Start(ctx)
-	go processSignalsAndExecute(ctx, obiCalculator, execEngine, nil, nil)
+	simCtx, cancelSim := context.WithCancel(ctx)
+	defer cancelSim()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go processSignalsAndExecute(simCtx, obiCalculator, execEngine, nil, &wg)
 
 	logger.Infof("Streaming market events from %s", f.csvPath)
 	eventCh, errCh := datastore.StreamMarketEventsFromCSV(ctx, f.csvPath)
 
-	go func() {
-		defer func() {
-			if !f.jsonOutput {
-				logger.Info("Simulation finished.")
-			}
-			printSimulationSummary(replayEngine, f.jsonOutput)
-			sigs <- syscall.SIGTERM
-		}()
+	var snapshotCount int
+	var processingDone bool
 
-		var snapshotCount int
-		for {
-			select {
-			case orderBookData, ok := <-eventCh:
-				if !ok {
-					logger.Infof("Finished processing all %d snapshots.", snapshotCount)
-					return
-				}
-				orderBookHandler(orderBookData)
-				// Manually trigger OBI calculation with the timestamp from the event
-				obiCalculator.Calculate(orderBookData.Time)
-				snapshotCount++
-				if snapshotCount%1000 == 0 && !f.jsonOutput {
-					logger.Infof("Processed snapshot %d at time %s", snapshotCount, orderBookData.Time.Format(time.RFC3339))
-				}
-			case err := <-errCh:
-				if err != nil {
-					logger.Fatalf("Error while streaming market events: %v", err)
-				}
-				// If err is nil, the channel was closed, which is a success signal here.
-				return
-			case <-ctx.Done():
-				logger.Info("Simulation cancelled.")
-				return
+	for !processingDone {
+		select {
+		case orderBookData, ok := <-eventCh:
+			if !ok {
+				logger.Infof("Finished processing all %d snapshots.", snapshotCount)
+				processingDone = true
+				continue
 			}
+			orderBookHandler(orderBookData)
+			obiCalculator.Calculate(orderBookData.Time)
+			snapshotCount++
+			if snapshotCount%1000 == 0 && !f.jsonOutput {
+				logger.Infof("Processed snapshot %d at time %s", snapshotCount, orderBookData.Time.Format(time.RFC3339))
+			}
+		case err := <-errCh:
+			if err != nil {
+				logger.Fatalf("Error while streaming market events: %v", err)
+			}
+			processingDone = true
+		case <-ctx.Done():
+			logger.Info("Simulation cancelled by parent context.")
+			processingDone = true
 		}
-	}()
+	}
+
+	// Cancel the signal processing goroutine and wait for it to finish.
+	cancelSim()
+	wg.Wait()
+
+	if !f.jsonOutput {
+		logger.Info("Simulation finished.")
+	}
+	summary := getSimulationSummaryMap(replayEngine)
+	summaryCh <- summary
+
+	// Signal that the main application can shut down.
+	sigs <- syscall.SIGTERM
 }
 
 // runServerMode runs the bot in a loop, accepting new configurations via stdin.
