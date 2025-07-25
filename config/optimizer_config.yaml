@@ -5,7 +5,7 @@
 # パフォーマンスチェックを実行する間隔（秒単位）。
 # 環境変数 'CHECK_INTERVAL_SECONDS' が設定されていればそちらを優先します。
 # 例: 300
-check_interval_seconds: 600
+check_interval_seconds: 300
 
 # パラメータファイルやデータベースが保存されるディレクトリのパス。
 # 環境変数 'PARAMS_DIR' が設定されていればそちらを優先します。
@@ -15,7 +15,7 @@ params_dir: 'data/params'
 # --- 最適化設定 ---
 # Optunaが試行する回数。
 # 例: 100
-n_trials: 500
+n_trials: 700
 
 # --- 合格/不合格基準 ---
 # OOS(Out-of-Sample)評価での合格基準となるプロフィットファクターの最小値。
