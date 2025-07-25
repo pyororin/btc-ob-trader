@@ -1,5 +1,5 @@
 # ----------------------------------------------------------
-# PostgreSQL 16 (Alpine) + TimescaleDB (apk, 軽量版)
+# PostgreSQL 17 (Alpine) + TimescaleDB (apk, 軽量版)
 #   イメージサイズ ≈ 300 MB
 #   Jules の 1 GB 制限にフィット
 # ----------------------------------------------------------
@@ -17,7 +17,7 @@ RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repo
 RUN set -e \
     # ライブラリ (.so)
     && mkdir -p /usr/local/lib/postgresql \
-    && ln -sf /usr/lib/postgresql16/timescaledb*.so /usr/local/lib/postgresql/ \
+    && ln -sf /usr/lib/postgresql17/timescaledb*.so /usr/local/lib/postgresql/ \
     # コントロール & SQL スクリプト
     && mkdir -p /usr/local/share/postgresql/extension \
     && ln -sf /usr/share/postgresql17/extension/timescaledb* /usr/local/share/postgresql/extension/ \
