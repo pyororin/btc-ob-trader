@@ -180,6 +180,12 @@ local-test: ## Run Go tests locally without Docker.
 	fi
 	go test ./... -v
 
+local-build: ## Build the Go application binary locally without Docker.
+	@echo "Building Go application binary locally..."
+	@mkdir -p build
+	go build -ldflags="-s -w" -o build/obi-scalp-bot cmd/bot/main.go
+	go build -ldflags="-s -w" -o build/report cmd/report/main.go
+
 build: ## Build the Go application binary inside the container.
 	@echo "Building Go application binary..."
 	@mkdir -p build
