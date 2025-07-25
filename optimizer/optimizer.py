@@ -453,7 +453,7 @@ def main(run_once=False):
 
             # --- Setup Study ---
             pruner = HyperbandPruner(min_resource=5, max_resource=100, reduction_factor=3)
-            sampler = optuna.samplers.CmaEsSampler()
+            sampler = optuna.samplers.CmaEsSampler(warn_independent_sampling=False)
             study = optuna.create_study(
                 study_name='obi-scalp-optimization',
                 storage=STORAGE_URL,
