@@ -401,7 +401,7 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pa
 }
 
 // processSignalsAndExecute subscribes to indicators, evaluates signals, and executes trades.
-func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBICalculator, execEngine engine.ExecutionEngine, benchmarkService *benchmark.Service) {
+func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBICalculator, execEngine engine.ExecutionEngine, benchmarkService *benchmark.Service, wg *sync.WaitGroup) {
 	cfg := config.GetConfig()
 	signalEngine, err := tradingsignal.NewSignalEngine(&cfg.Trade)
 	if err != nil {
@@ -410,6 +410,9 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 
 	resultsCh := obiCalculator.Subscribe()
 	go func() {
+		if wg != nil {
+			defer wg.Done()
+		}
 		for {
 			select {
 			case <-ctx.Done():
@@ -583,7 +586,7 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 		orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Trade.Pair)
 
 		obiCalculator.Start(ctx)
-		go processSignalsAndExecute(ctx, obiCalculator, execEngine, benchmarkService)
+		go processSignalsAndExecute(ctx, obiCalculator, execEngine, benchmarkService, nil)
 		go orderMonitor(ctx, execEngine, client, orderBook)
 		go positionMonitor(ctx, execEngine, orderBook) // Added for partial exit
 
@@ -922,7 +925,7 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 
 	// In simulation, we do not start the periodic calculator. Instead, we manually trigger calculations.
 	// obiCalculator.Start(ctx)
-	go processSignalsAndExecute(ctx, obiCalculator, execEngine, nil)
+	go processSignalsAndExecute(ctx, obiCalculator, execEngine, nil, nil)
 
 	logger.Infof("Streaming market events from %s", f.csvPath)
 	eventCh, errCh := datastore.StreamMarketEventsFromCSV(ctx, f.csvPath)
@@ -1034,12 +1037,17 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 	// We need to manage the signal processing goroutine carefully for each run.
 	simCtx, cancelSim := context.WithCancel(ctx)
 	defer cancelSim()
-	go processSignalsAndExecute(simCtx, obiCalculator, execEngine, nil)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go processSignalsAndExecute(simCtx, obiCalculator, execEngine, nil, &wg)
 
 	for _, event := range marketEvents {
 		select {
 		case <-simCtx.Done():
 			logger.Warn("Simulation run cancelled.")
+			// Wait for the goroutine to finish before returning
+			wg.Wait()
 			return getSimulationSummaryMap(replayEngine)
 		default:
 			orderBookHandler(event)
@@ -1047,8 +1055,10 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 		}
 	}
 
-	// Allow some time for the last signals to be processed
-	time.Sleep(500 * time.Millisecond)
+	// Allow some time for the last signals to be processed by cancelling the context
+	// and waiting for the goroutine to finish.
+	cancelSim()
+	wg.Wait()
 
 	return getSimulationSummaryMap(replayEngine)
 }
