@@ -19,6 +19,7 @@ type Trade struct {
 	Size            decimal.Decimal `json:"size"`
 	TransactionID   int64           `json:"transaction_id"`
 	IsCancelled     bool            `json:"is_cancelled"`
+	IsMyTrade       bool            `json:"is_my_trade"`
 }
 
 // Report は損益分析の結果を保持します。

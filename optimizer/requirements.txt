@@ -4,3 +4,5 @@ Jinja2
 psycopg2-binary
 pandas
 scipy
+scikit-learn
+cmaes
