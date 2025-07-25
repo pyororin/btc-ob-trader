@@ -2,3 +2,6 @@ optuna>=3.6.1,<4.0.0
 pyyaml
 Jinja2
 psycopg2-binary
+pandas
+scipy
+scikit-learn

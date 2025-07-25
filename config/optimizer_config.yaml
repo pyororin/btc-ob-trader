@@ -62,3 +62,18 @@ min_order_book_snapshots: 100000
 # jobファイルで 'min_trades' が指定されている場合はそちらを優先します。
 # 例: 30
 min_trades_for_pruning: 30
+
+# --- Analyzer Settings ---
+analyzer:
+  # The quantile of top-performing trials to consider for robustness analysis.
+  # For example, 0.1 means the top 10% of trials will be analyzed.
+  top_trials_quantile: 0.1
+
+# --- Objective Function Weights ---
+# The weights for the components of the custom objective function.
+# These values determine the importance of each metric in the final score.
+objective_weights:
+  sharpe_ratio: 1.0
+  profit_factor: 1.0
+  max_drawdown: 1.0 # Note: The objective function inverts this, so higher is better.
+  sqn: 0.5
