@@ -256,64 +256,10 @@ def run_simulation_fast(trade_config_dict):
         return None
 
     try:
-        # Convert the Python dict to a YAML string
-        # This is a bit tricky as we need to match the structure of the trade_config.yaml
-        # The params dict is flat, so we need to reconstruct the nested structure.
-        nested_config = {
-            'pair': 'btc_jpy', # This should ideally come from a base config
-            'order_amount': 0.01, # Same as above
-            'spread_limit': trade_config_dict.get('spread_limit'),
-            'lot_max_ratio': trade_config_dict.get('lot_max_ratio'),
-            'order_ratio': trade_config_dict.get('order_ratio'),
-            'long': {
-                'obi_threshold': trade_config_dict.get('long_obi_threshold'),
-                'tp': trade_config_dict.get('long_tp'),
-                'sl': trade_config_dict.get('long_sl'),
-            },
-            'short': {
-                'obi_threshold': trade_config_dict.get('short_obi_threshold'),
-                'tp': trade_config_dict.get('short_tp'),
-                'sl': trade_config_dict.get('short_sl'),
-            },
-            'signal': {
-                'hold_duration_ms': trade_config_dict.get('hold_duration_ms'),
-                'slope_filter': {
-                    'enabled': trade_config_dict.get('slope_filter_enabled'),
-                    'period': trade_config_dict.get('slope_period'),
-                    'threshold': trade_config_dict.get('slope_threshold'),
-                }
-            },
-            'volatility': {
-                'ewma_lambda': trade_config_dict.get('ewma_lambda'),
-                'dynamic_obi': {
-                    'enabled': trade_config_dict.get('dynamic_obi_enabled'),
-                    'volatility_factor': trade_config_dict.get('volatility_factor'),
-                    'min_threshold_factor': trade_config_dict.get('min_threshold_factor'),
-                    'max_threshold_factor': trade_config_dict.get('max_threshold_factor'),
-                }
-            },
-             'twap': {
-                'enabled': trade_config_dict.get('twap_enabled'),
-                'max_order_size_btc': trade_config_dict.get('twap_max_order_size_btc'),
-                'interval_seconds': trade_config_dict.get('twap_interval_seconds'),
-                'partial_exit_enabled': trade_config_dict.get('twap_partial_exit_enabled'),
-                'profit_threshold': trade_config_dict.get('twap_profit_threshold'),
-                'exit_ratio': trade_config_dict.get('twap_exit_ratio'),
-            },
-            'risk': {
-                'max_drawdown_percent': trade_config_dict.get('risk_max_drawdown_percent'),
-                'max_position_ratio': trade_config_dict.get('risk_max_position_ratio'),
-            },
-            'adaptive_position_sizing': {
-                'enabled': trade_config_dict.get('adaptive_position_sizing_enabled'),
-                'num_trades': trade_config_dict.get('adaptive_num_trades'),
-                'reduction_step': trade_config_dict.get('adaptive_reduction_step'),
-                'min_ratio': trade_config_dict.get('adaptive_min_ratio'),
-            }
-        }
-
-        # Convert dict to YAML string
-        config_yaml_str = yaml.dump(nested_config)
+        # Render the template with the given parameters
+        with open(CONFIG_TEMPLATE_PATH, 'r') as f:
+            template = Template(f.read())
+        config_yaml_str = template.render(trade_config_dict)
 
         # Send to server
         GO_SIM_SERVER.stdin.write(config_yaml_str + '\n')
@@ -447,6 +393,11 @@ def main(run_once=False):
     logging.info("Optimizer started. Waiting for optimization job...")
     try:
         while True:
+            best_trial = None
+            is_sqn = None
+            is_trades = None
+            is_sr = None
+            is_pf = None
             if JOB_FILE.exists():
                 logging.info(f"Found job file: {JOB_FILE}")
                 with open(JOB_FILE, 'r') as f:
@@ -491,41 +442,42 @@ def main(run_once=False):
 
                 # Get min_trades from job, with a default from the config file
                 min_trades_for_pruning = job.get('min_trades', MIN_TRADES_FOR_PRUNING)
-            logging.info(f"Using manual pruning with min_trades = {min_trades_for_pruning}")
-            try:
-                optuna.delete_study(study_name='obi-scalp-optimization', storage=STORAGE_URL)
-            except Exception as e:
-                logging.warning(f"Could not delete study, it might not exist: {e}")
+                logging.info(f"Using manual pruning with min_trades = {min_trades_for_pruning}")
 
-            pruner = HyperbandPruner(
-                min_resource=1,
-                max_resource=100,
-                reduction_factor=3
-            )
-            study = optuna.create_study(
-                study_name='obi-scalp-optimization',
-                storage=STORAGE_URL,
-                direction='maximize', # Single objective: SQN
-                load_if_exists=True,
-                pruner=pruner
-            )
-            catch_exceptions = (
-                sqlalchemy.exc.OperationalError,
-                optuna.exceptions.StorageInternalError,
-                sqlite3.OperationalError
-            )
+                try:
+                    optuna.delete_study(study_name='obi-scalp-optimization', storage=STORAGE_URL)
+                except Exception as e:
+                    logging.warning(f"Could not delete study, it might not exist: {e}")
 
-            # Wrap objective to pass the min_trades parameter
-            objective_with_pruning = lambda trial: objective(trial, min_trades_for_pruning)
+                pruner = HyperbandPruner(
+                    min_resource=1,
+                    max_resource=100,
+                    reduction_factor=3
+                )
+                study = optuna.create_study(
+                    study_name='obi-scalp-optimization',
+                    storage=STORAGE_URL,
+                    direction='maximize', # Single objective: SQN
+                    load_if_exists=True,
+                    pruner=pruner
+                )
+                catch_exceptions = (
+                    sqlalchemy.exc.OperationalError,
+                    optuna.exceptions.StorageInternalError,
+                    sqlite3.OperationalError
+                )
 
-            study.optimize(
-                objective_with_pruning,
-                n_trials=n_trials,
-                n_jobs=-1,
-                show_progress_bar=False,
-                catch=catch_exceptions,
-                callbacks=[progress_callback],
-            )
+                # Wrap objective to pass the min_trades parameter
+                objective_with_pruning = lambda trial: objective(trial, min_trades_for_pruning)
+
+                study.optimize(
+                    objective_with_pruning,
+                    n_trials=n_trials,
+                    n_jobs=-1,
+                    show_progress_bar=False,
+                    catch=catch_exceptions,
+                    callbacks=[progress_callback],
+                )
 
             try:
                 best_trial = study.best_trial
@@ -538,11 +490,6 @@ def main(run_once=False):
                     f"Best IS trial found: Trial {best_trial.number} -> "
                     f"SQN: {is_sqn:.2f}, PF: {is_pf:.2f}, SR: {is_sr:.2f}, Trades: {is_trades}"
                 )
-            except ValueError:
-                logging.error("No best trial found (all trials may have been pruned). Aborting optimization run.")
-                os.remove(JOB_FILE)
-                continue
-
 
                 # --- Out-of-Sample Validation with Retry ---
                 oos_validation_passed = False
@@ -553,6 +500,76 @@ def main(run_once=False):
 
                 # Get top N trials from IS, filtering out pruned trials
                 all_trials = study.get_trials(deepcopy=False)
+                completed_trials = [t for t in all_trials if t.state == optuna.trial.TrialState.COMPLETE]
+
+                # Sort by IS score (SQN)
+                sorted_trials = sorted(completed_trials, key=lambda t: t.value, reverse=True)
+
+                top_n_trials = sorted_trials[:MAX_RETRY]
+                logging.info(f"Starting OOS validation for top {len(top_n_trials)} IS trials.")
+
+                # Stop the IS server and start the OOS server
+                stop_go_sim_server()
+                start_go_sim_server(oos_csv_path)
+
+                for is_rank, trial_to_validate in enumerate(top_n_trials, 1):
+                    retries_attempted += 1
+                    logging.info(f"--- [Attempt {retries_attempted}/{MAX_RETRY}] OOS Validation for IS Rank #{is_rank} (Trial {trial_to_validate.number}) ---")
+
+                    current_params = trial_to_validate.params
+                    oos_summary = run_simulation_fast(current_params)
+
+                    if oos_summary is None:
+                        logging.warning(f"OOS simulation failed for trial {trial_to_validate.number}. Treating as failure.")
+                        oos_pf = 0.0
+                        oos_sharpe = -999.0 # Assign a very poor score
+                    else:
+                        oos_pf = oos_summary.get('ProfitFactor', 0.0)
+                        oos_sharpe = oos_summary.get('SharpeRatio', 0.0)
+                        oos_trades = oos_summary.get('TotalTrades', 'N/A')
+                        logging.info(f"OOS Result: PF={oos_pf:.2f}, SR={oos_sharpe:.2f}, Trades={oos_trades}")
+
+                    # Check pass/fail criteria
+                    is_pass = oos_pf >= OOS_MIN_PROFIT_FACTOR and oos_sharpe >= OOS_MIN_SHARPE_RATIO
+
+                    if is_pass:
+                        logging.info(f"OOS validation PASSED. Selecting this parameter set.")
+                        oos_validation_passed = True
+                        selected_trial = trial_to_validate
+                        best_oos_summary = oos_summary
+
+                        # Re-render the best config and save it
+                        with open(CONFIG_TEMPLATE_PATH, 'r') as f:
+                            template = Template(f.read())
+                        config_str = template.render(selected_trial.params)
+                        with open(BEST_CONFIG_OUTPUT_PATH, 'w') as f:
+                            f.write(config_str)
+                        logging.info(f"Successfully updated {BEST_CONFIG_OUTPUT_PATH}")
+                        break # Exit retry loop on first success
+                    else:
+                        logging.warning(f"OOS validation FAILED for IS Rank #{is_rank}.")
+                    # Early stopping check
+                    is_below_threshold = oos_sharpe < (OOS_MIN_SHARPE_RATIO * EARLY_STOP_THRESHOLD_RATIO)
+                    if is_below_threshold:
+                        consecutive_failures += 1
+                        logging.warning(f"Sharpe ratio is below early stop threshold. Consecutive failures: {consecutive_failures}")
+                        if consecutive_failures >= EARLY_STOP_COUNT:
+                            logging.error("Early stopping condition met. Aborting retry loop.")
+                            break
+                    else:
+                        consecutive_failures = 0 # Reset counter if a trial is not a 'bad' failure
+
+                if not oos_validation_passed:
+                    logging.error(f"All top {retries_attempted} IS trials failed OOS validation.")
+                    # Here you could trigger re-optimization if TRIGGER_REOPTIMIZE is True
+                    selected_trial = best_trial # Fallback to the best IS trial for logging purposes
+
+                # --- Save History ---
+                final_trial = selected_trial
+            except ValueError:
+                logging.error("No best trial found (all trials may have been pruned). Aborting optimization run.")
+                os.remove(JOB_FILE)
+                continue
                 completed_trials = [t for t in all_trials if t.state == optuna.trial.TrialState.COMPLETE]
 
                 # Sort by IS score (SQN)
