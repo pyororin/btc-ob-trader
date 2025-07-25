@@ -69,100 +69,6 @@ MIN_ORDER_BOOK_SNAPSHOTS = config['min_order_book_snapshots']
 # Global variable to hold the path to the current simulation data
 # This is a simple way to pass the data path to the objective function.
 CURRENT_SIM_CSV_PATH = None
-GO_SIM_SERVER = None
-
-
-def start_go_sim_server(csv_path):
-    """Starts the Go simulation server as a subprocess."""
-    global GO_SIM_SERVER
-    if GO_SIM_SERVER:
-        GO_SIM_SERVER.terminate()
-
-    # Create a temporary config file with default values to start the server
-    default_params = {
-        'spread_limit': 100,
-        'lot_max_ratio': 0.1,
-        'order_ratio': 0.1,
-        'adaptive_position_sizing_enabled': False,
-        'adaptive_num_trades': 10,
-        'adaptive_reduction_step': 0.8,
-        'adaptive_min_ratio': 0.5,
-        'long_obi_threshold': 1.0,
-        'long_tp': 100,
-        'long_sl': -100,
-        'short_obi_threshold': -1.0,
-        'short_tp': 100,
-        'short_sl': -100,
-        'hold_duration_ms': 500,
-        'slope_filter_enabled': False,
-        'slope_period': 10,
-        'slope_threshold': 0.1,
-        'ewma_lambda': 0.1,
-        'dynamic_obi_enabled': False,
-        'volatility_factor': 2.0,
-        'min_threshold_factor': 0.8,
-        'max_threshold_factor': 1.5,
-        'twap_enabled': False,
-        'twap_max_order_size_btc': 0.05,
-        'twap_interval_seconds': 5,
-        'twap_partial_exit_enabled': False,
-        'twap_profit_threshold': 0.5,
-        'twap_exit_ratio': 0.5,
-        'risk_max_drawdown_percent': 20,
-        'risk_max_position_ratio': 0.8,
-    }
-    try:
-        with open(CONFIG_TEMPLATE_PATH, 'r') as f:
-            template = Template(f.read())
-        config_yaml_str = template.render(default_params)
-
-        # Use a temporary file for the initial config
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml', dir=PARAMS_DIR) as tmp:
-            tmp.write(config_yaml_str)
-            temp_config_path = tmp.name
-
-        command = [
-            str(APP_ROOT / 'build' / 'obi-scalp-bot'),
-            '--serve',
-            f'--csv={csv_path}',
-            f'--trade-config={temp_config_path}'
-        ]
-        logging.info(f"Starting Go simulation server with command: {' '.join(command)}")
-        GO_SIM_SERVER = subprocess.Popen(
-            command,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            text=True,
-            cwd=APP_ROOT,
-            bufsize=1 # Line-buffered
-        )
-
-        # Wait for the "READY" signal from the server
-        ready_line = GO_SIM_SERVER.stdout.readline()
-        if "READY" in ready_line:
-            logging.info("Go simulation server is ready.")
-        else:
-            logging.error(f"Go simulation server failed to start. First line of output: {ready_line}")
-            raise RuntimeError("Could not start Go simulation server.")
-
-    finally:
-        # Clean up the temporary file
-        if 'temp_config_path' in locals() and os.path.exists(temp_config_path):
-            os.remove(temp_config_path)
-
-
-def stop_go_sim_server():
-    """Stops the Go simulation server."""
-    global GO_SIM_SERVER
-    if GO_SIM_SERVER:
-        logging.info("Stopping Go simulation server...")
-        GO_SIM_SERVER.terminate()
-        try:
-            GO_SIM_SERVER.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            GO_SIM_SERVER.kill()
-        GO_SIM_SERVER = None
-        logging.info("Go simulation server stopped.")
 
 
 def export_data(hours_before, is_oos_split=False, oos_hours=0):
@@ -293,54 +199,52 @@ def export_data(hours_before, is_oos_split=False, oos_hours=0):
         logging.error(f"Failed to export data: {e.stderr}")
         return None, None
 
-def run_simulation_fast(trade_config_dict):
+def run_simulation(params, sim_csv_path):
     """
-    Sends a configuration to the running Go simulation server
-    and returns the JSON summary.
+    Runs a single Go simulation for a given set of parameters and returns the JSON summary.
+    This function replaces the old client-server simulation model.
     """
-    global GO_SIM_SERVER
-    if not GO_SIM_SERVER or GO_SIM_SERVER.poll() is not None:
-        logging.error("Go simulation server is not running.")
-        return None
-
+    temp_config_path = None
     try:
         # Render the template with the given parameters
         with open(CONFIG_TEMPLATE_PATH, 'r') as f:
             template = Template(f.read())
-        config_yaml_str = template.render(trade_config_dict)
+        config_yaml_str = template.render(params)
 
-        # Send to server
-        GO_SIM_SERVER.stdin.write(config_yaml_str + '\n')
-        GO_SIM_SERVER.stdin.flush()
+        # Create a temporary file for the trade config
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml', dir=PARAMS_DIR) as tmp:
+            tmp.write(config_yaml_str)
+            temp_config_path = tmp.name
 
-        # Read result
-        result_line = GO_SIM_SERVER.stdout.readline()
-        return json.loads(result_line)
+        command = [
+            str(APP_ROOT / 'build' / 'obi-scalp-bot'),
+            '--simulate',
+            f'--csv={sim_csv_path}',
+            f'--trade-config={temp_config_path}',
+            '--json-output'
+        ]
 
-    except (IOError, json.JSONDecodeError) as e:
-        logging.error(f"Fast simulation failed: {e}")
-        # Attempt to restart the server on error
-        logging.info("Attempting to restart simulation server...")
-        stop_go_sim_server()
-        start_go_sim_server(CURRENT_SIM_CSV_PATH)
-        return None
-
-def run_simulation(trade_config_path, sim_csv_path):
-    """Runs the Go simulation and returns the JSON summary."""
-    command = [
-        str(APP_ROOT / 'build' / 'obi-scalp-bot'),
-        '--simulate',
-        f'--csv={sim_csv_path}',
-        f'--trade-config={trade_config_path}',
-        '--json-output'
-    ]
-    try:
         # We need to run the simulation from the root directory for it to find all necessary files
-        result = subprocess.run(command, capture_output=True, text=True, check=True, cwd=APP_ROOT)
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=APP_ROOT,
+            timeout=300 # 5-minute timeout for each simulation run
+        )
         return json.loads(result.stdout)
-    except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
-        logging.error(f"Simulation failed: {e.stdout} {e.stderr}")
+    except subprocess.TimeoutExpired:
+        logging.error(f"Simulation timed out for config: {temp_config_path}")
         return None
+    except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
+        stderr_output = e.stderr if hasattr(e, 'stderr') else 'N/A'
+        logging.error(f"Simulation failed for config {temp_config_path}: {stderr_output}")
+        return None
+    finally:
+        # Clean up the temporary config file
+        if temp_config_path and os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
 
 def progress_callback(study, trial):
     """
@@ -396,7 +300,7 @@ def objective(trial, min_trades_for_pruning: int):
         'risk_max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.5, 0.9),
     }
 
-    summary = run_simulation_fast(params)
+    summary = run_simulation(params, CURRENT_SIM_CSV_PATH)
 
     if summary is None:
         return -1.0 # Return a poor score
@@ -485,9 +389,6 @@ def main(run_once=False):
                 global CURRENT_SIM_CSV_PATH
                 CURRENT_SIM_CSV_PATH = is_csv_path
 
-                # Start the Go server with the IS data
-                start_go_sim_server(is_csv_path)
-
                 # Get min_trades from job, with a default from the config file
                 min_trades_for_pruning = job.get('min_trades', MIN_TRADES_FOR_PRUNING)
                 logging.info(f"Using manual pruning with min_trades = {min_trades_for_pruning}")
@@ -556,16 +457,16 @@ def main(run_once=False):
                     top_n_trials = sorted_trials[:MAX_RETRY]
                     logging.info(f"Starting OOS validation for top {len(top_n_trials)} IS trials.")
 
-                    # Stop the IS server and start the OOS server
-                    stop_go_sim_server()
-                    start_go_sim_server(oos_csv_path)
+                    # For OOS validation, we use the OOS dataset
+                    global CURRENT_SIM_CSV_PATH
+                    CURRENT_SIM_CSV_PATH = oos_csv_path
 
                     for is_rank, trial_to_validate in enumerate(top_n_trials, 1):
                         retries_attempted += 1
                         logging.info(f"--- [Attempt {retries_attempted}/{MAX_RETRY}] OOS Validation for IS Rank #{is_rank} (Trial {trial_to_validate.number}) ---")
 
                         current_params = trial_to_validate.params
-                        oos_summary = run_simulation_fast(current_params)
+                        oos_summary = run_simulation(current_params, oos_csv_path)
 
                         if oos_summary is None:
                             logging.warning(f"OOS simulation failed for trial {trial_to_validate.number}. Treating as failure.")
@@ -657,7 +558,7 @@ def main(run_once=False):
 
             time.sleep(10)
     finally:
-        stop_go_sim_server()
+        logging.info("Optimizer shutting down.")
 
 def save_optimization_history(history_data):
     """Saves the optimization run details to the database."""
