@@ -321,46 +321,53 @@ def progress_callback(study, trial):
             logging.info(f"Trial {trial.number}: No best trial available yet.")
 
 
-def objective(trial, simulation_manager: SimulationManager, min_trades_for_pruning: int):
+def objective(trial, is_csv_path: str, min_trades_for_pruning: int):
     """Optuna objective function."""
-    params = {
-        'spread_limit': trial.suggest_int('spread_limit', 10, 150),
-        'lot_max_ratio': trial.suggest_float('lot_max_ratio', 0.01, 0.2),
-        'order_ratio': trial.suggest_float('order_ratio', 0.05, 0.25),
-        'adaptive_position_sizing_enabled': trial.suggest_categorical('adaptive_position_sizing_enabled', [True, False]),
-        'adaptive_num_trades': trial.suggest_int('adaptive_num_trades', 3, 20),
-        'adaptive_reduction_step': trial.suggest_float('adaptive_reduction_step', 0.5, 1.0),
-        'adaptive_min_ratio': trial.suggest_float('adaptive_min_ratio', 0.1, 0.8),
-        'long_obi_threshold': trial.suggest_float('long_obi_threshold', 0.1, 2.0),
-        'long_tp': trial.suggest_int('long_tp', 10, 500),
-        'long_sl': trial.suggest_int('long_sl', -500, -10),
-        'short_obi_threshold': trial.suggest_float('short_obi_threshold', -2.0, -0.1),
-        'short_tp': trial.suggest_int('short_tp', 10, 500),
-        'short_sl': trial.suggest_int('short_sl', -500, -10),
-        'hold_duration_ms': trial.suggest_int('hold_duration_ms', 100, 2000),
-        'slope_filter_enabled': trial.suggest_categorical('slope_filter_enabled', [True, False]),
-        'slope_period': trial.suggest_int('slope_period', 3, 50),
-        'slope_threshold': trial.suggest_float('slope_threshold', 0.0, 0.5),
-        'ewma_lambda': trial.suggest_float('ewma_lambda', 0.05, 0.3),
-        'dynamic_obi_enabled': trial.suggest_categorical('dynamic_obi_enabled', [True, False]),
-        'volatility_factor': trial.suggest_float('volatility_factor', 0.5, 5.0),
-        'min_threshold_factor': trial.suggest_float('min_threshold_factor', 0.5, 1.0),
-        'max_threshold_factor': trial.suggest_float('max_threshold_factor', 1.0, 3.0),
-        'twap_enabled': trial.suggest_categorical('twap_enabled', [True, False]),
-        'twap_max_order_size_btc': trial.suggest_float('twap_max_order_size_btc', 0.01, 0.1),
-        'twap_interval_seconds': trial.suggest_int('twap_interval_seconds', 1, 10),
-        'twap_partial_exit_enabled': trial.suggest_categorical('twap_partial_exit_enabled', [True, False]),
-        'twap_profit_threshold': trial.suggest_float('twap_profit_threshold', 0.1, 2.0),
-        'twap_exit_ratio': trial.suggest_float('twap_exit_ratio', 0.1, 1.0),
-        'risk_max_drawdown_percent': trial.suggest_int('risk_max_drawdown_percent', 15, 25),
-        'risk_max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.5, 0.9),
-    }
+    # Each trial, running in its own process, gets its own SimulationManager.
+    simulation_manager = None
+    try:
+        simulation_manager = SimulationManager(is_csv_path)
+        params = {
+            'spread_limit': trial.suggest_int('spread_limit', 10, 150),
+            'lot_max_ratio': trial.suggest_float('lot_max_ratio', 0.01, 0.2),
+            'order_ratio': trial.suggest_float('order_ratio', 0.05, 0.25),
+            'adaptive_position_sizing_enabled': trial.suggest_categorical('adaptive_position_sizing_enabled', [True, False]),
+            'adaptive_num_trades': trial.suggest_int('adaptive_num_trades', 3, 20),
+            'adaptive_reduction_step': trial.suggest_float('adaptive_reduction_step', 0.5, 1.0),
+            'adaptive_min_ratio': trial.suggest_float('adaptive_min_ratio', 0.1, 0.8),
+            'long_obi_threshold': trial.suggest_float('long_obi_threshold', 0.1, 2.0),
+            'long_tp': trial.suggest_int('long_tp', 10, 500),
+            'long_sl': trial.suggest_int('long_sl', -500, -10),
+            'short_obi_threshold': trial.suggest_float('short_obi_threshold', -2.0, -0.1),
+            'short_tp': trial.suggest_int('short_tp', 10, 500),
+            'short_sl': trial.suggest_int('short_sl', -500, -10),
+            'hold_duration_ms': trial.suggest_int('hold_duration_ms', 100, 2000),
+            'slope_filter_enabled': trial.suggest_categorical('slope_filter_enabled', [True, False]),
+            'slope_period': trial.suggest_int('slope_period', 3, 50),
+            'slope_threshold': trial.suggest_float('slope_threshold', 0.0, 0.5),
+            'ewma_lambda': trial.suggest_float('ewma_lambda', 0.05, 0.3),
+            'dynamic_obi_enabled': trial.suggest_categorical('dynamic_obi_enabled', [True, False]),
+            'volatility_factor': trial.suggest_float('volatility_factor', 0.5, 5.0),
+            'min_threshold_factor': trial.suggest_float('min_threshold_factor', 0.5, 1.0),
+            'max_threshold_factor': trial.suggest_float('max_threshold_factor', 1.0, 3.0),
+            'twap_enabled': trial.suggest_categorical('twap_enabled', [True, False]),
+            'twap_max_order_size_btc': trial.suggest_float('twap_max_order_size_btc', 0.01, 0.1),
+            'twap_interval_seconds': trial.suggest_int('twap_interval_seconds', 1, 10),
+            'twap_partial_exit_enabled': trial.suggest_categorical('twap_partial_exit_enabled', [True, False]),
+            'twap_profit_threshold': trial.suggest_float('twap_profit_threshold', 0.1, 2.0),
+            'twap_exit_ratio': trial.suggest_float('twap_exit_ratio', 0.1, 1.0),
+            'risk_max_drawdown_percent': trial.suggest_int('risk_max_drawdown_percent', 15, 25),
+            'risk_max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.5, 0.9),
+        }
 
-    summary = simulation_manager.run(params)
+        summary = simulation_manager.run(params)
 
-    if summary is None or 'error' in summary:
-        logging.warning(f"Simulation failed for trial {trial.number}. Error: {summary.get('error') if summary else 'None'}")
-        return -1.0 # Return a poor score
+        if summary is None or 'error' in summary:
+            logging.warning(f"Simulation failed for trial {trial.number}. Error: {summary.get('error') if summary else 'None'}")
+            return -1.0 # Return a poor score
+    finally:
+        if simulation_manager:
+            simulation_manager.close()
 
     total_trades = summary.get('TotalTrades', 0)
     sharpe_ratio = summary.get('SharpeRatio', 0.0)
@@ -419,7 +426,6 @@ def main(run_once=False):
             os.remove(JOB_FILE)
             continue
 
-        is_simulation_manager = None
         oos_simulation_manager = None
         try:
             # --- Data Export & Validation ---
@@ -439,11 +445,6 @@ def main(run_once=False):
                 os.remove(JOB_FILE)
                 continue
 
-            # --- Setup Simulation Managers ---
-            is_simulation_manager = SimulationManager(str(is_csv_path))
-            oos_simulation_manager = SimulationManager(str(oos_csv_path))
-
-
             # --- Setup Study ---
             try:
                 optuna.delete_study(study_name='obi-scalp-optimization', storage=STORAGE_URL)
@@ -460,7 +461,8 @@ def main(run_once=False):
             )
             catch_exceptions = (sqlalchemy.exc.OperationalError, optuna.exceptions.StorageInternalError, sqlite3.OperationalError)
             min_trades_for_pruning = job_data.get('min_trades', MIN_TRADES_FOR_PRUNING)
-            objective_with_deps = lambda trial: objective(trial, is_simulation_manager, min_trades_for_pruning)
+            # Pass the csv path and pruning threshold to the objective function via a lambda.
+            objective_with_deps = lambda trial: objective(trial, str(is_csv_path), min_trades_for_pruning)
 
 
             # --- In-Sample Optimization ---
@@ -468,7 +470,7 @@ def main(run_once=False):
             study.optimize(
                 objective_with_deps,
                 n_trials=n_trials,
-                n_jobs=1, # Run in a single thread to use the same SimulationManager
+                n_jobs=-1, # Re-enable parallel execution
                 show_progress_bar=False,
                 catch=catch_exceptions,
                 callbacks=[progress_callback],
@@ -495,6 +497,8 @@ def main(run_once=False):
                 top_n_trials = sorted_trials[:MAX_RETRY]
                 logging.info(f"Starting OOS validation for top {len(top_n_trials)} IS trials with {oos_csv_path}")
 
+                # For OOS, we run sequentially, so one manager is enough.
+                oos_simulation_manager = SimulationManager(str(oos_csv_path))
                 for is_rank, trial_to_validate in enumerate(top_n_trials, 1):
                     retries_attempted += 1
                     logging.info(f"--- [Attempt {retries_attempted}/{MAX_RETRY}] OOS Validation for IS Rank #{is_rank} (Trial {trial_to_validate.number}) ---")
@@ -568,8 +572,6 @@ def main(run_once=False):
             logging.error(f"An unexpected error occurred during the optimization job: {e}", exc_info=True)
         finally:
             # --- Cleanup ---
-            if is_simulation_manager:
-                is_simulation_manager.close()
             if oos_simulation_manager:
                 oos_simulation_manager.close()
             if JOB_FILE.exists():
