@@ -39,10 +39,11 @@ type TradeConfig struct {
 
 // Config wraps both application and trading configurations.
 type Config struct {
-	App   AppConfig
-	Trade TradeConfig
-	APIKey    string `yaml:"-"` // Loaded from env
-	APISecret string `yaml:"-"` // Loaded from env
+	App         AppConfig
+	Trade       TradeConfig
+	EnableTrade bool   `yaml:"-"` // Loaded from env
+	APIKey      string `yaml:"-"` // Loaded from env
+	APISecret   string `yaml:"-"` // Loaded from env
 }
 
 // AdaptiveSizingConfig holds settings for the adaptive position sizing feature.
@@ -215,6 +216,9 @@ func loadFromFiles(appConfigPath, tradeConfigPath string) (*Config, error) {
 	if discordUserID := os.Getenv("DISCORD_USER_ID"); discordUserID != "" {
 		cfg.App.Alert.Discord.UserID = discordUserID
 	}
+
+	// Default to false if the env var is not set or not "true"
+	cfg.EnableTrade = os.Getenv("ENABLE_TRADE") == "true"
 
 	return cfg, nil
 }
