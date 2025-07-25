@@ -38,6 +38,7 @@ import (
 
 import (
 	"bufio"
+	"sync"
 )
 
 type flags struct {
