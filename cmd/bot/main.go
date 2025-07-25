@@ -80,8 +80,8 @@ func main() {
 	}
 	go watchConfigFiles(f.configPath, f.tradeConfigPath)
 
-	if f.simulateMode && f.csvPath == "" {
-		logger.Fatal("CSV file path must be provided in simulation mode using --csv flag")
+	if (f.simulateMode || f.serveMode) && f.csvPath == "" {
+		logger.Fatal("CSV file path must be provided in simulation or serve mode using --csv flag")
 	}
 
 	if !f.simulateMode && !f.serveMode {
