@@ -239,9 +239,13 @@ def run_simulation(params, sim_csv_path):
 
     except subprocess.CalledProcessError as e:
         logging.error(f"Simulation failed for config {temp_config_path}: {e.stderr}")
+        logging.error(f"STDOUT: {e.stdout}")
         return None
     except (json.JSONDecodeError, IndexError) as e:
         logging.error(f"Failed to parse simulation output for {temp_config_path}: {e}")
+        # Assuming result is available in this scope if IndexError occurred
+        logging.error(f"STDOUT: {result.stdout}")
+        logging.error(f"STDERR: {result.stderr}")
         return None
     finally:
         # 5. Clean up the temporary config file
