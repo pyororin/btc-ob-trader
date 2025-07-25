@@ -452,10 +452,12 @@ def main(run_once=False):
                 continue
 
             # --- Setup Study ---
+            study_name = f"obi-scalp-optimization-{int(time.time())}"
+            logging.info(f"Creating new Optuna study: {study_name}")
             pruner = HyperbandPruner(min_resource=5, max_resource=100, reduction_factor=3)
             sampler = optuna.samplers.CmaEsSampler(warn_independent_sampling=False)
             study = optuna.create_study(
-                study_name='obi-scalp-optimization',
+                study_name=study_name,
                 storage=STORAGE_URL,
                 direction='maximize',
                 load_if_exists=False,
