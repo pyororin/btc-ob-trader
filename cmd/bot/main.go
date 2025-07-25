@@ -454,11 +454,17 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 						}
 
 						logger.Infof("Executing trade for signal: %s. %s", tradingSignal.Type.String(), orderLogMsg)
-						orderAmount := 0.0
-						// For live trading, amount is determined by PlaceOrder based on balance.
-						// For simulation, we must provide a non-zero amount.
-						if _, ok := execEngine.(*engine.ReplayExecutionEngine); ok {
-							orderAmount = currentCfg.Trade.OrderAmount
+						orderAmount := currentCfg.Trade.OrderAmount
+						if liveEngine, ok := execEngine.(*engine.LiveExecutionEngine); ok {
+							// In live trading, calculate the amount based on balance and ratio
+							balance, err := liveEngine.GetBalance()
+							if err != nil {
+								logger.Warnf("Failed to get balance for order sizing: %v", err)
+								continue
+							}
+							currentBtc, _ := strconv.ParseFloat(balance.Btc, 64)
+							availableBtc := currentBtc // Simplified for now
+							orderAmount = availableBtc * currentCfg.Trade.OrderRatio
 						}
 
 						if currentCfg.Trade.Twap.Enabled && orderAmount > currentCfg.Trade.Twap.MaxOrderSizeBtc {
