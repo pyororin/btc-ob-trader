@@ -32,6 +32,7 @@ func (e *RiskCheckError) Error() string {
 type ExecutionEngine interface {
 	PlaceOrder(ctx context.Context, pair string, orderType string, rate float64, amount float64, postOnly bool) (*coincheck.OrderResponse, error)
 	CancelOrder(ctx context.Context, orderID int64) (*coincheck.CancelResponse, error)
+	GetBalance() (*coincheck.BalanceResponse, error)
 }
 
 // LiveExecutionEngine handles real order placement with the exchange.
@@ -87,117 +88,12 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 		return nil, fmt.Errorf("LiveExecutionEngine: exchange client is not initialized")
 	}
 
-	// Balance check and amount adjustment logic
-	balance, err := e.exchangeClient.GetBalance()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get balance for risk check: %w", err)
-	}
-	currentJpy, _ := strconv.ParseFloat(balance.Jpy, 64)
-
-	// --- Risk Management Check ---
-	// 1. Max Position Check
-	positionSize, avgEntryPrice := e.position.Get()
-	orderSideMultiplier := 1.0
-	if orderType == "sell" {
-		orderSideMultiplier = -1.0
-	}
-	prospectivePositionSize := positionSize + (amount * orderSideMultiplier)
-	prospectivePositionValueJPY := math.Abs(prospectivePositionSize) * rate
-
-	// JPY残高に対するポジションサイズの比率をチェック
-	if cfg.Trade.Risk.MaxPositionRatio > 0 {
-		maxAllowedPositionValue := currentJpy * cfg.Trade.Risk.MaxPositionRatio
-		if prospectivePositionValueJPY > maxAllowedPositionValue {
-			msg := fmt.Sprintf("risk check failed: prospective position value %.2f JPY exceeds max_position_ratio (%.2f) of balance (%.2f JPY)", prospectivePositionValueJPY, cfg.Trade.Risk.MaxPositionRatio, currentJpy)
-			e.sendAlert(msg)
-			return nil, &RiskCheckError{Message: msg}
-		}
-	}
-
-	// 2. Max Drawdown Check
-	unrealizedPnL := e.pnlCalculator.CalculateUnrealizedPnL(positionSize, avgEntryPrice, rate)
-	totalRealizedPnL := e.pnlCalculator.GetRealizedPnL()
-	totalPnL := unrealizedPnL + totalRealizedPnL
-
-	if totalPnL < 0 {
-		drawdownPercent := 0.0
-		// Use current JPY balance as the capital base for drawdown percentage.
-		// This is a simplification. A more robust implementation might track initial capital.
-		if currentJpy > 0 {
-			drawdownPercent = (-totalPnL / currentJpy) * 100
-		}
-		if cfg.Trade.Risk.MaxDrawdownPercent > 0 && drawdownPercent >= cfg.Trade.Risk.MaxDrawdownPercent {
-			msg := fmt.Sprintf("risk check failed: current drawdown %.2f%% exceeds max_drawdown_percent %.2f%% (PnL: %.2f, Capital: %.2f)", drawdownPercent, cfg.Trade.Risk.MaxDrawdownPercent, totalPnL, currentJpy)
-			e.sendAlert(msg)
-			return nil, &RiskCheckError{Message: msg}
-		}
-	}
-	// --- End Risk Management Check ---
-
-	// Adjust order ratios based on recent performance
-	if cfg.Trade.AdaptivePositionSizing.Enabled {
-		e.adjustRatios()
-	}
-
-	// Balance check and amount adjustment logic
-	currentBtc, _ := strconv.ParseFloat(balance.Btc, 64)
-
-	openOrders, err := e.exchangeClient.GetOpenOrders()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get open orders for balance adjustment: %w", err)
-	}
-
-	reservedJpy := 0.0
-	reservedBtc := 0.0
-	for _, order := range openOrders.Orders {
-		if order.Pair != pair {
-			continue
-		}
-		orderRate, _ := strconv.ParseFloat(order.Rate, 64)
-		pendingAmount, _ := strconv.ParseFloat(order.PendingAmount, 64)
-		if order.OrderType == "buy" {
-			reservedJpy += orderRate * pendingAmount
-		} else if order.OrderType == "sell" {
-			reservedBtc += pendingAmount
-		}
-	}
-
-	availableJpy := currentJpy - reservedJpy
-	availableBtc := currentBtc - reservedBtc
-
-	roundedRate := math.Round(rate)
-	adjustedAmount := amount
-
-	var cappedAmount float64
-	if orderType == "buy" {
-		cappedAmount = (availableJpy * e.currentRatios.OrderRatio) / roundedRate
-	} else { // sell
-		cappedAmount = availableBtc * e.currentRatios.OrderRatio
-	}
-	cappedAmount = math.Floor(cappedAmount*1e6) / 1e6
-
-	if amount > cappedAmount {
-		adjustedAmount = cappedAmount
-		logger.Warnf("[Live] Requested %s amount %.8f exceeds the allowable ratio. Adjusting to %.8f.", orderType, amount, adjustedAmount)
-	}
-
-	if adjustedAmount <= 0 {
-		return nil, fmt.Errorf("adjusted order amount is zero or negative, skipping order placement")
-	}
-
-	// coincheckの最小注文単位（0.001BTC）を下回っていないか確認
-	if adjustedAmount < 0.001 {
-		msg := fmt.Sprintf("order amount %.8f is below the minimum required amount of 0.001 BTC", adjustedAmount)
-		e.sendAlert(msg)
-		return nil, &RiskCheckError{Message: msg}
-	}
-
 	// Place the order
 	req := coincheck.OrderRequest{
 		Pair:      pair,
 		OrderType: orderType,
-		Rate:      roundedRate,
-		Amount:    adjustedAmount,
+		Rate:      rate,
+		Amount:    amount,
 	}
 	if postOnly {
 		req.TimeInForce = "post_only"
@@ -402,6 +298,11 @@ func (e *LiveExecutionEngine) updateRecentPnLs(pnl float64) {
 // GetPosition returns the current position size and average entry price.
 func (e *LiveExecutionEngine) GetPosition() (size float64, avgEntryPrice float64) {
 	return e.position.Get()
+}
+
+// GetBalance fetches the current balance from the exchange.
+func (e *LiveExecutionEngine) GetBalance() (*coincheck.BalanceResponse, error) {
+	return e.exchangeClient.GetBalance()
 }
 
 // SetPartialExitStatus sets the status of the partial exit flag.
@@ -652,4 +553,14 @@ func (e *ReplayExecutionEngine) CancelOrder(ctx context.Context, orderID int64) 
 // GetTotalRealizedPnL returns the total realized PnL from the internal calculator.
 func (e *ReplayExecutionEngine) GetTotalRealizedPnL() float64 {
 	return e.pnlCalculator.GetRealizedPnL()
+}
+
+// GetBalance returns a mock balance for the replay engine.
+func (e *ReplayExecutionEngine) GetBalance() (*coincheck.BalanceResponse, error) {
+	// In replay mode, we don't have a real balance, so we return a large mock balance
+	// to ensure that the order sizing logic doesn't fail.
+	return &coincheck.BalanceResponse{
+		Jpy: "100000000",
+		Btc: "100",
+	}, nil
 }
