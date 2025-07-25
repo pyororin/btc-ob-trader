@@ -78,29 +78,77 @@ def start_go_sim_server(csv_path):
     if GO_SIM_SERVER:
         GO_SIM_SERVER.terminate()
 
-    command = [
-        str(APP_ROOT / 'build' / 'obi-scalp-bot'),
-        '--serve',
-        f'--csv={csv_path}',
-        # Use a temporary trade config, it will be overwritten by stdin
-        f'--trade-config={CONFIG_TEMPLATE_PATH}'
-    ]
-    logging.info(f"Starting Go simulation server with command: {' '.join(command)}")
-    GO_SIM_SERVER = subprocess.Popen(
-        command,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        text=True,
-        cwd=APP_ROOT,
-        bufsize=1 # Line-buffered
-    )
-    # Wait for the "READY" signal from the server
-    ready_line = GO_SIM_SERVER.stdout.readline()
-    if "READY" in ready_line:
-        logging.info("Go simulation server is ready.")
-    else:
-        logging.error(f"Go simulation server failed to start. First line of output: {ready_line}")
-        raise RuntimeError("Could not start Go simulation server.")
+    # Create a temporary config file with default values to start the server
+    default_params = {
+        'spread_limit': 100,
+        'lot_max_ratio': 0.1,
+        'order_ratio': 0.1,
+        'adaptive_position_sizing_enabled': False,
+        'adaptive_num_trades': 10,
+        'adaptive_reduction_step': 0.8,
+        'adaptive_min_ratio': 0.5,
+        'long_obi_threshold': 1.0,
+        'long_tp': 100,
+        'long_sl': -100,
+        'short_obi_threshold': -1.0,
+        'short_tp': 100,
+        'short_sl': -100,
+        'hold_duration_ms': 500,
+        'slope_filter_enabled': False,
+        'slope_period': 10,
+        'slope_threshold': 0.1,
+        'ewma_lambda': 0.1,
+        'dynamic_obi_enabled': False,
+        'volatility_factor': 2.0,
+        'min_threshold_factor': 0.8,
+        'max_threshold_factor': 1.5,
+        'twap_enabled': False,
+        'twap_max_order_size_btc': 0.05,
+        'twap_interval_seconds': 5,
+        'twap_partial_exit_enabled': False,
+        'twap_profit_threshold': 0.5,
+        'twap_exit_ratio': 0.5,
+        'risk_max_drawdown_percent': 20,
+        'risk_max_position_ratio': 0.8,
+    }
+    try:
+        with open(CONFIG_TEMPLATE_PATH, 'r') as f:
+            template = Template(f.read())
+        config_yaml_str = template.render(default_params)
+
+        # Use a temporary file for the initial config
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml', dir=PARAMS_DIR) as tmp:
+            tmp.write(config_yaml_str)
+            temp_config_path = tmp.name
+
+        command = [
+            str(APP_ROOT / 'build' / 'obi-scalp-bot'),
+            '--serve',
+            f'--csv={csv_path}',
+            f'--trade-config={temp_config_path}'
+        ]
+        logging.info(f"Starting Go simulation server with command: {' '.join(command)}")
+        GO_SIM_SERVER = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+            cwd=APP_ROOT,
+            bufsize=1 # Line-buffered
+        )
+
+        # Wait for the "READY" signal from the server
+        ready_line = GO_SIM_SERVER.stdout.readline()
+        if "READY" in ready_line:
+            logging.info("Go simulation server is ready.")
+        else:
+            logging.error(f"Go simulation server failed to start. First line of output: {ready_line}")
+            raise RuntimeError("Could not start Go simulation server.")
+
+    finally:
+        # Clean up the temporary file
+        if 'temp_config_path' in locals() and os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
 
 
 def stop_go_sim_server():
@@ -479,187 +527,122 @@ def main(run_once=False):
                     callbacks=[progress_callback],
                 )
 
-            try:
-                best_trial = study.best_trial
-                is_sqn = best_trial.value
-                is_trades = best_trial.user_attrs.get('trades', 0)
-                is_sr = best_trial.user_attrs.get('sharpe_ratio', 0)
-                is_pf = best_trial.user_attrs.get('profit_factor', 0)
+                try:
+                    best_trial = study.best_trial
+                    is_sqn = best_trial.value
+                    is_trades = best_trial.user_attrs.get('trades', 0)
+                    is_sr = best_trial.user_attrs.get('sharpe_ratio', 0)
+                    is_pf = best_trial.user_attrs.get('profit_factor', 0)
 
-                logging.info(
-                    f"Best IS trial found: Trial {best_trial.number} -> "
-                    f"SQN: {is_sqn:.2f}, PF: {is_pf:.2f}, SR: {is_sr:.2f}, Trades: {is_trades}"
-                )
+                    logging.info(
+                        f"Best IS trial found: Trial {best_trial.number} -> "
+                        f"SQN: {is_sqn:.2f}, PF: {is_pf:.2f}, SR: {is_sr:.2f}, Trades: {is_trades}"
+                    )
 
-                # --- Out-of-Sample Validation with Retry ---
-                oos_validation_passed = False
-                best_oos_summary = None
-                selected_trial = None
-                retries_attempted = 0
-                consecutive_failures = 0
+                    # --- Out-of-Sample Validation with Retry ---
+                    oos_validation_passed = False
+                    best_oos_summary = None
+                    selected_trial = None
+                    retries_attempted = 0
+                    consecutive_failures = 0
 
-                # Get top N trials from IS, filtering out pruned trials
-                all_trials = study.get_trials(deepcopy=False)
-                completed_trials = [t for t in all_trials if t.state == optuna.trial.TrialState.COMPLETE]
+                    # Get top N trials from IS, filtering out pruned trials
+                    all_trials = study.get_trials(deepcopy=False)
+                    completed_trials = [t for t in all_trials if t.state == optuna.trial.TrialState.COMPLETE]
 
-                # Sort by IS score (SQN)
-                sorted_trials = sorted(completed_trials, key=lambda t: t.value, reverse=True)
+                    # Sort by IS score (SQN)
+                    sorted_trials = sorted(completed_trials, key=lambda t: t.value, reverse=True)
 
-                top_n_trials = sorted_trials[:MAX_RETRY]
-                logging.info(f"Starting OOS validation for top {len(top_n_trials)} IS trials.")
+                    top_n_trials = sorted_trials[:MAX_RETRY]
+                    logging.info(f"Starting OOS validation for top {len(top_n_trials)} IS trials.")
 
-                # Stop the IS server and start the OOS server
-                stop_go_sim_server()
-                start_go_sim_server(oos_csv_path)
+                    # Stop the IS server and start the OOS server
+                    stop_go_sim_server()
+                    start_go_sim_server(oos_csv_path)
 
-                for is_rank, trial_to_validate in enumerate(top_n_trials, 1):
-                    retries_attempted += 1
-                    logging.info(f"--- [Attempt {retries_attempted}/{MAX_RETRY}] OOS Validation for IS Rank #{is_rank} (Trial {trial_to_validate.number}) ---")
+                    for is_rank, trial_to_validate in enumerate(top_n_trials, 1):
+                        retries_attempted += 1
+                        logging.info(f"--- [Attempt {retries_attempted}/{MAX_RETRY}] OOS Validation for IS Rank #{is_rank} (Trial {trial_to_validate.number}) ---")
 
-                    current_params = trial_to_validate.params
-                    oos_summary = run_simulation_fast(current_params)
+                        current_params = trial_to_validate.params
+                        oos_summary = run_simulation_fast(current_params)
 
-                    if oos_summary is None:
-                        logging.warning(f"OOS simulation failed for trial {trial_to_validate.number}. Treating as failure.")
-                        oos_pf = 0.0
-                        oos_sharpe = -999.0 # Assign a very poor score
-                    else:
-                        oos_pf = oos_summary.get('ProfitFactor', 0.0)
-                        oos_sharpe = oos_summary.get('SharpeRatio', 0.0)
-                        oos_trades = oos_summary.get('TotalTrades', 'N/A')
-                        logging.info(f"OOS Result: PF={oos_pf:.2f}, SR={oos_sharpe:.2f}, Trades={oos_trades}")
+                        if oos_summary is None:
+                            logging.warning(f"OOS simulation failed for trial {trial_to_validate.number}. Treating as failure.")
+                            oos_pf = 0.0
+                            oos_sharpe = -999.0 # Assign a very poor score
+                        else:
+                            oos_pf = oos_summary.get('ProfitFactor', 0.0)
+                            oos_sharpe = oos_summary.get('SharpeRatio', 0.0)
+                            oos_trades = oos_summary.get('TotalTrades', 'N/A')
+                            logging.info(f"OOS Result: PF={oos_pf:.2f}, SR={oos_sharpe:.2f}, Trades={oos_trades}")
 
-                    # Check pass/fail criteria
-                    is_pass = oos_pf >= OOS_MIN_PROFIT_FACTOR and oos_sharpe >= OOS_MIN_SHARPE_RATIO
+                        # Check pass/fail criteria
+                        is_pass = oos_pf >= OOS_MIN_PROFIT_FACTOR and oos_sharpe >= OOS_MIN_SHARPE_RATIO
 
-                    if is_pass:
-                        logging.info(f"OOS validation PASSED. Selecting this parameter set.")
-                        oos_validation_passed = True
-                        selected_trial = trial_to_validate
-                        best_oos_summary = oos_summary
+                        if is_pass:
+                            logging.info(f"OOS validation PASSED. Selecting this parameter set.")
+                            oos_validation_passed = True
+                            selected_trial = trial_to_validate
+                            best_oos_summary = oos_summary
 
-                        # Re-render the best config and save it
-                        with open(CONFIG_TEMPLATE_PATH, 'r') as f:
-                            template = Template(f.read())
-                        config_str = template.render(selected_trial.params)
-                        with open(BEST_CONFIG_OUTPUT_PATH, 'w') as f:
-                            f.write(config_str)
-                        logging.info(f"Successfully updated {BEST_CONFIG_OUTPUT_PATH}")
-                        break # Exit retry loop on first success
-                    else:
-                        logging.warning(f"OOS validation FAILED for IS Rank #{is_rank}.")
-                    # Early stopping check
-                    is_below_threshold = oos_sharpe < (OOS_MIN_SHARPE_RATIO * EARLY_STOP_THRESHOLD_RATIO)
-                    if is_below_threshold:
-                        consecutive_failures += 1
-                        logging.warning(f"Sharpe ratio is below early stop threshold. Consecutive failures: {consecutive_failures}")
-                        if consecutive_failures >= EARLY_STOP_COUNT:
-                            logging.error("Early stopping condition met. Aborting retry loop.")
-                            break
-                    else:
-                        consecutive_failures = 0 # Reset counter if a trial is not a 'bad' failure
+                            # Re-render the best config and save it
+                            with open(CONFIG_TEMPLATE_PATH, 'r') as f:
+                                template = Template(f.read())
+                            config_str = template.render(selected_trial.params)
+                            with open(BEST_CONFIG_OUTPUT_PATH, 'w') as f:
+                                f.write(config_str)
+                            logging.info(f"Successfully updated {BEST_CONFIG_OUTPUT_PATH}")
+                            break # Exit retry loop on first success
+                        else:
+                            logging.warning(f"OOS validation FAILED for IS Rank #{is_rank}.")
+                        # Early stopping check
+                        is_below_threshold = oos_sharpe < (OOS_MIN_SHARPE_RATIO * EARLY_STOP_THRESHOLD_RATIO)
+                        if is_below_threshold:
+                            consecutive_failures += 1
+                            logging.warning(f"Sharpe ratio is below early stop threshold. Consecutive failures: {consecutive_failures}")
+                            if consecutive_failures >= EARLY_STOP_COUNT:
+                                logging.error("Early stopping condition met. Aborting retry loop.")
+                                break
+                        else:
+                            consecutive_failures = 0 # Reset counter if a trial is not a 'bad' failure
 
-                if not oos_validation_passed:
-                    logging.error(f"All top {retries_attempted} IS trials failed OOS validation.")
-                    # Here you could trigger re-optimization if TRIGGER_REOPTIMIZE is True
-                    selected_trial = best_trial # Fallback to the best IS trial for logging purposes
+                    if not oos_validation_passed:
+                        logging.error(f"All top {retries_attempted} IS trials failed OOS validation.")
+                        # Here you could trigger re-optimization if TRIGGER_REOPTIMIZE is True
+                        selected_trial = best_trial # Fallback to the best IS trial for logging purposes
 
-                # --- Save History ---
-                final_trial = selected_trial
-            except ValueError:
-                logging.error("No best trial found (all trials may have been pruned). Aborting optimization run.")
+                    # --- Save History ---
+                    final_trial = selected_trial
+                except ValueError:
+                    logging.error("No best trial found (all trials may have been pruned). Aborting optimization run.")
+                    os.remove(JOB_FILE)
+                    continue
+
+                final_summary = best_oos_summary if oos_validation_passed else {}
+
+                history = {
+                    "time": time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(job['timestamp'])),
+                    "trigger_type": job['trigger_type'],
+                    "is_hours": is_hours,
+                    "oos_hours": oos_hours,
+                    "is_sqn": final_trial.value,
+                    "is_profit_factor": final_trial.user_attrs.get('profit_factor', 0.0),
+                    "is_sharpe_ratio": final_trial.user_attrs.get('sharpe_ratio', 0.0),
+                    "is_total_trades": final_trial.user_attrs.get('trades', 0),
+                    "oos_profit_factor": final_summary.get('ProfitFactor', 0.0),
+                    "oos_sharpe_ratio": final_summary.get('SharpeRatio', 0.0),
+                    "oos_total_trades": final_summary.get('TotalTrades', 0),
+                    "validation_passed": oos_validation_passed,
+                    "best_params": final_trial.params,
+                    "is_rank": sorted_trials.index(final_trial) + 1 if final_trial in sorted_trials else -1,
+                    "retries_attempted": retries_attempted,
+                }
+                save_optimization_history(history)
+
+                # --- Cleanup ---
                 os.remove(JOB_FILE)
-                continue
-                completed_trials = [t for t in all_trials if t.state == optuna.trial.TrialState.COMPLETE]
-
-                # Sort by IS score (SQN)
-                sorted_trials = sorted(completed_trials, key=lambda t: t.value, reverse=True)
-
-                top_n_trials = sorted_trials[:MAX_RETRY]
-                logging.info(f"Starting OOS validation for top {len(top_n_trials)} IS trials.")
-
-                # Stop the IS server and start the OOS server
-                stop_go_sim_server()
-                start_go_sim_server(oos_csv_path)
-
-                for is_rank, trial_to_validate in enumerate(top_n_trials, 1):
-                    retries_attempted += 1
-                    logging.info(f"--- [Attempt {retries_attempted}/{MAX_RETRY}] OOS Validation for IS Rank #{is_rank} (Trial {trial_to_validate.number}) ---")
-
-                    current_params = trial_to_validate.params
-                    oos_summary = run_simulation_fast(current_params)
-
-                    if oos_summary is None:
-                        logging.warning(f"OOS simulation failed for trial {trial_to_validate.number}. Treating as failure.")
-                        oos_pf = 0.0
-                        oos_sharpe = -999.0 # Assign a very poor score
-                    else:
-                        oos_pf = oos_summary.get('ProfitFactor', 0.0)
-                        oos_sharpe = oos_summary.get('SharpeRatio', 0.0)
-                        oos_trades = oos_summary.get('TotalTrades', 'N/A')
-                        logging.info(f"OOS Result: PF={oos_pf:.2f}, SR={oos_sharpe:.2f}, Trades={oos_trades}")
-
-                    # Check pass/fail criteria
-                    is_pass = oos_pf >= OOS_MIN_PROFIT_FACTOR and oos_sharpe >= OOS_MIN_SHARPE_RATIO
-
-                    if is_pass:
-                        logging.info(f"OOS validation PASSED. Selecting this parameter set.")
-                        oos_validation_passed = True
-                        selected_trial = trial_to_validate
-                        best_oos_summary = oos_summary
-
-                        # Re-render the best config and save it
-                        with open(CONFIG_TEMPLATE_PATH, 'r') as f:
-                            template = Template(f.read())
-                        config_str = template.render(selected_trial.params)
-                        with open(BEST_CONFIG_OUTPUT_PATH, 'w') as f:
-                            f.write(config_str)
-                        logging.info(f"Successfully updated {BEST_CONFIG_OUTPUT_PATH}")
-                        break # Exit retry loop on first success
-                    else:
-                        logging.warning(f"OOS validation FAILED for IS Rank #{is_rank}.")
-                    # Early stopping check
-                    is_below_threshold = oos_sharpe < (OOS_MIN_SHARPE_RATIO * EARLY_STOP_THRESHOLD_RATIO)
-                    if is_below_threshold:
-                        consecutive_failures += 1
-                        logging.warning(f"Sharpe ratio is below early stop threshold. Consecutive failures: {consecutive_failures}")
-                        if consecutive_failures >= EARLY_STOP_COUNT:
-                            logging.error("Early stopping condition met. Aborting retry loop.")
-                            break
-                    else:
-                        consecutive_failures = 0 # Reset counter if a trial is not a 'bad' failure
-
-                if not oos_validation_passed:
-                    logging.error(f"All top {retries_attempted} IS trials failed OOS validation.")
-                    # Here you could trigger re-optimization if TRIGGER_REOPTIMIZE is True
-                    selected_trial = best_trial # Fallback to the best IS trial for logging purposes
-
-                # --- Save History ---
-                final_trial = selected_trial
-            final_summary = best_oos_summary if oos_validation_passed else {}
-
-            history = {
-                "time": time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(job['timestamp'])),
-                "trigger_type": job['trigger_type'],
-                "is_hours": is_hours,
-                "oos_hours": oos_hours,
-                "is_sqn": final_trial.value,
-                "is_profit_factor": final_trial.user_attrs.get('profit_factor', 0.0),
-                "is_sharpe_ratio": final_trial.user_attrs.get('sharpe_ratio', 0.0),
-                "is_total_trades": final_trial.user_attrs.get('trades', 0),
-                "oos_profit_factor": final_summary.get('ProfitFactor', 0.0),
-                "oos_sharpe_ratio": final_summary.get('SharpeRatio', 0.0),
-                "oos_total_trades": final_summary.get('TotalTrades', 0),
-                "validation_passed": oos_validation_passed,
-                "best_params": final_trial.params,
-                "is_rank": sorted_trials.index(final_trial) + 1 if final_trial in sorted_trials else -1,
-                "retries_attempted": retries_attempted,
-            }
-            save_optimization_history(history)
-
-            # --- Cleanup ---
-            os.remove(JOB_FILE)
-            logging.info("Optimization run complete. Waiting for next job.")
+                logging.info("Optimization run complete. Waiting for next job.")
 
             if run_once:
                 logging.info("Run once flag is set. Exiting main loop.")
