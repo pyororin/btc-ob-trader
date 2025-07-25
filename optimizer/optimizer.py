@@ -645,14 +645,17 @@ def main(run_once=False):
                 logging.info("Optimization run complete. Waiting for next job.")
 
             if run_once:
-                logging.info("Run once flag is set. Exiting main loop.")
-                break
+                if JOB_FILE.exists():
+                    # If the job file still exists, it means we didn't process it.
+                    # Loop again to attempt processing.
+                    time.sleep(1)
+                    continue
+                else:
+                    # If the job file is gone, it means we've processed it.
+                    logging.info("Job file processed and run_once is true. Exiting.")
+                    break
 
             time.sleep(10)
-            if run_once and not JOB_FILE.exists():
-                 # If we are running once and the job is gone, no need to keep sleeping
-                 logging.info("Job file processed and run_once is true. Exiting.")
-                 break
     finally:
         stop_go_sim_server()
 
