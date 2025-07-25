@@ -46,7 +46,7 @@ JOB_FILE = PARAMS_DIR / 'optimization_job.json'
 SIMULATION_DIR = APP_ROOT / 'simulation'
 CONFIG_TEMPLATE_PATH = PARAMS_DIR / 'trade_config.yaml.template'
 BEST_CONFIG_OUTPUT_PATH = PARAMS_DIR / 'trade_config.yaml'
-STORAGE_URL = os.getenv('STORAGE_URL', f"sqlite:///{PARAMS_DIR / 'optuna_study.db'}")
+STORAGE_URL = os.getenv('STORAGE_URL', "postgresql://user:password@host:port/dbname")
 
 # 最適化設定
 N_TRIALS = config['n_trials']
