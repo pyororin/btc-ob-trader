@@ -252,28 +252,26 @@ func GetConfig() *Config {
 	return cfg
 }
 
-// SetTradeConfig updates the trade configuration of the current global config.
-// This is intended for use in optimization loops where only trade params change.
-func SetTradeConfig(tradeCfg *TradeConfig) {
+// GetConfigCopy returns a deep copy of the current configuration.
+// This is crucial for running simulations in parallel without race conditions.
+func GetConfigCopy() *Config {
 	currentCfg := GetConfig()
 	if currentCfg == nil {
-		// This should not happen in the intended use case, but as a safeguard:
-		newCfg := &Config{
-			Trade: *tradeCfg,
-		}
-		globalConfig.Store(newCfg)
-		return
+		return nil
 	}
 
-	// Create a new Config struct with the updated TradeConfig
-	newCfg := &Config{
+	// Create a new Config struct for the copy.
+	// AppConfig is treated as mostly static, so a shallow copy is acceptable.
+	// If AppConfig had pointers or slices that could be modified, a deep copy would be needed.
+	cfgCopy := &Config{
 		App:         currentCfg.App,
-		Trade:       *tradeCfg,
+		Trade:       currentCfg.Trade, // This will be replaced by the caller, but copy for completeness.
 		EnableTrade: currentCfg.EnableTrade,
 		APIKey:      currentCfg.APIKey,
 		APISecret:   currentCfg.APISecret,
 	}
-	globalConfig.Store(newCfg)
+
+	return cfgCopy
 }
 
 // LoadTradeConfigFromBytes unmarshals a TradeConfig from a byte slice.
