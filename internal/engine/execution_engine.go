@@ -100,6 +100,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 		maxAllowedPositionValue := currentJpy * cfg.Trade.Risk.MaxPositionRatio
 		if prospectivePositionValueJPY > maxAllowedPositionValue {
 			msg := fmt.Sprintf("risk check failed: prospective position value %.2f JPY exceeds max_position_ratio (%.2f) of balance (%.2f JPY)", prospectivePositionValueJPY, cfg.Trade.Risk.MaxPositionRatio, currentJpy)
+			e.sendAlert(msg)
 			return nil, &RiskCheckError{Message: msg}
 		}
 	}
@@ -118,6 +119,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 		}
 		if cfg.Trade.Risk.MaxDrawdownPercent > 0 && drawdownPercent >= cfg.Trade.Risk.MaxDrawdownPercent {
 			msg := fmt.Sprintf("risk check failed: current drawdown %.2f%% exceeds max_drawdown_percent %.2f%% (PnL: %.2f, Capital: %.2f)", drawdownPercent, cfg.Trade.Risk.MaxDrawdownPercent, totalPnL, currentJpy)
+			e.sendAlert(msg)
 			return nil, &RiskCheckError{Message: msg}
 		}
 	}
@@ -177,6 +179,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	// coincheckの最小注文単位（0.001BTC）を下回っていないか確認
 	if adjustedAmount < 0.001 {
 		msg := fmt.Sprintf("order amount %.8f is below the minimum required amount of 0.001 BTC", adjustedAmount)
+		e.sendAlert(msg)
 		return nil, &RiskCheckError{Message: msg}
 	}
 
@@ -202,6 +205,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 		return orderResp, fmt.Errorf("failed to place order: %s", orderResp.Error)
 	}
 	logger.Infof("[Live] Order placed successfully: ID=%d", orderResp.ID)
+	e.sendAlert(fmt.Sprintf("Order placed successfully: ID=%d, Type=%s, Rate=%.2f, Amount=%.8f", orderResp.ID, req.OrderType, req.Rate, req.Amount))
 
 	// Monitor for execution
 	pollInterval := time.Duration(cfg.App.Order.PollIntervalMs) * time.Millisecond
@@ -214,9 +218,11 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 		case <-ctx.Done():
 			// Timeout reached, cancel the order
 			logger.Warnf("[Live] Order ID %d did not fill within %v. Cancelling.", orderResp.ID, timeout)
+			e.sendAlert(fmt.Sprintf("Order Timeout: ID=%d did not fill within %v. Cancelling.", orderResp.ID, timeout))
 			_, cancelErr := e.CancelOrder(context.Background(), orderResp.ID) // Use a new context for cancellation
 			if cancelErr != nil {
 				logger.Warnf("[Live] Failed to cancel order ID %d: %v", orderResp.ID, cancelErr)
+				e.sendAlert(fmt.Sprintf("Failed to cancel order ID %d: %v", orderResp.ID, cancelErr))
 				// Even if cancellation fails, we log the attempt as a cancelled trade
 			}
 
@@ -252,6 +258,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 			for _, tx := range transactions.Transactions {
 				if tx.OrderID == orderResp.ID {
 					logger.Infof("[Live] Order ID %d confirmed as filled (Transaction ID: %d).", orderResp.ID, tx.ID)
+					e.sendAlert(fmt.Sprintf("Order filled: ID=%d, TransactionID=%d, Type=%s, Rate=%s, Amount=%s", orderResp.ID, tx.ID, tx.Side, tx.Rate, orderResp.Amount))
 
 					// Parse transaction details
 					price, _ := strconv.ParseFloat(tx.Rate, 64)
