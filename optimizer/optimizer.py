@@ -306,6 +306,13 @@ def objective(trial, min_trades_for_pruning: int):
     else:
         sqn = -1.0  # Assign a poor score for no trades or invalid SR
 
+    # Report the final value to the pruner
+    trial.report(sqn, 1)
+
+    # Check if the trial should be pruned
+    if trial.should_prune():
+        raise optuna.exceptions.TrialPruned()
+
     return sqn
 
 
@@ -361,14 +368,17 @@ def main():
             min_trades_for_pruning = job.get('min_trades', MIN_TRADES_FOR_PRUNING)
             logging.info(f"Using manual pruning with min_trades = {min_trades_for_pruning}")
 
-            # Remove old study DB
-            if os.path.exists(STORAGE_URL.replace('sqlite:///', '')):
-                os.remove(STORAGE_URL.replace('sqlite:///', ''))
-
+            pruner = HyperbandPruner(
+                min_resource=1,
+                max_resource='auto',
+                reduction_factor=3
+            )
             study = optuna.create_study(
                 study_name='obi-scalp-optimization',
                 storage=STORAGE_URL,
-                direction='maximize' # Single objective: SQN
+                direction='maximize', # Single objective: SQN
+                load_if_exists=True,
+                pruner=pruner
             )
             catch_exceptions = (
                 sqlalchemy.exc.OperationalError,

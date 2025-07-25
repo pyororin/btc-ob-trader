@@ -23,5 +23,12 @@ WORKDIR /app
 COPY optimizer/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Set environment variables to control thread usage by numerical libraries
+ENV OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    VECLIB_MAXIMUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1
+
 # Copy the entire source code
 COPY . .
