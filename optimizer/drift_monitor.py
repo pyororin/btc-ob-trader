@@ -152,14 +152,14 @@ def get_performance_metrics(conn, hours):
         logging.error(f"Database error in get_performance_metrics: {e}")
         conn.rollback()  # Rollback on error
 
-    # Fallback to simulated data if query fails or returns no data
+    # Fallback to zero-values if query fails or returns no data
     logging.warning(
-        f"Could not get metrics for last {hours}h. Using mock data."
+        f"Could not get metrics for last {hours}h. Returning zero values."
     )
     return {
-        "sharpe_ratio": 0.8,
-        "profit_factor": 1.1,
-        "max_drawdown": 0.05
+        "sharpe_ratio": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown": 0.0
     }
 
 
@@ -216,11 +216,11 @@ def get_moving_averages(conn):
         logging.error(f"Database error in get_moving_averages: {e}")
         conn.rollback()
 
-    # Fallback to simulated data if query fails or returns no data
-    logging.warning("Could not retrieve moving averages. Using mock data.")
+    # Fallback to zero-values if query fails or returns no data
+    logging.warning("Could not retrieve moving averages. Returning zero values.")
     return {
-        "sharpe_ratio_mu": 1.0,
-        "sharpe_ratio_sigma": 0.4
+        "sharpe_ratio_mu": 0.0,
+        "sharpe_ratio_sigma": 0.1  # Use a small non-zero sigma to avoid division by zero
     }
 
 
