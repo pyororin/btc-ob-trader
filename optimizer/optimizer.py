@@ -1,7 +1,7 @@
 import yaml
 import optuna
 import numpy as np
-from optuna.pruners import BasePruner, HyperbandPruner
+from optuna.pruners import HyperbandPruner
 import sqlalchemy
 import sqlite3
 import subprocess
@@ -14,6 +14,8 @@ from datetime import datetime, timedelta
 from jinja2 import Template
 from pathlib import Path
 import shutil
+from sklearn.preprocessing import MinMaxScaler
+
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -84,11 +86,6 @@ def export_data(hours_before, is_oos_split=False, oos_hours=0):
     SIMULATION_DIR.mkdir()
 
     # Base command
-    db_user = os.getenv('DB_USER')
-    db_password = os.getenv('DB_PASSWORD')
-    db_name = os.getenv('DB_NAME')
-    db_host = os.getenv('DB_HOST')
-
     cmd = [
         'go',
         'run',
@@ -266,6 +263,73 @@ def progress_callback(study, trial):
             logging.info(f"Trial {trial.number}: No best trial available yet.")
 
 
+def calculate_max_drawdown(pnl_history):
+    """Calculates the maximum drawdown from a PnL history."""
+    if not pnl_history:
+        return 0.0
+
+    pnl_array = np.array(pnl_history)
+    cumulative_pnl = np.cumsum(pnl_array)
+    peak = np.maximum.accumulate(cumulative_pnl)
+    drawdown = peak - cumulative_pnl
+    max_drawdown = np.max(drawdown)
+
+    return float(max_drawdown)
+
+class ObjectiveMetrics:
+    """A simple class to hold and scale metrics for the objective function."""
+    def __init__(self, weights):
+        self.weights = weights
+        self.metrics = {
+            'sharpe_ratio': [],
+            'profit_factor': [],
+            'max_drawdown': [],
+            'sqn': []
+        }
+        self.scalers = {
+            'sharpe_ratio': MinMaxScaler(),
+            'profit_factor': MinMaxScaler(),
+            'max_drawdown': MinMaxScaler(), # We will scale drawdown so smaller is better
+            'sqn': MinMaxScaler()
+        }
+
+    def add(self, trial_metrics):
+        for key in self.metrics:
+            if key in trial_metrics:
+                self.metrics[key].append(trial_metrics[key])
+
+    def fit_scalers(self):
+        for key, values in self.metrics.items():
+            if values:
+                # Scaler expects a 2D array
+                self.scalers[key].fit(np.array(values).reshape(-1, 1))
+
+    def calculate_objective(self, trial_metrics):
+        scaled_values = {}
+        for key, scaler in self.scalers.items():
+            value = trial_metrics.get(key, 0.0)
+            if scaler.max_ is not None and scaler.min_ is not None and scaler.max_ != scaler.min_:
+                 # Scaler expects a 2D array
+                scaled_value = scaler.transform(np.array([[value]]))[0][0]
+            else:
+                scaled_value = 0.5 # Default value if scaling is not possible
+
+            # For drawdown, a smaller value is better. We invert the score.
+            if key == 'max_drawdown':
+                scaled_value = 1.0 - scaled_value
+
+            scaled_values[key] = scaled_value
+
+        # Calculate weighted average
+        objective_value = 0.0
+        total_weight = 0.0
+        for key, weight in self.weights.items():
+            objective_value += scaled_values.get(key, 0.0) * weight
+            total_weight += weight
+
+        return objective_value / total_weight if total_weight > 0 else 0.0
+
+
 def objective(trial, study, min_trades_for_pruning: int):
     """Optuna objective function."""
     params = {
@@ -301,42 +365,46 @@ def objective(trial, study, min_trades_for_pruning: int):
         'risk_max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.5, 0.9),
     }
 
-    # The CURRENT_SIM_CSV_PATH is now passed to run_simulation directly
-    # The objective function itself doesn't need to know which CSV is being used.
     summary = run_simulation(params, study.user_attrs.get('current_csv_path'))
 
-
     if not isinstance(summary, dict) or not summary:
-        return -1.0 # Return a poor score
+        return 0.0 # Return a neutral score
 
     total_trades = summary.get('TotalTrades', 0)
     sharpe_ratio = summary.get('SharpeRatio', 0.0)
+    profit_factor = summary.get('ProfitFactor', 0.0)
+    pnl_history = summary.get('PnlHistory', [])
+    max_drawdown = calculate_max_drawdown(pnl_history)
+
+    # Calculate SQN for logging, but it's not the main objective anymore
+    sqn = sharpe_ratio * np.sqrt(total_trades) if total_trades > 0 and sharpe_ratio is not None else 0.0
 
     # Store all metrics in user_attrs for later analysis
     trial.set_user_attr("trades", total_trades)
     trial.set_user_attr("sharpe_ratio", sharpe_ratio)
-    trial.set_user_attr("profit_factor", summary.get('ProfitFactor', 0.0))
+    trial.set_user_attr("profit_factor", profit_factor)
+    trial.set_user_attr("max_drawdown", max_drawdown)
+    trial.set_user_attr("sqn", sqn)
 
-
-    # Manual Pruning
+    # Pruning based on trade count
     if total_trades < min_trades_for_pruning:
         logging.debug(f"Trial {trial.number} pruned with {total_trades} trades (min: {min_trades_for_pruning}).")
         raise optuna.exceptions.TrialPruned()
 
-    # Calculate SQN
-    if total_trades > 0 and sharpe_ratio is not None:
-        sqn = sharpe_ratio * np.sqrt(total_trades)
-    else:
-        sqn = -1.0  # Assign a poor score for no trades or invalid SR
+    # --- New Objective Calculation ---
+    # The new objective is calculated *after* the study has run,
+    # so for the first trial, we can't calculate a scaled objective.
+    # We will use SQN as an intermediate value for the pruner.
+    # The final "best" trial will be re-evaluated based on the new objective.
+    intermediate_value_for_pruner = sqn
+    trial.report(intermediate_value_for_pruner, 1)
 
-    # Report the final value to the pruner
-    trial.report(sqn, 1)
-
-    # Check if the trial should be pruned
     if trial.should_prune():
         raise optuna.exceptions.TrialPruned()
 
-    return sqn
+    # We return the intermediate value. The "real" objective value will be calculated
+    # after the optimization is complete.
+    return intermediate_value_for_pruner
 
 
 def main(run_once=False):
@@ -384,13 +452,15 @@ def main(run_once=False):
                 continue
 
             # --- Setup Study ---
-            pruner = HyperbandPruner(min_resource=1, max_resource=100, reduction_factor=3)
+            pruner = HyperbandPruner(min_resource=5, max_resource=100, reduction_factor=3)
+            sampler = optuna.samplers.CmaEsSampler()
             study = optuna.create_study(
                 study_name='obi-scalp-optimization',
                 storage=STORAGE_URL,
                 direction='maximize',
                 load_if_exists=True,
-                pruner=pruner
+                pruner=pruner,
+                sampler=sampler
             )
             catch_exceptions = (sqlalchemy.exc.OperationalError, optuna.exceptions.StorageInternalError, sqlite3.OperationalError)
             min_trades_for_pruning = job.get('min_trades', MIN_TRADES_FOR_PRUNING)
@@ -409,11 +479,52 @@ def main(run_once=False):
             )
 
             try:
-                best_trial = study.best_trial
+                # --- Post-optimization Analysis with New Objective ---
+                logging.info("Optimization finished. Calculating final objective scores.")
+
+                # Retrieve all completed trials
+                completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+                if not completed_trials:
+                    raise ValueError("No trials were completed successfully.")
+
+                # Initialize the objective metrics calculator
+                objective_weights = config.get('objective_weights', {
+                    'sharpe_ratio': 1.0, 'profit_factor': 1.0, 'max_drawdown': 1.0, 'sqn': 0.5
+                })
+                metrics_calculator = ObjectiveMetrics(weights=objective_weights)
+
+                # First pass: collect all metrics to fit the scalers
+                for trial in completed_trials:
+                    metrics_calculator.add(trial.user_attrs)
+
+                metrics_calculator.fit_scalers()
+
+                # Second pass: calculate the new objective score for each trial
+                scored_trials = []
+                for trial in completed_trials:
+                    final_score = metrics_calculator.calculate_objective(trial.user_attrs)
+                    scored_trials.append((trial, final_score))
+
+                # Sort trials by the new score in descending order
+                scored_trials.sort(key=lambda x: x[1], reverse=True)
+
+                best_trial, best_score = scored_trials[0]
+
+                # Update the study's user attributes with the best trial according to the new objective
+                study.set_user_attr("best_trial_by_custom_objective", {
+                    "number": best_trial.number,
+                    "value": best_score,
+                    "params": best_trial.params,
+                    "user_attrs": best_trial.user_attrs
+                })
+
                 logging.info(
-                    f"Best IS trial found: Trial {best_trial.number} -> "
-                    f"SQN: {best_trial.value:.2f}, PF: {best_trial.user_attrs.get('profit_factor', 0.0):.2f}, "
-                    f"SR: {best_trial.user_attrs.get('sharpe_ratio', 0.0):.2f}, Trades: {best_trial.user_attrs.get('trades', 0)}"
+                    f"Best trial by custom objective: Trial #{best_trial.number} -> "
+                    f"Score: {best_score:.4f}, "
+                    f"SQN: {best_trial.user_attrs.get('sqn', 0.0):.2f}, "
+                    f"PF: {best_trial.user_attrs.get('profit_factor', 0.0):.2f}, "
+                    f"SR: {best_trial.user_attrs.get('sharpe_ratio', 0.0):.2f}, "
+                    f"Trades: {best_trial.user_attrs.get('trades', 0)}"
                 )
 
                 # --- Parameter Analysis and OOS Validation ---
@@ -443,7 +554,7 @@ def main(run_once=False):
                     selected_params = best_trial.params
 
                 # --- Run OOS validation on the selected parameters ---
-                logging.info(f"--- Running OOS Validation with selected parameters ---")
+                logging.info("--- Running OOS Validation with selected parameters ---")
                 oos_summary = run_simulation(selected_params, oos_csv_path)
 
                 if isinstance(oos_summary, dict) and oos_summary:
@@ -471,16 +582,16 @@ def main(run_once=False):
                 # --- Save History ---
                 final_summary = best_oos_summary if oos_validation_passed else {}
 
-                # If the robust params were used, the concept of a single "best trial" for IS is less clear.
-                # We log the performance of the actual best IS trial for reference.
+                # Log the performance of the best trial found by the custom objective
                 is_trial_for_logging = best_trial
+                is_objective_score = best_score # The score from our custom objective
 
                 history = {
                     "time": time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(job['timestamp'])),
                     "trigger_type": job['trigger_type'],
                     "is_hours": is_hours,
                     "oos_hours": oos_hours,
-                    "is_sqn": is_trial_for_logging.value,
+                    "is_sqn": is_objective_score, # Storing the new objective score here
                     "is_profit_factor": is_trial_for_logging.user_attrs.get('profit_factor', 0.0),
                     "is_sharpe_ratio": is_trial_for_logging.user_attrs.get('sharpe_ratio', 0.0),
                     "is_total_trades": is_trial_for_logging.user_attrs.get('trades', 0),
