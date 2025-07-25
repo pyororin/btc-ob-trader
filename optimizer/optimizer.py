@@ -528,45 +528,63 @@ def main(run_once=False):
                 )
 
                 # --- Parameter Analysis and OOS Validation ---
-                logging.info("Starting parameter analysis to find robust parameters...")
+                logging.info("Starting parameter analysis and OOS validation...")
                 oos_validation_passed = False
                 best_oos_summary = None
                 selected_params = None
-                retries_attempted = 1 # We only make one attempt now
+                final_is_trial = None # The IS trial that passed OOS validation
+                retries_attempted = 0
+
+                # Create a list of candidates for OOS validation
+                # Start with the analyzer's recommendation, then fall back to top trials
+                oos_candidates = []
 
                 try:
-                    # Execute the analyzer script
                     analyzer_command = ['python3', str(APP_ROOT / 'optimizer' / 'analyzer.py')]
-                    result = subprocess.run(
-                        analyzer_command,
-                        capture_output=True,
-                        text=True,
-                        check=True,
-                        cwd=APP_ROOT
-                    )
+                    result = subprocess.run(analyzer_command, capture_output=True, text=True, check=True, cwd=APP_ROOT)
                     robust_params = json.loads(result.stdout)
-                    logging.info(f"Analyzer recommended robust parameters: {robust_params}")
-                    selected_params = robust_params
-
+                    logging.info("Analyzer recommended robust parameters as first candidate.")
+                    # The "trial" for robust params is a synthetic one. We use the best IS trial for logging purposes.
+                    oos_candidates.append({'params': robust_params, 'trial': best_trial, 'source': 'analyzer'})
                 except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
-                    logging.error(f"Parameter analysis failed: {e}. Falling back to best IS trial.")
-                    # If analysis fails, fall back to the best trial from IS
-                    selected_params = best_trial.params
+                    logging.warning(f"Parameter analysis failed: {e}. Proceeding with top IS trials only.")
 
-                # --- Run OOS validation on the selected parameters ---
-                logging.info("--- Running OOS Validation with selected parameters ---")
-                oos_summary = run_simulation(selected_params, oos_csv_path)
+                # Add the top trials from the IS optimization to the candidate list
+                for rank, (trial, score) in enumerate(scored_trials):
+                     oos_candidates.append({'params': trial.params, 'trial': trial, 'source': f'is_rank_{rank+1}'})
 
-                if isinstance(oos_summary, dict) and oos_summary:
+                # --- OOS Validation Loop ---
+                early_stop_trigger_count = 0
+                early_stop_threshold = OOS_MIN_SHARPE_RATIO * EARLY_STOP_THRESHOLD_RATIO
+
+                for i, candidate in enumerate(oos_candidates):
+                    if i >= MAX_RETRY:
+                        logging.warning(f"Reached max_retry limit of {MAX_RETRY}. Stopping OOS validation.")
+                        break
+
+                    retries_attempted += 1
+                    current_params = candidate['params']
+                    current_trial = candidate['trial']
+                    source = candidate['source']
+
+                    logging.info(f"--- Running OOS Validation attempt #{retries_attempted} (source: {source}) ---")
+                    oos_summary = run_simulation(current_params, oos_csv_path)
+
+                    if not isinstance(oos_summary, dict) or not oos_summary:
+                        logging.warning("OOS simulation failed or returned empty results.")
+                        continue
+
                     oos_pf = oos_summary.get('ProfitFactor', 0.0)
                     oos_sharpe = oos_summary.get('SharpeRatio', 0.0)
                     oos_trades = oos_summary.get('TotalTrades', 'N/A')
                     logging.info(f"OOS Result: PF={oos_pf:.2f}, SR={oos_sharpe:.2f}, Trades={oos_trades}")
 
                     if oos_pf >= OOS_MIN_PROFIT_FACTOR and oos_sharpe >= OOS_MIN_SHARPE_RATIO:
-                        logging.info("OOS validation PASSED.")
+                        logging.info(f"OOS validation PASSED for attempt #{retries_attempted}.")
                         oos_validation_passed = True
                         best_oos_summary = oos_summary
+                        selected_params = current_params
+                        final_is_trial = current_trial
                         # Save the successful parameters
                         with open(CONFIG_TEMPLATE_PATH, 'r') as f:
                             template = Template(f.read())
@@ -574,24 +592,50 @@ def main(run_once=False):
                         with open(BEST_CONFIG_OUTPUT_PATH, 'w') as f:
                             f.write(config_str)
                         logging.info(f"Successfully updated {BEST_CONFIG_OUTPUT_PATH}")
+                        break # Exit the loop on success
                     else:
-                        logging.warning("OOS validation FAILED for the robust parameter set.")
-                else:
-                    logging.warning("OOS simulation failed or returned empty results.")
+                        logging.warning(f"OOS validation FAILED for attempt #{retries_attempted}.")
+                        if oos_sharpe < early_stop_threshold:
+                            early_stop_trigger_count += 1
+                            logging.warning(f"Sharpe ratio below early stop threshold. Trigger count: {early_stop_trigger_count}/{EARLY_STOP_COUNT}")
+                        else:
+                             early_stop_trigger_count = 0 # Reset if a trial performs better
+
+                        if early_stop_trigger_count >= EARLY_STOP_COUNT:
+                            logging.error("Early stopping triggered due to consecutively poor OOS performance. Aborting retries.")
+                            break
+
+                if not oos_validation_passed:
+                    logging.error("OOS validation failed for all attempted parameter sets.")
 
                 # --- Save History ---
                 final_summary = best_oos_summary if oos_validation_passed else {}
 
-                # Log the performance of the best trial found by the custom objective
-                is_trial_for_logging = best_trial
-                is_objective_score = best_score # The score from our custom objective
+                # If validation passed, log the trial that was successful.
+                # If not, log the best IS trial as a reference.
+                is_trial_for_logging = final_is_trial if oos_validation_passed else best_trial
+
+                # Find the rank of the successful trial. If analyzer was used, rank is 0.
+                is_rank = 0
+                if oos_validation_passed:
+                    source = next((c['source'] for c in oos_candidates if c['trial'] == final_is_trial), 'unknown')
+                    if source == 'analyzer':
+                        is_rank = 0
+                    else:
+                        try:
+                            is_rank = int(source.split('_')[-1])
+                        except (ValueError, IndexError):
+                            is_rank = -1 # Should not happen
+
+                # The objective score is from the best IS trial, as it represents the peak performance found.
+                is_objective_score = best_score
 
                 history = {
                     "time": time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(job['timestamp'])),
                     "trigger_type": job['trigger_type'],
                     "is_hours": is_hours,
                     "oos_hours": oos_hours,
-                    "is_sqn": float(is_objective_score), # Storing the new objective score here
+                    "is_sqn": float(is_objective_score),
                     "is_profit_factor": float(is_trial_for_logging.user_attrs.get('profit_factor', 0.0)),
                     "is_sharpe_ratio": float(is_trial_for_logging.user_attrs.get('sharpe_ratio', 0.0)),
                     "is_total_trades": int(is_trial_for_logging.user_attrs.get('trades', 0)),
@@ -600,7 +644,7 @@ def main(run_once=False):
                     "oos_total_trades": int(final_summary.get('TotalTrades', 0)),
                     "validation_passed": oos_validation_passed,
                     "best_params": selected_params,
-                    "is_rank": 1, # Concept is now simpler: 1 attempt was made.
+                    "is_rank": is_rank,
                     "retries_attempted": retries_attempted,
                 }
                 save_optimization_history(history)
