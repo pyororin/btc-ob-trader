@@ -25,7 +25,7 @@ RUN set -e \
     && echo "shared_preload_libraries = 'timescaledb'" >> /usr/local/share/postgresql/postgresql.conf.sample
 
 # 4) 初期化スクリプト & ZIP シードデータ
-COPY 20_seed_stream.sh /docker-entrypoint-initdb.d/
+COPY docker/jules/20_seed_stream.sh /docker-entrypoint-initdb.d/
 COPY db/schema/jules/order_book_updates_jules.zip  /seed/order_book_updates_jules.zip
 RUN chmod +x /docker-entrypoint-initdb.d/20_seed_stream.sh
 
