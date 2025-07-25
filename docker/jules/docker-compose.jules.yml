@@ -9,6 +9,10 @@ services:
       - ./db/schema/jules/order_book_updates_jules.zip:/seed/order_book_updates_jules.zip:ro
       # 🔹 DB データ領域をホスト側 named volume へ
       - pgdata_jules:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
 volumes:
   pgdata_jules:
     driver: local
