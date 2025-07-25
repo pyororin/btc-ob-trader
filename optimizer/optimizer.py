@@ -199,75 +199,13 @@ def export_data(hours_before, is_oos_split=False, oos_hours=0):
         logging.error(f"Failed to export data: {e.stderr}")
         return None, None
 
-# Global variable to hold the simulation server process
-SIMULATION_SERVER_PROCESS = None
-
-def start_simulation_server(sim_csv_path: str):
-    """Starts the Go simulation server as a subprocess."""
-    global SIMULATION_SERVER_PROCESS
-    if SIMULATION_SERVER_PROCESS and SIMULATION_SERVER_PROCESS.poll() is None:
-        logging.warning("Simulation server already running.")
-        return
-
-    command = [
-        str(APP_ROOT / 'build' / 'obi-scalp-bot'),
-        '--serve',
-        '--config=config/app_config.yaml',
-        f'--csv={sim_csv_path}'
-    ]
-    logging.info(f"Starting simulation server with command: {' '.join(command)}")
-    SIMULATION_SERVER_PROCESS = subprocess.Popen(
-        command,
-        cwd=APP_ROOT,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1  # Line-buffered
-    )
-    # Wait for the "READY" signal from the server
-    ready_line = SIMULATION_SERVER_PROCESS.stdout.readline()
-    if "READY" not in ready_line:
-        stderr = SIMULATION_SERVER_PROCESS.stderr.read()
-        SIMULATION_SERVER_PROCESS = None
-        raise RuntimeError(f"Simulation server failed to start. STDOUT: {ready_line}, STDERR: {stderr}")
-    logging.info("Simulation server is READY.")
-
-def stop_simulation_server():
-    """Stops the Go simulation server."""
-    global SIMULATION_SERVER_PROCESS
-    if SIMULATION_SERVER_PROCESS:
-        logging.info("Stopping simulation server...")
-        try:
-            # Send EXIT command to gracefully shut down the server
-            SIMULATION_SERVER_PROCESS.stdin.write("EXIT\n")
-            SIMULATION_SERVER_PROCESS.stdin.flush()
-            # Wait for the process to terminate
-            SIMULATION_SERVER_PROCESS.wait(timeout=10)
-        except (subprocess.TimeoutExpired, BrokenPipeError) as e:
-            logging.warning(f"Failed to gracefully stop server, killing it: {e}")
-            SIMULATION_SERVER_PROCESS.kill()
-        finally:
-            SIMULATION_SERVER_PROCESS = None
-            logging.info("Simulation server stopped.")
-
-
 def run_simulation(params, sim_csv_path):
     """
-    Runs a single Go simulation for a given set of parameters using the long-running server.
+    Runs a single Go simulation for a given set of parameters.
     """
-    global SIMULATION_SERVER_PROCESS
-    if not SIMULATION_SERVER_PROCESS or SIMULATION_SERVER_PROCESS.poll() is not None:
-        logging.error("Simulation server is not running. Aborting simulation.")
-        try:
-            start_simulation_server()
-        except Exception as e:
-             logging.error(f"Failed to restart simulation server: {e}")
-             return None
-        return None
-
     temp_config_path = None
     try:
+        # 1. Create a temporary config file from the template and parameters
         with open(CONFIG_TEMPLATE_PATH, 'r') as f:
             template = Template(f.read())
         config_yaml_str = template.render(params)
@@ -276,26 +214,37 @@ def run_simulation(params, sim_csv_path):
             tmp.write(config_yaml_str)
             temp_config_path = tmp.name
 
-        # Send both the config path and the CSV path to the server
-        request_line = f"{temp_config_path},{sim_csv_path}\n"
-        SIMULATION_SERVER_PROCESS.stdin.write(request_line)
-        SIMULATION_SERVER_PROCESS.stdin.flush()
+        # 2. Construct the command to run the Go simulation
+        command = [
+            str(APP_ROOT / 'build' / 'obi-scalp-bot'),
+            '--backtest',
+            f'--config={temp_config_path}',
+            f'--csv={sim_csv_path}',
+            '--summary'
+        ]
 
-        # Read the JSON summary from the server's stdout
-        output_line = SIMULATION_SERVER_PROCESS.stdout.readline()
-        if not output_line:
-            stderr = SIMULATION_SERVER_PROCESS.stderr.read()
-            logging.error(f"No output from simulation server. It might have crashed. STDERR: {stderr}")
-            SIMULATION_SERVER_PROCESS = None
-            return None
+        # 3. Execute the command
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=APP_ROOT
+        )
 
-        return json.loads(output_line)
+        # 4. Parse the JSON output from stdout
+        # The summary is expected to be the last line of the output
+        last_line = result.stdout.strip().split('\n')[-1]
+        return json.loads(last_line)
 
-    except (json.JSONDecodeError, BrokenPipeError) as e:
-        logging.error(f"Failed to run simulation for config {temp_config_path}: {e}")
-        SIMULATION_SERVER_PROCESS = None
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Simulation failed for config {temp_config_path}: {e.stderr}")
+        return None
+    except (json.JSONDecodeError, IndexError) as e:
+        logging.error(f"Failed to parse simulation output for {temp_config_path}: {e}")
         return None
     finally:
+        # 5. Clean up the temporary config file
         if temp_config_path and os.path.exists(temp_config_path):
             os.remove(temp_config_path)
 
@@ -453,9 +402,6 @@ def main(run_once=False):
             min_trades_for_pruning = job.get('min_trades', MIN_TRADES_FOR_PRUNING)
             objective_with_pruning = lambda trial: objective(trial, study, min_trades_for_pruning)
 
-            # --- Start Simulation Server ---
-            start_simulation_server(is_csv_path)
-
             # --- In-Sample Optimization ---
             logging.info(f"Starting In-Sample optimization with {is_csv_path}")
             study.set_user_attr('current_csv_path', str(is_csv_path))
@@ -561,9 +507,6 @@ def main(run_once=False):
         except Exception as e:
             logging.error(f"An unexpected error occurred during the optimization job: {e}", exc_info=True)
         finally:
-            # --- Stop Simulation Server ---
-            stop_simulation_server()
-
             # --- Cleanup ---
             if JOB_FILE.exists():
                 os.remove(JOB_FILE)
