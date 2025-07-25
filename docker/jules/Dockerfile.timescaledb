@@ -3,7 +3,7 @@
 #   イメージサイズ ≈ 300 MB
 #   Jules の 1 GB 制限にフィット
 # ----------------------------------------------------------
-FROM postgres:16-alpine
+FROM postgres:17-alpine
 
 USER root
 
