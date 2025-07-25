@@ -1,6 +1,6 @@
 services:
   timescaledb:
-    image: timescaledb-lite:pg16-alpine
+    image: timescaledb-lite:pg17-alpine
     build:
       context: .
       dockerfile: docker/jules/Dockerfile.timescaledb
