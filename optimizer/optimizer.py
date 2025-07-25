@@ -458,7 +458,7 @@ def main(run_once=False):
                 study_name='obi-scalp-optimization',
                 storage=STORAGE_URL,
                 direction='maximize',
-                load_if_exists=True,
+                load_if_exists=False,
                 pruner=pruner,
                 sampler=sampler
             )
