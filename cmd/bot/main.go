@@ -36,14 +36,19 @@ import (
 	"reflect"
 )
 
+import (
+	"bufio"
+)
+
 type flags struct {
-	configPath    string
+	configPath      string
 	tradeConfigPath string
-	simulateMode  bool
-	csvPath       string
-	jsonOutput    bool
-	cpuProfile    string
-	memProfile    string
+	simulateMode    bool
+	serveMode       bool
+	csvPath         string
+	jsonOutput      bool
+	cpuProfile      string
+	memProfile      string
 }
 
 func main() {
@@ -67,14 +72,17 @@ func main() {
 	defer cancel()
 
 	cfg := setupConfig(f.configPath, f.tradeConfigPath)
-	setupLogger(cfg.App.LogLevel, f.configPath, cfg.Trade.Pair)
+	// In serve mode, we will have minimal logging to avoid polluting stdout
+	if !f.serveMode {
+		setupLogger(cfg.App.LogLevel, f.configPath, cfg.Trade.Pair)
+	}
 	go watchConfigFiles(f.configPath, f.tradeConfigPath)
 
-	if f.simulateMode && f.csvPath == "" {
-		logger.Fatal("CSV file path must be provided in simulation mode using --csv flag")
+	if (f.simulateMode || f.serveMode) && f.csvPath == "" {
+		logger.Fatal("CSV file path must be provided in simulation or serve mode using --csv flag")
 	}
 
-	if !f.simulateMode {
+	if !f.simulateMode && !f.serveMode {
 		startHTTPServer(ctx)
 	}
 
@@ -84,7 +92,7 @@ func main() {
 	signal.Notify(shutdownSigs, syscall.SIGINT, syscall.SIGTERM)
 
 	var dbWriter *dbwriter.Writer
-	if !f.simulateMode {
+	if !f.simulateMode && !f.serveMode {
 		dbWriter = setupDBWriter(ctx)
 		if dbWriter != nil {
 			defer dbWriter.Close()
@@ -119,6 +127,7 @@ func parseFlags() flags {
 	configPath := flag.String("config", "config/app_config.yaml", "Path to the application configuration file")
 	tradeConfigPath := flag.String("trade-config", "/data/params/trade_config.yaml", "Path to the trade configuration file")
 	simulateMode := flag.Bool("simulate", false, "Enable simulation mode from CSV")
+	serveMode := flag.Bool("serve", false, "Enable server mode for optimization")
 	csvPath := flag.String("csv", "", "Path to the trade data CSV file for simulation")
 	jsonOutput := flag.Bool("json-output", false, "Output simulation summary in JSON format")
 	cpuProfile := flag.String("cpuprofile", "", "write cpu profile to `file`")
@@ -128,6 +137,7 @@ func parseFlags() flags {
 		configPath:      *configPath,
 		tradeConfigPath: *tradeConfigPath,
 		simulateMode:    *simulateMode,
+		serveMode:       *serveMode,
 		csvPath:         *csvPath,
 		jsonOutput:      *jsonOutput,
 		cpuProfile:      *cpuProfile,
@@ -525,7 +535,9 @@ func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, pa
 func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs chan<- os.Signal) {
 	cfg := config.GetConfig()
 
-	if f.simulateMode {
+	if f.serveMode {
+		runServerMode(ctx, f, sigs)
+	} else if f.simulateMode {
 		go runSimulation(ctx, f, sigs)
 	} else {
 		// Live trading setup
@@ -936,6 +948,353 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 			}
 		}
 	}()
+}
+
+// runServerMode runs the bot in a loop, accepting new configurations via stdin.
+func runServerMode(ctx context.Context, f flags, sigs chan<- os.Signal) {
+	logger.Info("--- SERVER MODE ---")
+	logger.Infof("CSV File: %s", f.csvPath)
+
+	// Pre-load market events from CSV to memory
+	logger.Info("Pre-loading market data from CSV...")
+	marketEvents, err := datastore.LoadMarketEventsFromCSV(f.csvPath)
+	if err != nil {
+		logger.Fatalf("Failed to load market events from %s: %v", f.csvPath, err)
+	}
+	logger.Infof("Finished loading %d market events.", len(marketEvents))
+
+	// Listen to stdin for new configurations
+	scanner := bufio.NewScanner(os.Stdin)
+	fmt.Println("READY") // Signal to the optimizer that the server is ready
+
+	for scanner.Scan() {
+		cfgBytes := scanner.Bytes()
+		if len(cfgBytes) == 0 {
+			continue
+		}
+
+		// Reload trade config from the received bytes
+		newTradeConfig, err := config.LoadTradeConfigFromBytes(cfgBytes)
+		if err != nil {
+			logger.Warnf("Failed to load trade config from stdin: %v", err)
+			fmt.Println(`{"error": "failed to parse config"}`)
+			continue
+		}
+
+		// Create a new context for this simulation run
+		simCtx, simCancel := context.WithCancel(ctx)
+
+		// Run the simulation with the new config and pre-loaded data
+		summary := runSingleSimulationInMemory(simCtx, newTradeConfig, marketEvents)
+		output, err := json.Marshal(summary)
+		if err != nil {
+			fmt.Printf(`{"error": "failed to marshal summary: %v"}`, err)
+		} else {
+			fmt.Println(string(output))
+		}
+
+		simCancel()
+	}
+
+	if err := scanner.Err(); err != nil {
+		logger.Fatalf("Error reading from stdin: %v", err)
+	}
+
+	logger.Info("Server mode finished.")
+	sigs <- syscall.SIGTERM
+}
+
+// runSingleSimulationInMemory runs a backtest with a given config and pre-loaded market data.
+func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConfig, marketEvents []coincheck.OrderBookData) map[string]interface{} {
+	rand.Seed(1) // Ensure reproducibility
+	config.SetTradeConfig(tradeCfg) // Set the trade config for this run
+	cfg := config.GetConfig()
+
+	orderBook := indicator.NewOrderBook()
+	replayEngine := engine.NewReplayExecutionEngine(orderBook)
+	var execEngine engine.ExecutionEngine = replayEngine
+	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
+	orderBookHandler, _ := setupHandlers(orderBook, nil, cfg.Trade.Pair)
+
+	// We need to manage the signal processing goroutine carefully for each run.
+	simCtx, cancelSim := context.WithCancel(ctx)
+	defer cancelSim()
+	go processSignalsAndExecute(simCtx, obiCalculator, execEngine, nil)
+
+	for _, event := range marketEvents {
+		select {
+		case <-simCtx.Done():
+			logger.Warn("Simulation run cancelled.")
+			return getSimulationSummaryMap(replayEngine)
+		default:
+			orderBookHandler(event)
+			obiCalculator.Calculate(event.Time)
+		}
+	}
+
+	// Allow some time for the last signals to be processed
+	time.Sleep(500 * time.Millisecond)
+
+	return getSimulationSummaryMap(replayEngine)
+}
+
+// getSimulationSummaryMap is a modified version of printSimulationSummary that returns a map.
+func getSimulationSummaryMap(replayEngine *engine.ReplayExecutionEngine) map[string]interface{} {
+	executedTrades := replayEngine.ExecutedTrades
+	totalProfit := replayEngine.GetTotalRealizedPnL()
+	totalTrades := len(executedTrades)
+
+	summary := map[string]interface{}{
+		"TotalProfit":         totalProfit,
+		"TotalTrades":         0,
+		"WinningTrades":       0,
+		"LosingTrades":        0,
+		"WinRate":             0.0,
+		"LongWinningTrades":   0,
+		"LongLosingTrades":    0,
+		"LongWinRate":         0.0,
+		"ShortWinningTrades":  0,
+		"ShortLosingTrades":   0,
+		"ShortWinRate":        0.0,
+		"AverageWin":          0.0,
+		"AverageLoss":         0.0,
+		"RiskRewardRatio":     0.0,
+		"ProfitFactor":        0.0,
+		"MaxDrawdown":         0.0,
+		"RecoveryFactor":      0.0,
+		"SharpeRatio":         0.0,
+		"SortinoRatio":        0.0,
+		"CalmarRatio":         0.0,
+		"MaxConsecutiveWins":  0,
+		"MaxConsecutiveLosses": 0,
+		"AverageHoldingPeriodSeconds": 0.0,
+		"AverageWinningHoldingPeriodSeconds": 0.0,
+		"AverageLosingHoldingPeriodSeconds":  0.0,
+		"BuyAndHoldReturn":    0.0,
+		"ReturnVsBuyAndHold":  0.0,
+	}
+
+	if totalTrades == 0 {
+		return summary
+	}
+
+	var wins, losses, closingTrades int
+	var longWins, longLosses, shortWins, shortLosses int
+	var totalWinAmount, totalLossAmount float64
+	var pnlHistory []float64
+	var holdingPeriods, winningHoldingPeriods, losingHoldingPeriods []float64
+	var consecutiveWins, consecutiveLosses, maxConsecutiveWins, maxConsecutiveLosses int
+	var firstTradeTime, lastTradeTime time.Time
+	var lastPrice float64
+
+	if len(executedTrades) > 0 {
+		firstTradeTime = executedTrades[0].EntryTime
+		if firstTradeTime.IsZero() && len(executedTrades) > 1 {
+			firstTradeTime = executedTrades[1].EntryTime
+		}
+	}
+
+	for _, trade := range executedTrades {
+		if trade.RealizedPnL != 0 {
+			closingTrades++
+			pnlHistory = append(pnlHistory, trade.RealizedPnL)
+
+			if !trade.EntryTime.IsZero() && !trade.ExitTime.IsZero() {
+				holdingPeriod := trade.ExitTime.Sub(trade.EntryTime).Seconds()
+				holdingPeriods = append(holdingPeriods, holdingPeriod)
+				if trade.RealizedPnL > 0 {
+					winningHoldingPeriods = append(winningHoldingPeriods, holdingPeriod)
+				} else {
+					losingHoldingPeriods = append(losingHoldingPeriods, holdingPeriod)
+				}
+			}
+
+			if trade.ExitTime.After(lastTradeTime) {
+				lastTradeTime = trade.ExitTime
+				lastPrice = trade.Price
+			}
+
+			if trade.RealizedPnL > 0 {
+				wins++
+				totalWinAmount += trade.RealizedPnL
+				consecutiveWins++
+				consecutiveLosses = 0
+				if consecutiveWins > maxConsecutiveWins {
+					maxConsecutiveWins = consecutiveWins
+				}
+				if trade.PositionSide == "long" {
+					longWins++
+				} else if trade.PositionSide == "short" {
+					shortWins++
+				}
+			} else {
+				losses++
+				totalLossAmount += trade.RealizedPnL
+				consecutiveLosses++
+				consecutiveWins = 0
+				if consecutiveLosses > maxConsecutiveLosses {
+					maxConsecutiveLosses = consecutiveLosses
+				}
+				if trade.PositionSide == "long" {
+					longLosses++
+				} else if trade.PositionSide == "short" {
+					shortLosses++
+				}
+			}
+		}
+	}
+
+	summary["TotalTrades"] = closingTrades
+	summary["WinningTrades"] = wins
+	summary["LosingTrades"] = losses
+	summary["LongWinningTrades"] = longWins
+	summary["LongLosingTrades"] = longLosses
+	summary["ShortWinningTrades"] = shortWins
+	summary["ShortLosingTrades"] = shortLosses
+	summary["MaxConsecutiveWins"] = maxConsecutiveWins
+	summary["MaxConsecutiveLosses"] = maxConsecutiveLosses
+
+	winRate := 0.0
+	if closingTrades > 0 {
+		winRate = float64(wins) / float64(closingTrades) * 100
+	}
+	summary["WinRate"] = winRate
+
+	longWinRate := 0.0
+	if longWins+longLosses > 0 {
+		longWinRate = float64(longWins) / float64(longWins+longLosses) * 100
+	}
+	summary["LongWinRate"] = longWinRate
+
+	shortWinRate := 0.0
+	if shortWins+shortLosses > 0 {
+		shortWinRate = float64(shortWins) / float64(shortWins+shortLosses) * 100
+	}
+	summary["ShortWinRate"] = shortWinRate
+
+	avgWin := 0.0
+	if wins > 0 {
+		avgWin = totalWinAmount / float64(wins)
+	}
+	summary["AverageWin"] = avgWin
+
+	avgLoss := 0.0
+	if losses > 0 {
+		avgLoss = math.Abs(totalLossAmount / float64(losses))
+	}
+	summary["AverageLoss"] = avgLoss
+
+	riskRewardRatio := 0.0
+	if avgLoss != 0 {
+		riskRewardRatio = avgWin / avgLoss
+	}
+	summary["RiskRewardRatio"] = riskRewardRatio
+
+	profitFactor := 0.0
+	if totalLossAmount != 0 {
+		profitFactor = math.Abs(totalWinAmount / totalLossAmount)
+	} else if totalWinAmount > 0 {
+		profitFactor = 999999 // Representing infinity
+	}
+	summary["ProfitFactor"] = profitFactor
+
+	// Max Drawdown
+	var peakPnl, maxDrawdown float64
+	var currentCumulativePnl float64
+	for _, pnl := range pnlHistory {
+		currentCumulativePnl += pnl
+		if currentCumulativePnl > peakPnl {
+			peakPnl = currentCumulativePnl
+		}
+		drawdown := peakPnl - currentCumulativePnl
+		if drawdown > maxDrawdown {
+			maxDrawdown = drawdown
+		}
+	}
+	summary["MaxDrawdown"] = maxDrawdown
+
+	recoveryFactor := 0.0
+	if maxDrawdown > 0 {
+		recoveryFactor = totalProfit / maxDrawdown
+	}
+	summary["RecoveryFactor"] = recoveryFactor
+
+	// Sharpe Ratio
+	sharpeRatio := 0.0
+	if len(pnlHistory) > 1 {
+		mean := totalProfit / float64(len(pnlHistory))
+		stdDev := 0.0
+		for _, pnl := range pnlHistory {
+			stdDev += math.Pow(pnl-mean, 2)
+		}
+		stdDev = math.Sqrt(stdDev / float64(len(pnlHistory)-1))
+		if stdDev > 0 {
+			sharpeRatio = mean / stdDev
+		}
+	}
+	summary["SharpeRatio"] = sharpeRatio
+
+	// Sortino Ratio
+	sortinoRatio := 0.0
+	if len(pnlHistory) > 1 {
+		mean := totalProfit / float64(len(pnlHistory))
+		downsideDeviation := 0.0
+		downsideCount := 0
+		for _, pnl := range pnlHistory {
+			if pnl < mean {
+				downsideDeviation += math.Pow(pnl-mean, 2)
+				downsideCount++
+			}
+		}
+		if downsideCount > 1 {
+			downsideDeviation = math.Sqrt(downsideDeviation / float64(downsideCount-1))
+			if downsideDeviation > 0 {
+				sortinoRatio = mean / downsideDeviation
+			}
+		}
+	}
+	summary["SortinoRatio"] = sortinoRatio
+
+	// Calmar Ratio
+	calmarRatio := 0.0
+	if maxDrawdown > 0 {
+		calmarRatio = totalProfit / maxDrawdown
+	}
+	summary["CalmarRatio"] = calmarRatio
+
+	avgHoldingPeriod, avgWinningHoldingPeriod, avgLosingHoldingPeriod := 0.0, 0.0, 0.0
+	if len(holdingPeriods) > 0 {
+		sum := 0.0
+		for _, hp := range holdingPeriods { sum += hp }
+		avgHoldingPeriod = sum / float64(len(holdingPeriods))
+	}
+	summary["AverageHoldingPeriodSeconds"] = avgHoldingPeriod
+	if len(winningHoldingPeriods) > 0 {
+		sum := 0.0
+		for _, hp := range winningHoldingPeriods { sum += hp }
+		avgWinningHoldingPeriod = sum / float64(len(winningHoldingPeriods))
+	}
+	summary["AverageWinningHoldingPeriodSeconds"] = avgWinningHoldingPeriod
+	if len(losingHoldingPeriods) > 0 {
+		sum := 0.0
+		for _, hp := range losingHoldingPeriods { sum += hp }
+		avgLosingHoldingPeriod = sum / float64(len(losingHoldingPeriods))
+	}
+	summary["AverageLosingHoldingPeriodSeconds"] = avgLosingHoldingPeriod
+
+	// Buy & Hold Return
+	buyAndHoldReturn := 0.0
+	initialPrice := 0.0
+	if len(executedTrades) > 0 {
+		initialPrice = executedTrades[0].Price
+	}
+	if initialPrice > 0 && lastPrice > 0 {
+		buyAndHoldReturn = lastPrice - initialPrice
+	}
+	summary["BuyAndHoldReturn"] = buyAndHoldReturn
+	summary["ReturnVsBuyAndHold"] = totalProfit - buyAndHoldReturn
+
+	return summary
 }
 
 // orderMonitor periodically checks open orders and adjusts them if necessary.

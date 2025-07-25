@@ -278,6 +278,7 @@ def main():
         # --- メインループ ---
         while True:
             logging.info("--- Running Drift Check ---")
+            detected_drifts = []
 
             # 1. 現在のパフォーマンス指標を取得
             # 中期的なパフォーマンス（1時間）
@@ -305,14 +306,12 @@ def main():
                         f"Z-score={z_score:.2f} < {SHARPE_DRIFT_THRESHOLD_SD}"
                     )
                     logging.warning(log_msg)
-                    # → 軽微なドリフトと判断し、比較的短い期間で再最適化をトリガー
-                    #    - IS (In-Sample): 2時間, OOS (Out-of-Sample): 30分
-                    trigger_optimization(
-                        "sharpe_drift_short_term",
-                        "minor",
-                        window_is=2,
-                        window_oos=0.5
-                    )
+                    detected_drifts.append({
+                        "trigger_type": "sharpe_drift_short_term",
+                        "severity": "minor",
+                        "window_is": 2,
+                        "window_oos": 0.5
+                    })
 
                 # --- 条件2: 緊急レベルのシャープレシオ低下（深刻なドリフト）---
                 # 1時間と15分の両方のZスコアを計算
@@ -332,14 +331,12 @@ def main():
                         f"1h Z={z_1h:.2f}, 15m Z={z_15m:.2f}"
                     )
                     logging.critical(log_msg)
-                    # → 市場の急変と判断し、非常に短い期間で迅速に再最適化をトリガー
-                    #    - IS: 60分, OOS: 10分
-                    trigger_optimization(
-                        "sharpe_emergency_drop",
-                        "major",
-                        window_is=1,
-                        window_oos=10/60
-                    )
+                    detected_drifts.append({
+                        "trigger_type": "sharpe_emergency_drop",
+                        "severity": "major",
+                        "window_is": 1,
+                        "window_oos": 10/60
+                    })
 
             # --- 条件3: プロフィットファクターの悪化（安定性の低下）---
             # 直近1時間のプロフィットファクターが閾値を下回ったか？
@@ -350,13 +347,26 @@ def main():
                     f"{PF_DRIFT_THRESHOLD}"
                 )
                 logging.warning(log_msg)
-                # → 定期的なパラメータ更新と判断し、標準的な期間で再最適化をトリガー
-                #    - IS: 4時間, OOS: 1時間
+                detected_drifts.append({
+                    "trigger_type": "profit_factor_drift",
+                    "severity": "normal",
+                    "window_is": 4,
+                    "window_oos": 1
+                })
+
+            # 4. 最も優先度の高いドリフトに基づいて最適化をトリガー
+            if detected_drifts:
+                # "major", "normal", "minor" の順で優先度を決定
+                severity_order = {"major": 0, "normal": 1, "minor": 2}
+                best_drift = min(
+                    detected_drifts,
+                    key=lambda x: severity_order[x['severity']]
+                )
                 trigger_optimization(
-                    "profit_factor_drift",
-                    "normal",
-                    window_is=4,
-                    window_oos=1
+                    best_drift["trigger_type"],
+                    best_drift["severity"],
+                    best_drift["window_is"],
+                    best_drift["window_oos"]
                 )
 
             # --- 次のチェックまで待機 ---

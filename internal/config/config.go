@@ -62,6 +62,7 @@ type AlertConfig struct {
 
 // DiscordConfig holds Discord notification settings.
 type DiscordConfig struct {
+	Enabled  bool   `yaml:"enabled"`
 	BotToken string `yaml:"bot_token"`
 	UserID   string `yaml:"user_id"`
 }
@@ -249,4 +250,37 @@ func ReloadConfig(appConfigPath, tradeConfigPath string) (*Config, error) {
 func GetConfig() *Config {
 	cfg, _ := globalConfig.Load().(*Config)
 	return cfg
+}
+
+// SetTradeConfig updates the trade configuration of the current global config.
+// This is intended for use in optimization loops where only trade params change.
+func SetTradeConfig(tradeCfg *TradeConfig) {
+	currentCfg := GetConfig()
+	if currentCfg == nil {
+		// This should not happen in the intended use case, but as a safeguard:
+		newCfg := &Config{
+			Trade: *tradeCfg,
+		}
+		globalConfig.Store(newCfg)
+		return
+	}
+
+	// Create a new Config struct with the updated TradeConfig
+	newCfg := &Config{
+		App:         currentCfg.App,
+		Trade:       *tradeCfg,
+		EnableTrade: currentCfg.EnableTrade,
+		APIKey:      currentCfg.APIKey,
+		APISecret:   currentCfg.APISecret,
+	}
+	globalConfig.Store(newCfg)
+}
+
+// LoadTradeConfigFromBytes unmarshals a TradeConfig from a byte slice.
+func LoadTradeConfigFromBytes(data []byte) (*TradeConfig, error) {
+	var tradeCfg TradeConfig
+	if err := yaml.Unmarshal(data, &tradeCfg); err != nil {
+		return nil, err
+	}
+	return &tradeCfg, nil
 }

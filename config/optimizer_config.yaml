@@ -10,7 +10,7 @@ check_interval_seconds: 600
 # パラメータファイルやデータベースが保存されるディレクトリのパス。
 # 環境変数 'PARAMS_DIR' が設定されていればそちらを優先します。
 # 例: /data/params
-params_dir: '/data/params'
+params_dir: 'data/params'
 
 # --- 最適化設定 ---
 # Optunaが試行する回数。
