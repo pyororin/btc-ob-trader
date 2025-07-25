@@ -308,7 +308,7 @@ class ObjectiveMetrics:
         scaled_values = {}
         for key, scaler in self.scalers.items():
             value = trial_metrics.get(key, 0.0)
-            if scaler.max_ is not None and scaler.min_ is not None and scaler.max_ != scaler.min_:
+            if hasattr(scaler, 'data_max_') and hasattr(scaler, 'data_min_') and scaler.data_max_ is not None and scaler.data_min_ is not None and scaler.data_max_ != scaler.data_min_:
                  # Scaler expects a 2D array
                 scaled_value = scaler.transform(np.array([[value]]))[0][0]
             else:
