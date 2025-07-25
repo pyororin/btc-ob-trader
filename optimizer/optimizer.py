@@ -202,7 +202,7 @@ def export_data(hours_before, is_oos_split=False, oos_hours=0):
 # Global variable to hold the simulation server process
 SIMULATION_SERVER_PROCESS = None
 
-def start_simulation_server():
+def start_simulation_server(sim_csv_path: str):
     """Starts the Go simulation server as a subprocess."""
     global SIMULATION_SERVER_PROCESS
     if SIMULATION_SERVER_PROCESS and SIMULATION_SERVER_PROCESS.poll() is None:
@@ -212,7 +212,8 @@ def start_simulation_server():
     command = [
         str(APP_ROOT / 'build' / 'obi-scalp-bot'),
         '--serve',
-        '--config=config/app_config.yaml'
+        '--config=config/app_config.yaml',
+        f'--csv={sim_csv_path}'
     ]
     logging.info(f"Starting simulation server with command: {' '.join(command)}")
     SIMULATION_SERVER_PROCESS = subprocess.Popen(
@@ -222,7 +223,7 @@ def start_simulation_server():
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        bufsize=1 # Line-buffered
+        bufsize=1  # Line-buffered
     )
     # Wait for the "READY" signal from the server
     ready_line = SIMULATION_SERVER_PROCESS.stdout.readline()
@@ -453,7 +454,7 @@ def main(run_once=False):
             objective_with_pruning = lambda trial: objective(trial, min_trades_for_pruning)
 
             # --- Start Simulation Server ---
-            start_simulation_server()
+            start_simulation_server(is_csv_path)
 
             # --- In-Sample Optimization ---
             logging.info(f"Starting In-Sample optimization with {is_csv_path}")
