@@ -62,6 +62,7 @@ type AlertConfig struct {
 
 // DiscordConfig holds Discord notification settings.
 type DiscordConfig struct {
+	Enabled  bool   `yaml:"enabled"`
 	BotToken string `yaml:"bot_token"`
 	UserID   string `yaml:"user_id"`
 }
