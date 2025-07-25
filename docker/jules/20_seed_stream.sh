@@ -23,15 +23,14 @@ CREATE TABLE IF NOT EXISTS order_book_updates (
 EOSQL
 
 unzip -p "$DATA_ZIP" \
-| awk '
-  NR==1 { print; next }
+| awk -F, -v OFS=',' '
+  NR == 1 { print; next }
   {
-    gsub(/ +/, ",");
-    sub(/,/, "T");
+    gsub(/ /, "T", $1);
     print
   }
 ' \
-| psql --username="$POSTGros_USER" --dbname="$POSTGRES_DB" \
-       -c "\COPY order_book_updates (time,pair,side,price,size,is_snapshot) FROM STDIN CSV HEADER"
+| psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" \
+  -c "\COPY order_book_updates (time,pair,side,price,size,is_snapshot) FROM STDIN CSV HEADER"
 
 echo "✅  Seed completed"
