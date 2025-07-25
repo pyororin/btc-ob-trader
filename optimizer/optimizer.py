@@ -591,13 +591,13 @@ def main(run_once=False):
                     "trigger_type": job['trigger_type'],
                     "is_hours": is_hours,
                     "oos_hours": oos_hours,
-                    "is_sqn": is_objective_score, # Storing the new objective score here
-                    "is_profit_factor": is_trial_for_logging.user_attrs.get('profit_factor', 0.0),
-                    "is_sharpe_ratio": is_trial_for_logging.user_attrs.get('sharpe_ratio', 0.0),
-                    "is_total_trades": is_trial_for_logging.user_attrs.get('trades', 0),
-                    "oos_profit_factor": final_summary.get('ProfitFactor', 0.0),
-                    "oos_sharpe_ratio": final_summary.get('SharpeRatio', 0.0),
-                    "oos_total_trades": final_summary.get('TotalTrades', 0),
+                    "is_sqn": float(is_objective_score), # Storing the new objective score here
+                    "is_profit_factor": float(is_trial_for_logging.user_attrs.get('profit_factor', 0.0)),
+                    "is_sharpe_ratio": float(is_trial_for_logging.user_attrs.get('sharpe_ratio', 0.0)),
+                    "is_total_trades": int(is_trial_for_logging.user_attrs.get('trades', 0)),
+                    "oos_profit_factor": float(final_summary.get('ProfitFactor', 0.0)),
+                    "oos_sharpe_ratio": float(final_summary.get('SharpeRatio', 0.0)),
+                    "oos_total_trades": int(final_summary.get('TotalTrades', 0)),
                     "validation_passed": oos_validation_passed,
                     "best_params": selected_params,
                     "is_rank": 1, # Concept is now simpler: 1 attempt was made.
