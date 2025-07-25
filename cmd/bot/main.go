@@ -444,7 +444,7 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 						}
 
 						logger.Infof("Executing trade for signal: %s. %s", tradingSignal.Type.String(), orderLogMsg)
-						orderAmount := 0.01
+						orderAmount := currentCfg.Trade.OrderAmount
 
 						if currentCfg.Trade.Twap.Enabled && orderAmount > currentCfg.Trade.Twap.MaxOrderSizeBtc {
 							logger.Infof("Order amount %.8f exceeds max size %.8f. Executing with TWAP.", orderAmount, currentCfg.Trade.Twap.MaxOrderSizeBtc)
