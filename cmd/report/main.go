@@ -78,7 +78,16 @@ func runReportGeneration(repo *datastore.Repository, reportService *report.Servi
 	// We need to convert datastore.Trade to report.Trade
 	reportTrades := make([]report.Trade, len(trades))
 	for i, t := range trades {
-		reportTrades[i] = report.Trade(t)
+		reportTrades[i] = report.Trade{
+			Time:            t.Time,
+			Pair:            t.Pair,
+			Side:            t.Side,
+			Price:           t.Price,
+			Size:            t.Size,
+			TransactionID:   t.TransactionID,
+			IsCancelled:     t.IsCancelled,
+			IsMyTrade:       t.IsMyTrade,
+		}
 	}
 
 	analysisReport, err := reportService.AnalyzeTrades(reportTrades)

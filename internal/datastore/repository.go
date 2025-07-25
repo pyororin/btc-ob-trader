@@ -28,13 +28,15 @@ type Trade struct {
 	Size            decimal.Decimal `json:"size"`
 	TransactionID   int64           `json:"transaction_id"`
 	IsCancelled     bool            `json:"is_cancelled"`
+	IsMyTrade       bool            `json:"is_my_trade"`
 }
 
-// FetchAllTradesForReport はデータベースからすべてのトレードを取得します。
+// FetchAllTradesForReport はデータベースから自分自身のトレードのみを取得します。
 func (r *Repository) FetchAllTradesForReport(ctx context.Context) ([]Trade, error) {
 	query := `
-        SELECT time, pair, side, price, size, transaction_id, is_cancelled
+        SELECT time, pair, side, price, size, transaction_id, is_cancelled, is_my_trade
         FROM trades
+        WHERE is_my_trade = TRUE
         ORDER BY time ASC;
     `
 	rows, err := r.db.Query(ctx, query)
@@ -46,7 +48,7 @@ func (r *Repository) FetchAllTradesForReport(ctx context.Context) ([]Trade, erro
 	var trades []Trade
 	for rows.Next() {
 		var t Trade
-		if err := rows.Scan(&t.Time, &t.Pair, &t.Side, &t.Price, &t.Size, &t.TransactionID, &t.IsCancelled); err != nil {
+		if err := rows.Scan(&t.Time, &t.Pair, &t.Side, &t.Price, &t.Size, &t.TransactionID, &t.IsCancelled, &t.IsMyTrade); err != nil {
 			return nil, err
 		}
 		trades = append(trades, t)
