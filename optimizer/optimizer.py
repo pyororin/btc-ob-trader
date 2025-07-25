@@ -199,53 +199,108 @@ def export_data(hours_before, is_oos_split=False, oos_hours=0):
         logging.error(f"Failed to export data: {e.stderr}")
         return None, None
 
-def run_simulation(params, sim_csv_path):
+class SimulationManager:
     """
-    Runs a single Go simulation for a given set of parameters.
+    Manages a long-running Go simulation process in --serve mode.
     """
-    temp_config_path = None
-    try:
-        # 1. Create a temporary config file from the template and parameters
-        with open(CONFIG_TEMPLATE_PATH, 'r') as f:
-            template = Template(f.read())
-        config_yaml_str = template.render(params)
+    def __init__(self, csv_path):
+        self.csv_path = csv_path
+        self.process = None
+        self._start_process()
 
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml', dir=PARAMS_DIR) as tmp:
-            tmp.write(config_yaml_str)
-            temp_config_path = tmp.name
-
-        # 2. Construct the command to run the Go simulation
+    def _start_process(self):
+        """Starts the Go simulation process."""
         command = [
             str(APP_ROOT / 'build' / 'obi-scalp-bot'),
-            '--simulate',
-            f'--trade-config={temp_config_path}',
-            f'--csv={sim_csv_path}',
-            '--json-output'
+            '--serve',
+            f'--csv={self.csv_path}'
         ]
+        logging.info(f"Starting simulation server: {' '.join(command)}")
+        try:
+            self.process = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=APP_ROOT,
+                bufsize=1 # Line-buffered
+            )
+            # Wait for the "READY" signal from the Go process
+            ready_line = self.process.stdout.readline().strip()
+            if ready_line != "READY":
+                stderr = self.process.stderr.read()
+                raise RuntimeError(f"Simulation server failed to start. Expected 'READY', got '{ready_line}'. Stderr: {stderr}")
+            logging.info("Simulation server is READY.")
+        except (subprocess.SubprocessError, FileNotFoundError) as e:
+            logging.error(f"Failed to start the simulation process: {e}")
+            self.close()
+            raise
 
-        # 3. Execute the command
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=True,
-            cwd=APP_ROOT
-        )
+    def run(self, params):
+        """
+        Runs a single simulation with the given parameters.
+        """
+        if not self.process or self.process.poll() is not None:
+            logging.error("Simulation process is not running. Attempting to restart.")
+            self._start_process()
+            if not self.process:
+                 return None
 
-        # 4. Parse the JSON output from stdout
-        return json.loads(result.stdout)
 
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Simulation failed for config {temp_config_path}: {e.stderr}")
-        return None
-    except json.JSONDecodeError as e:
-        logging.error(f"Failed to parse simulation output for {temp_config_path}: {e}")
-        logging.error(f"Received output: {result.stdout}")
-        return None
-    finally:
-        # 5. Clean up the temporary config file
-        if temp_config_path and os.path.exists(temp_config_path):
-            os.remove(temp_config_path)
+        temp_config_path = None
+        try:
+            # 1. Create a temporary config file
+            with open(CONFIG_TEMPLATE_PATH, 'r') as f:
+                template = Template(f.read())
+            config_yaml_str = template.render(params)
+
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml', dir=PARAMS_DIR) as tmp:
+                tmp.write(config_yaml_str)
+                temp_config_path = tmp.name
+
+            # 2. Send request to the Go process
+            request = f"{temp_config_path},{self.csv_path}\n"
+            self.process.stdin.write(request)
+            self.process.stdin.flush()
+
+            # 3. Read the result from stdout
+            output = self.process.stdout.readline().strip()
+            if not output:
+                 stderr = self.process.stderr.read()
+                 logging.error(f"No output received from simulation process. Stderr: {stderr}")
+                 return None
+
+            return json.loads(output)
+
+        except (IOError, json.JSONDecodeError) as e:
+            logging.error(f"Failed to run simulation or parse output: {e}")
+            logging.error(f"Received output: {output}")
+            # Try to read stderr for more context
+            try:
+                stderr = self.process.stderr.read()
+                logging.error(f"Stderr from simulation process: {stderr}")
+            except IOError:
+                pass # Stderr might be closed
+            return None
+        finally:
+            if temp_config_path and os.path.exists(temp_config_path):
+                os.remove(temp_config_path)
+
+    def close(self):
+        """Shuts down the simulation process."""
+        if self.process and self.process.poll() is None:
+            logging.info("Closing simulation server...")
+            try:
+                self.process.stdin.write("EXIT\n")
+                self.process.stdin.flush()
+                self.process.wait(timeout=5)
+                logging.info("Simulation server closed gracefully.")
+            except (IOError, subprocess.TimeoutExpired) as e:
+                logging.warning(f"Failed to close gracefully, terminating: {e}")
+                self.process.terminate()
+                self.process.wait()
+        self.process = None
 
 def progress_callback(study, trial):
     """
@@ -266,7 +321,7 @@ def progress_callback(study, trial):
             logging.info(f"Trial {trial.number}: No best trial available yet.")
 
 
-def objective(trial, study, min_trades_for_pruning: int):
+def objective(trial, simulation_manager: SimulationManager, min_trades_for_pruning: int):
     """Optuna objective function."""
     params = {
         'spread_limit': trial.suggest_int('spread_limit', 10, 150),
@@ -301,12 +356,10 @@ def objective(trial, study, min_trades_for_pruning: int):
         'risk_max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.5, 0.9),
     }
 
-    # The CURRENT_SIM_CSV_PATH is now passed to run_simulation directly
-    # The objective function itself doesn't need to know which CSV is being used.
-    summary = run_simulation(params, study.user_attrs.get('current_csv_path'))
+    summary = simulation_manager.run(params)
 
-
-    if summary is None:
+    if summary is None or 'error' in summary:
+        logging.warning(f"Simulation failed for trial {trial.number}. Error: {summary.get('error') if summary else 'None'}")
         return -1.0 # Return a poor score
 
     total_trades = summary.get('TotalTrades', 0)
@@ -357,20 +410,23 @@ def main(run_once=False):
             continue
 
         logging.info(f"Found job file: {JOB_FILE}")
+        job_data = None
         try:
             with open(JOB_FILE, 'r') as f:
-                job = json.load(f)
+                job_data = json.load(f)
         except json.JSONDecodeError:
             logging.error("Invalid job file. Deleting.")
             os.remove(JOB_FILE)
             continue
 
+        is_simulation_manager = None
+        oos_simulation_manager = None
         try:
             # --- Data Export & Validation ---
-            is_hours = job['window_is_hours']
-            oos_hours = job['window_oos_hours']
+            is_hours = job_data['window_is_hours']
+            oos_hours = job_data['window_oos_hours']
             base_n_trials = config.get('n_trials', 100)
-            severity = job.get('severity', 'normal')
+            severity = job_data.get('severity', 'normal')
             n_trials = base_n_trials
             if severity == 'minor':
                 n_trials = int(base_n_trials * 2 / 3)
@@ -382,6 +438,11 @@ def main(run_once=False):
                 logging.error("Failed to get data. Aborting optimization run.")
                 os.remove(JOB_FILE)
                 continue
+
+            # --- Setup Simulation Managers ---
+            is_simulation_manager = SimulationManager(str(is_csv_path))
+            oos_simulation_manager = SimulationManager(str(oos_csv_path))
+
 
             # --- Setup Study ---
             try:
@@ -398,16 +459,16 @@ def main(run_once=False):
                 pruner=pruner
             )
             catch_exceptions = (sqlalchemy.exc.OperationalError, optuna.exceptions.StorageInternalError, sqlite3.OperationalError)
-            min_trades_for_pruning = job.get('min_trades', MIN_TRADES_FOR_PRUNING)
-            objective_with_pruning = lambda trial: objective(trial, study, min_trades_for_pruning)
+            min_trades_for_pruning = job_data.get('min_trades', MIN_TRADES_FOR_PRUNING)
+            objective_with_deps = lambda trial: objective(trial, is_simulation_manager, min_trades_for_pruning)
+
 
             # --- In-Sample Optimization ---
             logging.info(f"Starting In-Sample optimization with {is_csv_path}")
-            study.set_user_attr('current_csv_path', str(is_csv_path))
             study.optimize(
-                objective_with_pruning,
+                objective_with_deps,
                 n_trials=n_trials,
-                n_jobs=-1,
+                n_jobs=1, # Run in a single thread to use the same SimulationManager
                 show_progress_bar=False,
                 catch=catch_exceptions,
                 callbacks=[progress_callback],
@@ -437,10 +498,10 @@ def main(run_once=False):
                 for is_rank, trial_to_validate in enumerate(top_n_trials, 1):
                     retries_attempted += 1
                     logging.info(f"--- [Attempt {retries_attempted}/{MAX_RETRY}] OOS Validation for IS Rank #{is_rank} (Trial {trial_to_validate.number}) ---")
-                    oos_summary = run_simulation(trial_to_validate.params, oos_csv_path)
+                    oos_summary = oos_simulation_manager.run(trial_to_validate.params)
 
-                    if oos_summary is None:
-                        logging.warning(f"OOS simulation failed for trial {trial_to_validate.number}. Treating as failure.")
+                    if oos_summary is None or 'error' in oos_summary:
+                        logging.warning(f"OOS simulation failed for trial {trial_to_validate.number}. Treating as failure. Error: {oos_summary.get('error') if oos_summary else 'None'}")
                         oos_pf = 0.0
                         oos_sharpe = -999.0
                     else:
@@ -482,8 +543,8 @@ def main(run_once=False):
                 final_trial = selected_trial
                 final_summary = best_oos_summary if oos_validation_passed else {}
                 history = {
-                    "time": time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(job['timestamp'])),
-                    "trigger_type": job['trigger_type'],
+                    "time": time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(job_data['timestamp'])),
+                    "trigger_type": job_data['trigger_type'],
                     "is_hours": is_hours,
                     "oos_hours": oos_hours,
                     "is_sqn": final_trial.value,
@@ -507,6 +568,10 @@ def main(run_once=False):
             logging.error(f"An unexpected error occurred during the optimization job: {e}", exc_info=True)
         finally:
             # --- Cleanup ---
+            if is_simulation_manager:
+                is_simulation_manager.close()
+            if oos_simulation_manager:
+                oos_simulation_manager.close()
             if JOB_FILE.exists():
                 os.remove(JOB_FILE)
             logging.info("Optimization run complete. Waiting for next job.")
