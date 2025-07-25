@@ -22,11 +22,14 @@ CREATE TABLE IF NOT EXISTS order_book_updates (
 EOSQL
 
 unzip -p "$DATA_ZIP" \
-| awk -F',' -v d="$TODAY" 'NR==1{print; next} {
-  $1 = d " " substr($1, index($1, " ") + 1);
-  OFS = ",";
-  print
-}' \
+| awk -F',' -v d="$TODAY" 'NR==1 { print; next }
+  {
+    # $1 = "2025-07-14 05:00:00.188262+00" の形式
+    split($1, dt, " ");
+    $1 = d " " dt[2];  # 今日の日付 + 元の時間
+    OFS = ",";
+    print
+  }' \
 | psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" \
        -c "\COPY order_book_updates (time,pair,side,price,size,is_snapshot) FROM STDIN CSV HEADER"
 
