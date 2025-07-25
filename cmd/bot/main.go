@@ -453,7 +453,6 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 							orderLogMsg = "Placing aggressive sell order at bid price."
 						}
 
-						logger.Infof("Executing trade for signal: %s. %s", tradingSignal.Type.String(), orderLogMsg)
 						orderAmount := currentCfg.Trade.OrderAmount
 						if liveEngine, ok := execEngine.(*engine.LiveExecutionEngine); ok {
 							// In live trading, calculate the amount based on balance and ratio
@@ -467,21 +466,26 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 							orderAmount = availableBtc * currentCfg.Trade.OrderRatio
 						}
 
-						if currentCfg.Trade.Twap.Enabled && orderAmount > currentCfg.Trade.Twap.MaxOrderSizeBtc {
-							logger.Infof("Order amount %.8f exceeds max size %.8f. Executing with TWAP.", orderAmount, currentCfg.Trade.Twap.MaxOrderSizeBtc)
-							go executeTwapOrder(ctx, execEngine, currentCfg.Trade.Pair, orderType, finalPrice, orderAmount)
-						} else {
-							logger.Infof("Calling PlaceOrder with: type=%s, price=%.2f, amount=%.8f", orderType, finalPrice, orderAmount)
-							resp, err := execEngine.PlaceOrder(ctx, currentCfg.Trade.Pair, orderType, finalPrice, orderAmount, false)
-							if err != nil {
-								if _, ok := err.(*engine.RiskCheckError); ok {
-									logger.Warnf("Failed to place order for signal: %v", err)
-								} else {
-									logger.Warnf("Failed to place order for signal: %v", err)
+						// Only proceed if the order amount is above the minimum
+						if orderAmount >= 0.001 {
+							logger.Debugf("Executing trade for signal: %s. %s", tradingSignal.Type.String(), orderLogMsg)
+							if currentCfg.Trade.Twap.Enabled && orderAmount > currentCfg.Trade.Twap.MaxOrderSizeBtc {
+								logger.Debugf("Order amount %.8f exceeds max size %.8f. Executing with TWAP.", orderAmount, currentCfg.Trade.Twap.MaxOrderSizeBtc)
+								go executeTwapOrder(ctx, execEngine, currentCfg.Trade.Pair, orderType, finalPrice, orderAmount)
+							} else {
+								logger.Debugf("Calling PlaceOrder with: type=%s, price=%.2f, amount=%.8f", orderType, finalPrice, orderAmount)
+								resp, err := execEngine.PlaceOrder(ctx, currentCfg.Trade.Pair, orderType, finalPrice, orderAmount, false)
+								if err != nil {
+									if _, ok := err.(*engine.RiskCheckError); ok {
+										// This is a risk check failure, which is expected, so log as debug
+										logger.Debugf("Failed to place order for signal: %v", err)
+									} else {
+										logger.Warnf("Failed to place order for signal: %v", err)
+									}
 								}
-							}
-							if resp != nil && !resp.Success {
-								logger.Warnf("Order placement was not successful: %s", resp.Error)
+								if resp != nil && !resp.Success {
+									logger.Warnf("Order placement was not successful: %s", resp.Error)
+								}
 							}
 						}
 					}
