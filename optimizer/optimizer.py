@@ -434,7 +434,7 @@ def objective(trial, simulation_manager: SimulationManager, is_csv_path: str, mi
     # The key in the returned map is a string, which can be the trial number or '0' for the old format
     summary = results_map.get(str(trial.number)) or results_map.get('0')
 
-    if summary is None or 'error' in summary or not summary:
+    if summary is None or 'error' in summary:
         error_msg = summary.get('error', 'No summary returned') if summary else 'No summary returned'
         logging.warning(f"Simulation failed for trial {trial.number}. Error: {error_msg}")
         return -1.0
@@ -585,8 +585,9 @@ def main(run_once=False):
                         oos_summary = oos_results_map.get(str(trial_to_validate.number))
 
 
-                    if oos_summary is None or 'error' in oos_summary or not oos_summary:
-                        logging.warning(f"OOS simulation failed for trial {trial_to_validate.number}. Treating as failure. Error: {oos_summary.get('error') if oos_summary else 'None'}")
+                    if oos_summary is None or 'error' in oos_summary:
+                        error_msg = oos_summary.get('error', 'No summary returned') if oos_summary else 'No summary returned'
+                        logging.warning(f"OOS simulation failed for trial {trial_to_validate.number}. Treating as failure. Error: {error_msg}")
                         oos_pf = 0.0
                         oos_sharpe = -999.0
                     else:
