@@ -46,6 +46,8 @@ pnl_report:
 # --- アラート設定 ---
 alert:
   discord:
+    # Discord通知を有効にするか (デフォルト: false)
+    enabled: false
     # Discord Botのトークン (環境変数 DISCORD_BOT_TOKEN で上書きされます)
     bot_token: "dummy_token"
     # 通知を送信するユーザーのID (環境変数 DISCORD_USER_ID で上書きされます)
