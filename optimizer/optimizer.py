@@ -215,7 +215,7 @@ class SimulationManager:
             '--serve',
             f'--csv={self.csv_path}'
         ]
-        logging.info(f"Starting simulation server: {' '.join(command)}")
+        logging.debug(f"Starting simulation server: {' '.join(command)}")
         try:
             self.process = subprocess.Popen(
                 command,
@@ -231,7 +231,7 @@ class SimulationManager:
             if ready_line != "READY":
                 stderr = self.process.stderr.read()
                 raise RuntimeError(f"Simulation server failed to start. Expected 'READY', got '{ready_line}'. Stderr: {stderr}")
-            logging.info("Simulation server is READY.")
+            logging.debug("Simulation server is READY.")
         except (subprocess.SubprocessError, FileNotFoundError) as e:
             logging.error(f"Failed to start the simulation process: {e}")
             self.close()
@@ -290,12 +290,12 @@ class SimulationManager:
     def close(self):
         """Shuts down the simulation process."""
         if self.process and self.process.poll() is None:
-            logging.info("Closing simulation server...")
+            logging.debug("Closing simulation server...")
             try:
                 self.process.stdin.write("EXIT\n")
                 self.process.stdin.flush()
                 self.process.wait(timeout=5)
-                logging.info("Simulation server closed gracefully.")
+                logging.debug("Simulation server closed gracefully.")
             except (IOError, subprocess.TimeoutExpired) as e:
                 logging.warning(f"Failed to close gracefully, terminating: {e}")
                 self.process.terminate()
