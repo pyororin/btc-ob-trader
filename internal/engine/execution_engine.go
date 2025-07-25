@@ -535,6 +535,11 @@ func NewReplayExecutionEngine(orderBook pnl.OrderBookProvider) *ReplayExecutionE
 func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, orderType string, rate float64, amount float64, postOnly bool) (*coincheck.OrderResponse, error) {
 	mode := "Simulation"
 
+	// Add a check for the minimum order amount.
+	if amount < 0.001 {
+		return nil, &RiskCheckError{Message: fmt.Sprintf("order amount %.8f is below the minimum required amount of 0.001 BTC", amount)}
+	}
+
 	bestBid := e.orderBook.BestBid()
 	bestAsk := e.orderBook.BestAsk()
 
