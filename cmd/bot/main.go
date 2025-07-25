@@ -831,6 +831,21 @@ func runParallelSimulations(ctx context.Context, marketEvents []coincheck.OrderB
 			defer wg.Done()
 			defer func() { <-sem }() // Release the slot
 
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Errorf("Recovered from panic in simulation goroutine: %v", r)
+					// Also include stack trace for debugging
+					buf := make([]byte, 1024)
+					n := runtime.Stack(buf, false)
+					logger.Errorf("Stack trace: %s", string(buf[:n]))
+
+					resultsChan <- SimulationResult{
+						TrialID: request.TrialID,
+						Error:   fmt.Sprintf("panic recovered: %v", r),
+					}
+				}
+			}()
+
 			simCtx, cancelSim := context.WithCancel(ctx)
 			defer cancelSim()
 
