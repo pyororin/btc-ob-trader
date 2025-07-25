@@ -20,7 +20,7 @@ RUN set -e \
     && ln -sf /usr/lib/postgresql16/timescaledb*.so /usr/local/lib/postgresql/ \
     # コントロール & SQL スクリプト
     && mkdir -p /usr/local/share/postgresql/extension \
-    && ln -sf /usr/share/postgresql16/extension/timescaledb* /usr/local/share/postgresql/extension/ \
+    && ln -sf /usr/share/postgresql17/extension/timescaledb* /usr/local/share/postgresql/extension/ \
     # 3) shared_preload_libraries をデフォルト conf に追記
     && echo "shared_preload_libraries = 'timescaledb'" >> /usr/local/share/postgresql/postgresql.conf.sample
 
