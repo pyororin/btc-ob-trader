@@ -42,6 +42,25 @@ import (
 	"sync"
 )
 
+// SimulationRequest defines the structure for a single simulation run.
+type SimulationRequest struct {
+	TrialID     int                 `json:"trial_id"`
+	TradeConfig *config.TradeConfig `json:"trade_config"`
+}
+
+// OptimizationRequest defines the structure for a batch of simulations.
+type OptimizationRequest struct {
+	CSVPath     string              `json:"csv_path"`
+	Simulations []SimulationRequest `json:"simulations"`
+}
+
+// SimulationResult wraps the result of a single simulation.
+type SimulationResult struct {
+	TrialID int                    `json:"trial_id"`
+	Summary map[string]interface{} `json:"summary"`
+	Error   string                 `json:"error,omitempty"`
+}
+
 type flags struct {
 	configPath      string
 	tradeConfigPath string
@@ -80,8 +99,8 @@ func main() {
 	}
 	go watchConfigFiles(f.configPath, f.tradeConfigPath)
 
-	if (f.simulateMode || f.serveMode) && f.csvPath == "" {
-		logger.Fatal("CSV file path must be provided in simulation or serve mode using --csv flag")
+	if (f.simulateMode || f.serveMode) && f.csvPath == "" && !f.serveMode { // In serveMode, csvPath comes with the request
+		logger.Fatal("CSV file path must be provided in simulation mode using --csv flag")
 	}
 
 	if !f.simulateMode && !f.serveMode {
@@ -403,8 +422,7 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pa
 }
 
 // processSignalsAndExecute subscribes to indicators, evaluates signals, and executes trades.
-func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBICalculator, execEngine engine.ExecutionEngine, benchmarkService *benchmark.Service, wg *sync.WaitGroup) {
-	cfg := config.GetConfig()
+func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBICalculator, execEngine engine.ExecutionEngine, benchmarkService *benchmark.Service, wg *sync.WaitGroup, cfg *config.Config) {
 	signalEngine, err := tradingsignal.NewSignalEngine(&cfg.Trade)
 	if err != nil {
 		logger.Fatalf("Failed to create signal engine: %v", err)
@@ -421,7 +439,7 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 				logger.Info("Signal processing and execution goroutine shutting down.")
 				return
 			case result := <-resultsCh:
-				currentCfg := config.GetConfig()
+				currentCfg := cfg
 				if result.BestBid <= 0 || result.BestAsk <= 0 {
 					logger.Warnf("Skipping signal evaluation due to invalid best bid/ask: BestBid=%.2f, BestAsk=%.2f", result.BestBid, result.BestAsk)
 					continue
@@ -600,7 +618,7 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 		orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Trade.Pair)
 
 		obiCalculator.Start(ctx)
-		go processSignalsAndExecute(ctx, obiCalculator, execEngine, benchmarkService, nil)
+		go processSignalsAndExecute(ctx, obiCalculator, execEngine, benchmarkService, nil, config.GetConfig())
 		go orderMonitor(ctx, execEngine, client, orderBook)
 		go positionMonitor(ctx, execEngine, orderBook) // Added for partial exit
 
@@ -653,7 +671,7 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal, summaryC
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go processSignalsAndExecute(simCtx, obiCalculator, execEngine, nil, &wg)
+	go processSignalsAndExecute(simCtx, obiCalculator, execEngine, nil, &wg, config.GetConfig())
 
 	logger.Infof("Streaming market events from %s", f.csvPath)
 	eventCh, errCh := datastore.StreamMarketEventsFromCSV(ctx, f.csvPath)
@@ -704,10 +722,13 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal, summaryC
 func runServerMode(ctx context.Context, f flags, sigs chan<- os.Signal) {
 	logger.Info("--- SERVER MODE ---")
 
-	// Data is now loaded on-demand per request
 	marketDataCache := make(map[string][]coincheck.OrderBookData)
-
 	scanner := bufio.NewScanner(os.Stdin)
+	// Increase the scanner's buffer size to handle potentially large JSON inputs
+	const maxCapacity = 4 * 1024 * 1024 // 4MB
+	buf := make([]byte, maxCapacity)
+	scanner.Buffer(buf, maxCapacity)
+
 	fmt.Println("READY")
 
 	for scanner.Scan() {
@@ -720,16 +741,39 @@ func runServerMode(ctx context.Context, f flags, sigs chan<- os.Signal) {
 			continue
 		}
 
-		parts := strings.Split(line, ",")
-		if len(parts) != 2 {
-			logger.Warnf("Invalid input format received: %s", line)
-			fmt.Println(`{"error": "invalid input format, expected <config_path>,<csv_path>"}`)
-			continue
-		}
-		tempConfigPath := parts[0]
-		csvPath := parts[1]
+		var optRequest OptimizationRequest
+		if err := json.Unmarshal([]byte(line), &optRequest); err != nil {
+			// Fallback for old format for backward compatibility
+			parts := strings.Split(line, ",")
+			if len(parts) != 2 {
+				logger.Warnf("Invalid input format received: %s. Expected JSON or <config_path>,<csv_path>", line)
+				fmt.Println(`{"error": "invalid input format"}`)
+				continue
+			}
+			tempConfigPath := parts[0]
+			csvPath := parts[1]
 
-		// Load market data for the given CSV, using cache if available
+			// Load the trade configuration for this specific run
+			newCfg, err := config.LoadConfig(f.configPath, tempConfigPath)
+			if err != nil {
+				logger.Warnf("Failed to load config from %s and %s: %v", f.configPath, tempConfigPath, err)
+				fmt.Printf(`{"error": "failed to load trade config from %s"}`, tempConfigPath)
+				continue
+			}
+
+			// Create a request for a single simulation
+			optRequest = OptimizationRequest{
+				CSVPath: csvPath,
+				Simulations: []SimulationRequest{
+					{
+						TrialID:     0, // Trial ID is not available in the old format
+						TradeConfig: &newCfg.Trade,
+					},
+				},
+			}
+		}
+
+		csvPath := optRequest.CSVPath
 		marketEvents, ok := marketDataCache[csvPath]
 		if !ok {
 			logger.Infof("Cache miss for %s. Loading market data...", csvPath)
@@ -737,7 +781,7 @@ func runServerMode(ctx context.Context, f flags, sigs chan<- os.Signal) {
 			marketEvents, err = datastore.LoadMarketEventsFromCSV(csvPath)
 			if err != nil {
 				logger.Warnf("Failed to load market events from %s: %v", csvPath, err)
-				fmt.Printf(`{"error": "failed to load market data from %s"}`, csvPath)
+				fmt.Printf(`{"error": "failed to load market data from %s: %v"}`, csvPath, err)
 				continue
 			}
 			marketDataCache[csvPath] = marketEvents
@@ -746,21 +790,15 @@ func runServerMode(ctx context.Context, f flags, sigs chan<- os.Signal) {
 			logger.Debugf("Cache hit for %s.", csvPath)
 		}
 
-		// Load the trade configuration for this specific run
-		newCfg, err := config.LoadConfig(f.configPath, tempConfigPath)
-		if err != nil {
-			logger.Warnf("Failed to load config from %s and %s: %v", f.configPath, tempConfigPath, err)
-			fmt.Printf(`{"error": "failed to load trade config from %s"}`, tempConfigPath)
-			continue
-		}
+		// Run simulations in parallel
+		results := runParallelSimulations(ctx, marketEvents, optRequest.Simulations)
 
-		simCtx, simCancel := context.WithCancel(ctx)
-		summary := runSingleSimulationInMemory(simCtx, &newCfg.Trade, marketEvents)
-		simCancel()
-
-		output, err := json.Marshal(summary)
+		// The Python script expects a single JSON object for a single simulation run (old format)
+		// or an array for batch runs. We will return an array always, and the Python script
+		// will be updated to handle it.
+		output, err := json.Marshal(results)
 		if err != nil {
-			fmt.Printf(`{"error": "failed to marshal summary: %v"}`, err)
+			fmt.Printf(`{"error": "failed to marshal results: %v"}`, err)
 		} else {
 			fmt.Println(string(output))
 		}
@@ -774,45 +812,103 @@ func runServerMode(ctx context.Context, f flags, sigs chan<- os.Signal) {
 	sigs <- syscall.SIGTERM
 }
 
+// runParallelSimulations executes multiple simulations in parallel using goroutines.
+func runParallelSimulations(ctx context.Context, marketEvents []coincheck.OrderBookData, requests []SimulationRequest) []SimulationResult {
+	var wg sync.WaitGroup
+	resultsChan := make(chan SimulationResult, len(requests))
+
+	numWorkers := runtime.NumCPU()
+	if len(requests) < numWorkers {
+		numWorkers = len(requests)
+	}
+	sem := make(chan struct{}, numWorkers)
+
+	for _, req := range requests {
+		wg.Add(1)
+		sem <- struct{}{} // Acquire a semaphore slot
+
+		go func(request SimulationRequest) {
+			defer wg.Done()
+			defer func() { <-sem }() // Release the slot
+
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Errorf("Recovered from panic in simulation goroutine: %v", r)
+					// Also include stack trace for debugging
+					buf := make([]byte, 1024)
+					n := runtime.Stack(buf, false)
+					logger.Errorf("Stack trace: %s", string(buf[:n]))
+
+					resultsChan <- SimulationResult{
+						TrialID: request.TrialID,
+						Error:   fmt.Sprintf("panic recovered: %v", r),
+					}
+				}
+			}()
+
+			simCtx, cancelSim := context.WithCancel(ctx)
+			defer cancelSim()
+
+			summary := runSingleSimulationInMemory(simCtx, request.TradeConfig, marketEvents)
+			resultsChan <- SimulationResult{
+				TrialID: request.TrialID,
+				Summary: summary,
+			}
+		}(req)
+	}
+
+	wg.Wait()
+	close(resultsChan)
+
+	var allResults []SimulationResult
+	for result := range resultsChan {
+		allResults = append(allResults, result)
+	}
+
+	return allResults
+}
+
 // runSingleSimulationInMemory runs a backtest with a given config and pre-loaded market data.
 func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConfig, marketEvents []coincheck.OrderBookData) map[string]interface{} {
 	rand.Seed(1) // Ensure reproducibility
-	config.SetTradeConfig(tradeCfg) // Set the trade config for this run
-	cfg := config.GetConfig()
+
+	simConfig := config.GetConfigCopy()
+	simConfig.Trade = *tradeCfg
 
 	orderBook := indicator.NewOrderBook()
 	replayEngine := engine.NewReplayExecutionEngine(orderBook)
 	var execEngine engine.ExecutionEngine = replayEngine
 	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
-	orderBookHandler, _ := setupHandlers(orderBook, nil, cfg.Trade.Pair)
 
-	// We need to manage the signal processing goroutine carefully for each run.
 	simCtx, cancelSim := context.WithCancel(ctx)
 	defer cancelSim()
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go processSignalsAndExecute(simCtx, obiCalculator, execEngine, nil, &wg)
+	go processSignalsAndExecute(simCtx, obiCalculator, execEngine, nil, &wg, simConfig)
 
 	for _, event := range marketEvents {
 		select {
 		case <-simCtx.Done():
 			logger.Warn("Simulation run cancelled.")
-			// Wait for the goroutine to finish before returning
 			wg.Wait()
 			return getSimulationSummaryMap(replayEngine)
 		default:
+			orderBookHandler, _ := setupHandlers(orderBook, nil, simConfig.Trade.Pair)
 			orderBookHandler(event)
 			obiCalculator.Calculate(event.Time)
 		}
 	}
 
-	// Allow some time for the last signals to be processed by cancelling the context
-	// and waiting for the goroutine to finish.
 	cancelSim()
 	wg.Wait()
 
-	return getSimulationSummaryMap(replayEngine)
+	summary := getSimulationSummaryMap(replayEngine)
+	if trades, ok := summary["TotalTrades"].(int); ok && trades == 0 {
+		logger.Debug("Simulation finished with 0 trades.")
+	}
+
+	return summary
 }
 
 // getSimulationSummaryMap is a modified version of printSimulationSummary that returns a map.
