@@ -138,7 +138,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 					Pair:          pair,
 					Side:          orderType,
 					Price:         rate,
-					Size:          adjustedAmount,
+					Size:          amount,
 					TransactionID: orderResp.ID, // Use order ID as a reference
 					IsCancelled:   true,
 					IsMyTrade:     true,
