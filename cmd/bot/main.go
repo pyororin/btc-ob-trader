@@ -888,7 +888,12 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 	cancelSim()
 	wg.Wait()
 
-	return getSimulationSummaryMap(replayEngine)
+	summary := getSimulationSummaryMap(replayEngine)
+	if trades, ok := summary["TotalTrades"].(int); ok && trades == 0 {
+		logger.Debug("Simulation finished with 0 trades.")
+	}
+
+	return summary
 }
 
 // getSimulationSummaryMap is a modified version of printSimulationSummary that returns a map.
