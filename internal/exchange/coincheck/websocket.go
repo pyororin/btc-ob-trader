@@ -2,6 +2,7 @@
 package coincheck
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net"
@@ -33,6 +34,7 @@ type WebSocketClient struct {
 	tradeHandler     TradeHandler
 	interrupt        chan os.Signal
 	done             chan struct{}
+	ready            chan bool
 }
 
 // NewWebSocketClient creates a new WebSocketClient.
@@ -40,11 +42,12 @@ func NewWebSocketClient(obHandler OrderBookHandler, tHandler TradeHandler) *WebS
 	return &WebSocketClient{
 		orderBookHandler: obHandler,
 		tradeHandler:     tHandler,
+		ready:            make(chan bool),
 	}
 }
 
 // Connect establishes a WebSocket connection and handles message receiving and pinging.
-func (c *WebSocketClient) Connect() error {
+func (c *WebSocketClient) Connect(ctx context.Context) error {
 	targetPair := "btc_jpy"
 
 	c.interrupt = make(chan os.Signal, 1)
@@ -123,6 +126,8 @@ func (c *WebSocketClient) Connect() error {
 		return err
 	}
 
+	close(c.ready) // Signal that subscriptions are complete
+
 	pingTicker := time.NewTicker(30 * time.Second)
 	defer pingTicker.Stop()
 
@@ -134,7 +139,7 @@ func (c *WebSocketClient) Connect() error {
 			case <-reconnect:
 				logger.Info("Reconnect signal received. Attempting to reconnect...")
 				c.conn.Close()
-				return c.Connect()
+				return c.Connect(ctx)
 			default:
 				return nil // Graceful shutdown
 			}
@@ -153,6 +158,13 @@ func (c *WebSocketClient) Connect() error {
 			case <-c.done:
 			case <-time.After(2 * time.Second):
 				logger.Warn("Timeout waiting for server to close connection.")
+			}
+			return nil
+		case <-ctx.Done():
+			logger.Info("Context cancelled. Closing connection...")
+			err := c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			if err != nil {
+				logger.Warnf("Write close error: %v", err)
 			}
 			return nil
 		}
@@ -174,6 +186,10 @@ func (c *WebSocketClient) subscribe(channel string) error {
 		Channel: channel,
 	}
 	return c.conn.WriteJSON(msg)
+}
+
+func (c *WebSocketClient) Ready() <-chan bool {
+	return c.ready
 }
 
 func (c *WebSocketClient) Close() error {
