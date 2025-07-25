@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"reflect"
 	"strconv"
 	"sync"
 	"time"
@@ -54,7 +55,7 @@ func NewLiveExecutionEngine(client *coincheck.Client, dbWriter dbwriter.DBWriter
 	cfg := config.GetConfig()
 
 	var activeNotifier alert.Notifier
-	if notifier == nil {
+	if notifier == nil || (reflect.ValueOf(notifier).Kind() == reflect.Ptr && reflect.ValueOf(notifier).IsNil()) {
 		activeNotifier = &alert.NoOpNotifier{}
 	} else {
 		activeNotifier = notifier
