@@ -21,6 +21,7 @@ simulation/
 simulation_result.txt
 config/best_trade_config.yaml
 data\params\trade_config.yaml
+data/params/optimization_job.json
 
 # Go deps
 vendor/
