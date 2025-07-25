@@ -69,6 +69,53 @@ MIN_ORDER_BOOK_SNAPSHOTS = config['min_order_book_snapshots']
 # Global variable to hold the path to the current simulation data
 # This is a simple way to pass the data path to the objective function.
 CURRENT_SIM_CSV_PATH = None
+GO_SIM_SERVER = None
+
+
+def start_go_sim_server(csv_path):
+    """Starts the Go simulation server as a subprocess."""
+    global GO_SIM_SERVER
+    if GO_SIM_SERVER:
+        GO_SIM_SERVER.terminate()
+
+    command = [
+        str(APP_ROOT / 'build' / 'obi-scalp-bot'),
+        '--serve',
+        f'--csv={csv_path}',
+        # Use a temporary trade config, it will be overwritten by stdin
+        f'--trade-config={CONFIG_TEMPLATE_PATH}'
+    ]
+    logging.info(f"Starting Go simulation server with command: {' '.join(command)}")
+    GO_SIM_SERVER = subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+        cwd=APP_ROOT,
+        bufsize=1 # Line-buffered
+    )
+    # Wait for the "READY" signal from the server
+    ready_line = GO_SIM_SERVER.stdout.readline()
+    if "READY" in ready_line:
+        logging.info("Go simulation server is ready.")
+    else:
+        logging.error(f"Go simulation server failed to start. First line of output: {ready_line}")
+        raise RuntimeError("Could not start Go simulation server.")
+
+
+def stop_go_sim_server():
+    """Stops the Go simulation server."""
+    global GO_SIM_SERVER
+    if GO_SIM_SERVER:
+        logging.info("Stopping Go simulation server...")
+        GO_SIM_SERVER.terminate()
+        try:
+            GO_SIM_SERVER.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            GO_SIM_SERVER.kill()
+        GO_SIM_SERVER = None
+        logging.info("Go simulation server stopped.")
+
 
 def export_data(hours_before, is_oos_split=False, oos_hours=0):
     """
@@ -198,6 +245,92 @@ def export_data(hours_before, is_oos_split=False, oos_hours=0):
         logging.error(f"Failed to export data: {e.stderr}")
         return None, None
 
+def run_simulation_fast(trade_config_dict):
+    """
+    Sends a configuration to the running Go simulation server
+    and returns the JSON summary.
+    """
+    global GO_SIM_SERVER
+    if not GO_SIM_SERVER or GO_SIM_SERVER.poll() is not None:
+        logging.error("Go simulation server is not running.")
+        return None
+
+    try:
+        # Convert the Python dict to a YAML string
+        # This is a bit tricky as we need to match the structure of the trade_config.yaml
+        # The params dict is flat, so we need to reconstruct the nested structure.
+        nested_config = {
+            'pair': 'btc_jpy', # This should ideally come from a base config
+            'order_amount': 0.01, # Same as above
+            'spread_limit': trade_config_dict.get('spread_limit'),
+            'lot_max_ratio': trade_config_dict.get('lot_max_ratio'),
+            'order_ratio': trade_config_dict.get('order_ratio'),
+            'long': {
+                'obi_threshold': trade_config_dict.get('long_obi_threshold'),
+                'tp': trade_config_dict.get('long_tp'),
+                'sl': trade_config_dict.get('long_sl'),
+            },
+            'short': {
+                'obi_threshold': trade_config_dict.get('short_obi_threshold'),
+                'tp': trade_config_dict.get('short_tp'),
+                'sl': trade_config_dict.get('short_sl'),
+            },
+            'signal': {
+                'hold_duration_ms': trade_config_dict.get('hold_duration_ms'),
+                'slope_filter': {
+                    'enabled': trade_config_dict.get('slope_filter_enabled'),
+                    'period': trade_config_dict.get('slope_period'),
+                    'threshold': trade_config_dict.get('slope_threshold'),
+                }
+            },
+            'volatility': {
+                'ewma_lambda': trade_config_dict.get('ewma_lambda'),
+                'dynamic_obi': {
+                    'enabled': trade_config_dict.get('dynamic_obi_enabled'),
+                    'volatility_factor': trade_config_dict.get('volatility_factor'),
+                    'min_threshold_factor': trade_config_dict.get('min_threshold_factor'),
+                    'max_threshold_factor': trade_config_dict.get('max_threshold_factor'),
+                }
+            },
+             'twap': {
+                'enabled': trade_config_dict.get('twap_enabled'),
+                'max_order_size_btc': trade_config_dict.get('twap_max_order_size_btc'),
+                'interval_seconds': trade_config_dict.get('twap_interval_seconds'),
+                'partial_exit_enabled': trade_config_dict.get('twap_partial_exit_enabled'),
+                'profit_threshold': trade_config_dict.get('twap_profit_threshold'),
+                'exit_ratio': trade_config_dict.get('twap_exit_ratio'),
+            },
+            'risk': {
+                'max_drawdown_percent': trade_config_dict.get('risk_max_drawdown_percent'),
+                'max_position_ratio': trade_config_dict.get('risk_max_position_ratio'),
+            },
+            'adaptive_position_sizing': {
+                'enabled': trade_config_dict.get('adaptive_position_sizing_enabled'),
+                'num_trades': trade_config_dict.get('adaptive_num_trades'),
+                'reduction_step': trade_config_dict.get('adaptive_reduction_step'),
+                'min_ratio': trade_config_dict.get('adaptive_min_ratio'),
+            }
+        }
+
+        # Convert dict to YAML string
+        config_yaml_str = yaml.dump(nested_config)
+
+        # Send to server
+        GO_SIM_SERVER.stdin.write(config_yaml_str + '\n')
+        GO_SIM_SERVER.stdin.flush()
+
+        # Read result
+        result_line = GO_SIM_SERVER.stdout.readline()
+        return json.loads(result_line)
+
+    except (IOError, json.JSONDecodeError) as e:
+        logging.error(f"Fast simulation failed: {e}")
+        # Attempt to restart the server on error
+        logging.info("Attempting to restart simulation server...")
+        stop_go_sim_server()
+        start_go_sim_server(CURRENT_SIM_CSV_PATH)
+        return None
+
 def run_simulation(trade_config_path, sim_csv_path):
     """Runs the Go simulation and returns the JSON summary."""
     command = [
@@ -236,8 +369,6 @@ def progress_callback(study, trial):
 
 def objective(trial, min_trades_for_pruning: int):
     """Optuna objective function."""
-    global CURRENT_SIM_CSV_PATH
-
     params = {
         'spread_limit': trial.suggest_int('spread_limit', 10, 150),
         'lot_max_ratio': trial.suggest_float('lot_max_ratio', 0.01, 0.2),
@@ -271,17 +402,7 @@ def objective(trial, min_trades_for_pruning: int):
         'risk_max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.5, 0.9),
     }
 
-    with open(CONFIG_TEMPLATE_PATH, 'r') as f:
-        template = Template(f.read())
-
-    rendered_config_str = template.render(params)
-
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as temp_config_file:
-        temp_config_file.write(rendered_config_str)
-        temp_config_path = temp_config_file.name
-
-    summary = run_simulation(temp_config_path, CURRENT_SIM_CSV_PATH)
-    os.remove(temp_config_path)
+    summary = run_simulation_fast(params)
 
     if summary is None:
         return -1.0 # Return a poor score
@@ -316,7 +437,7 @@ def objective(trial, min_trades_for_pruning: int):
     return sqn
 
 
-def main():
+def main(run_once=False):
     """Main loop for the optimizer."""
     if not CONFIG_TEMPLATE_PATH.exists():
         logging.error(f"Trade config template not found at {CONFIG_TEMPLATE_PATH}")
@@ -324,50 +445,57 @@ def main():
         exit(1)
 
     logging.info("Optimizer started. Waiting for optimization job...")
-    while True:
-        if JOB_FILE.exists():
-            logging.info(f"Found job file: {JOB_FILE}")
-            with open(JOB_FILE, 'r') as f:
-                try:
-                    job = json.load(f)
-                except json.JSONDecodeError:
-                    logging.error("Invalid job file. Deleting.")
+    try:
+        while True:
+            if JOB_FILE.exists():
+                logging.info(f"Found job file: {JOB_FILE}")
+                with open(JOB_FILE, 'r') as f:
+                    try:
+                        job = json.load(f)
+                    except json.JSONDecodeError:
+                        logging.error("Invalid job file. Deleting.")
+                        os.remove(JOB_FILE)
+                        continue
+
+                # --- Data Export & Validation ---
+                is_hours = job['window_is_hours']
+                oos_hours = job['window_oos_hours']
+
+                # --- N_TRIALS Adjustment based on drift severity ---
+                base_n_trials = config.get('n_trials', 100) # Default to 100 if not in config
+                severity = job.get('severity', 'normal')
+                n_trials = base_n_trials
+                if severity == 'minor':
+                    n_trials = int(base_n_trials * 2 / 3)
+                    logging.info(f"Minor drift detected. Adjusting N_TRIALS to {n_trials} (2/3 of {base_n_trials}).")
+                elif severity == 'major':
+                    n_trials = int(base_n_trials / 3)
+                    logging.info(f"Major drift detected. Adjusting N_TRIALS to {n_trials} (1/3 of {base_n_trials}).")
+                else:
+                    logging.info(f"Normal operation. Using default N_TRIALS: {n_trials}.")
+
+
+                is_csv_path, oos_csv_path = export_data(is_hours + oos_hours, is_oos_split=True, oos_hours=oos_hours)
+
+                if not is_csv_path or not oos_csv_path:
+                    logging.error("Failed to get data. Aborting optimization run.")
                     os.remove(JOB_FILE)
                     continue
 
-            # --- Data Export & Validation ---
-            is_hours = job['window_is_hours']
-            oos_hours = job['window_oos_hours']
+                # --- In-Sample Optimization ---
+                global CURRENT_SIM_CSV_PATH
+                CURRENT_SIM_CSV_PATH = is_csv_path
 
-            # --- N_TRIALS Adjustment based on drift severity ---
-            base_n_trials = config.get('n_trials', 100) # Default to 100 if not in config
-            severity = job.get('severity', 'normal')
-            n_trials = base_n_trials
-            if severity == 'minor':
-                n_trials = int(base_n_trials * 2 / 3)
-                logging.info(f"Minor drift detected. Adjusting N_TRIALS to {n_trials} (2/3 of {base_n_trials}).")
-            elif severity == 'major':
-                n_trials = int(base_n_trials / 3)
-                logging.info(f"Major drift detected. Adjusting N_TRIALS to {n_trials} (1/3 of {base_n_trials}).")
-            else:
-                logging.info(f"Normal operation. Using default N_TRIALS: {n_trials}.")
+                # Start the Go server with the IS data
+                start_go_sim_server(is_csv_path)
 
-
-            is_csv_path, oos_csv_path = export_data(is_hours + oos_hours, is_oos_split=True, oos_hours=oos_hours)
-
-            if not is_csv_path or not oos_csv_path:
-                logging.error("Failed to get data. Aborting optimization run.")
-                os.remove(JOB_FILE)
-                continue
-
-            # --- In-Sample Optimization ---
-            global CURRENT_SIM_CSV_PATH
-            CURRENT_SIM_CSV_PATH = is_csv_path
-
-            # Get min_trades from job, with a default from the config file
-            min_trades_for_pruning = job.get('min_trades', MIN_TRADES_FOR_PRUNING)
+                # Get min_trades from job, with a default from the config file
+                min_trades_for_pruning = job.get('min_trades', MIN_TRADES_FOR_PRUNING)
             logging.info(f"Using manual pruning with min_trades = {min_trades_for_pruning}")
-            optuna.delete_study(study_name='obi-scalp-optimization', storage=STORAGE_URL)
+            try:
+                optuna.delete_study(study_name='obi-scalp-optimization', storage=STORAGE_URL)
+            except Exception as e:
+                logging.warning(f"Could not delete study, it might not exist: {e}")
 
             pruner = HyperbandPruner(
                 min_resource=1,
@@ -416,65 +544,63 @@ def main():
                 continue
 
 
-            # --- Out-of-Sample Validation with Retry ---
-            oos_validation_passed = False
-            best_oos_summary = None
-            selected_trial = None
-            retries_attempted = 0
-            consecutive_failures = 0
+                # --- Out-of-Sample Validation with Retry ---
+                oos_validation_passed = False
+                best_oos_summary = None
+                selected_trial = None
+                retries_attempted = 0
+                consecutive_failures = 0
 
-            # Get top N trials from IS, filtering out pruned trials
-            all_trials = study.get_trials(deepcopy=False)
-            completed_trials = [t for t in all_trials if t.state == optuna.trial.TrialState.COMPLETE]
+                # Get top N trials from IS, filtering out pruned trials
+                all_trials = study.get_trials(deepcopy=False)
+                completed_trials = [t for t in all_trials if t.state == optuna.trial.TrialState.COMPLETE]
 
-            # Sort by IS score (SQN)
-            sorted_trials = sorted(completed_trials, key=lambda t: t.value, reverse=True)
+                # Sort by IS score (SQN)
+                sorted_trials = sorted(completed_trials, key=lambda t: t.value, reverse=True)
 
-            top_n_trials = sorted_trials[:MAX_RETRY]
-            logging.info(f"Starting OOS validation for top {len(top_n_trials)} IS trials.")
+                top_n_trials = sorted_trials[:MAX_RETRY]
+                logging.info(f"Starting OOS validation for top {len(top_n_trials)} IS trials.")
 
-            for is_rank, trial_to_validate in enumerate(top_n_trials, 1):
-                retries_attempted += 1
-                logging.info(f"--- [Attempt {retries_attempted}/{MAX_RETRY}] OOS Validation for IS Rank #{is_rank} (Trial {trial_to_validate.number}) ---")
+                # Stop the IS server and start the OOS server
+                stop_go_sim_server()
+                start_go_sim_server(oos_csv_path)
 
-                current_params = trial_to_validate.params
-                with open(CONFIG_TEMPLATE_PATH, 'r') as f:
-                    template = Template(f.read())
-                config_str = template.render(current_params)
+                for is_rank, trial_to_validate in enumerate(top_n_trials, 1):
+                    retries_attempted += 1
+                    logging.info(f"--- [Attempt {retries_attempted}/{MAX_RETRY}] OOS Validation for IS Rank #{is_rank} (Trial {trial_to_validate.number}) ---")
 
-                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as temp_config_file:
-                    temp_config_file.write(config_str)
-                    temp_config_path = temp_config_file.name
+                    current_params = trial_to_validate.params
+                    oos_summary = run_simulation_fast(current_params)
 
-                oos_summary = run_simulation(temp_config_path, oos_csv_path)
-                os.remove(temp_config_path)
+                    if oos_summary is None:
+                        logging.warning(f"OOS simulation failed for trial {trial_to_validate.number}. Treating as failure.")
+                        oos_pf = 0.0
+                        oos_sharpe = -999.0 # Assign a very poor score
+                    else:
+                        oos_pf = oos_summary.get('ProfitFactor', 0.0)
+                        oos_sharpe = oos_summary.get('SharpeRatio', 0.0)
+                        oos_trades = oos_summary.get('TotalTrades', 'N/A')
+                        logging.info(f"OOS Result: PF={oos_pf:.2f}, SR={oos_sharpe:.2f}, Trades={oos_trades}")
 
-                if oos_summary is None:
-                    logging.warning(f"OOS simulation failed for trial {trial_to_validate.number}. Treating as failure.")
-                    oos_pf = 0.0
-                    oos_sharpe = -999.0 # Assign a very poor score
-                else:
-                    oos_pf = oos_summary.get('ProfitFactor', 0.0)
-                    oos_sharpe = oos_summary.get('SharpeRatio', 0.0)
-                    oos_trades = oos_summary.get('TotalTrades', 'N/A')
-                    logging.info(f"OOS Result: PF={oos_pf:.2f}, SR={oos_sharpe:.2f}, Trades={oos_trades}")
+                    # Check pass/fail criteria
+                    is_pass = oos_pf >= OOS_MIN_PROFIT_FACTOR and oos_sharpe >= OOS_MIN_SHARPE_RATIO
 
-                # Check pass/fail criteria
-                is_pass = oos_pf >= OOS_MIN_PROFIT_FACTOR and oos_sharpe >= OOS_MIN_SHARPE_RATIO
+                    if is_pass:
+                        logging.info(f"OOS validation PASSED. Selecting this parameter set.")
+                        oos_validation_passed = True
+                        selected_trial = trial_to_validate
+                        best_oos_summary = oos_summary
 
-                if is_pass:
-                    logging.info(f"OOS validation PASSED. Selecting this parameter set.")
-                    oos_validation_passed = True
-                    selected_trial = trial_to_validate
-                    best_oos_summary = oos_summary
-
-                    # Update config file with the best params
-                    with open(BEST_CONFIG_OUTPUT_PATH, 'w') as f:
-                        f.write(config_str)
-                    logging.info(f"Successfully updated {BEST_CONFIG_OUTPUT_PATH}")
-                    break # Exit retry loop on first success
-                else:
-                    logging.warning(f"OOS validation FAILED for IS Rank #{is_rank}.")
+                        # Re-render the best config and save it
+                        with open(CONFIG_TEMPLATE_PATH, 'r') as f:
+                            template = Template(f.read())
+                        config_str = template.render(selected_trial.params)
+                        with open(BEST_CONFIG_OUTPUT_PATH, 'w') as f:
+                            f.write(config_str)
+                        logging.info(f"Successfully updated {BEST_CONFIG_OUTPUT_PATH}")
+                        break # Exit retry loop on first success
+                    else:
+                        logging.warning(f"OOS validation FAILED for IS Rank #{is_rank}.")
                     # Early stopping check
                     is_below_threshold = oos_sharpe < (OOS_MIN_SHARPE_RATIO * EARLY_STOP_THRESHOLD_RATIO)
                     if is_below_threshold:
@@ -486,13 +612,13 @@ def main():
                     else:
                         consecutive_failures = 0 # Reset counter if a trial is not a 'bad' failure
 
-            if not oos_validation_passed:
-                logging.error(f"All top {retries_attempted} IS trials failed OOS validation.")
-                # Here you could trigger re-optimization if TRIGGER_REOPTIMIZE is True
-                selected_trial = best_trial # Fallback to the best IS trial for logging purposes
+                if not oos_validation_passed:
+                    logging.error(f"All top {retries_attempted} IS trials failed OOS validation.")
+                    # Here you could trigger re-optimization if TRIGGER_REOPTIMIZE is True
+                    selected_trial = best_trial # Fallback to the best IS trial for logging purposes
 
-            # --- Save History ---
-            final_trial = selected_trial
+                # --- Save History ---
+                final_trial = selected_trial
             final_summary = best_oos_summary if oos_validation_passed else {}
 
             history = {
@@ -518,7 +644,17 @@ def main():
             os.remove(JOB_FILE)
             logging.info("Optimization run complete. Waiting for next job.")
 
-        time.sleep(10)
+            if run_once:
+                logging.info("Run once flag is set. Exiting main loop.")
+                break
+
+            time.sleep(10)
+            if run_once and not JOB_FILE.exists():
+                 # If we are running once and the job is gone, no need to keep sleeping
+                 logging.info("Job file processed and run_once is true. Exiting.")
+                 break
+    finally:
+        stop_go_sim_server()
 
 def save_optimization_history(history_data):
     """Saves the optimization run details to the database."""
@@ -567,4 +703,7 @@ def save_optimization_history(history_data):
 
 if __name__ == "__main__":
     # The Go binary is expected to be built by the main `docker compose up --build` command.
-    main()
+    # Check for a special argument to run only once, for testing.
+    import sys
+    run_once = '--run-once' in sys.argv
+    main(run_once=run_once)

@@ -164,3 +164,113 @@ func parseTime(timeStr string) (time.Time, error) {
 	}
 	return t, nil
 }
+
+// LoadMarketEventsFromCSV reads an entire CSV file into memory and returns it as a slice of OrderBookData.
+func LoadMarketEventsFromCSV(filePath string) ([]coincheck.OrderBookData, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open csv file: %w", err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	// Read the header row
+	if _, err := reader.Read(); err != nil {
+		if err == io.EOF {
+			return []coincheck.OrderBookData{}, nil // Empty file is okay
+		}
+		return nil, fmt.Errorf("failed to read csv header: %w", err)
+	}
+
+	var events []coincheck.OrderBookData
+	var currentUpdates []coincheck.OrderBookLevel
+	var currentTime time.Time
+	var currentPair string
+
+	flushSnapshot := func() {
+		if len(currentUpdates) == 0 {
+			return
+		}
+
+		bidCount := 0
+		askCount := 0
+		for _, u := range currentUpdates {
+			if u.Side == "bid" {
+				bidCount++
+			} else {
+				askCount++
+			}
+		}
+
+		bids := make([][]string, 0, bidCount)
+		asks := make([][]string, 0, askCount)
+
+		for _, u := range currentUpdates {
+			level := []string{
+				strconv.FormatFloat(u.Price, 'f', -1, 64),
+				strconv.FormatFloat(u.Size, 'f', -1, 64),
+			}
+			if u.Side == "bid" {
+				bids = append(bids, level)
+			} else {
+				asks = append(asks, level)
+			}
+		}
+
+		events = append(events, coincheck.OrderBookData{
+			PairStr: currentPair,
+			Bids:    bids,
+			Asks:    asks,
+			Time:    currentTime,
+		})
+	}
+
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			flushSnapshot()
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to read csv record: %w", err)
+		}
+
+		if len(record) != 6 {
+			logger.Warnf("Skipping record due to invalid number of columns: expected 6, got %d", len(record))
+			continue
+		}
+
+		eventTime, err := parseTime(record[0])
+		if err != nil {
+			logger.Warnf("Skipping record due to time parse error: %v", err)
+			continue
+		}
+
+		if !currentTime.IsZero() && eventTime != currentTime {
+			flushSnapshot()
+			currentUpdates = nil
+		}
+
+		currentTime = eventTime
+		currentPair = record[1]
+		side := record[2]
+		price, err := strconv.ParseFloat(record[3], 64)
+		if err != nil {
+			logger.Warnf("Skipping record due to price parse error: %v", err)
+			continue
+		}
+		size, err := strconv.ParseFloat(record[4], 64)
+		if err != nil {
+			logger.Warnf("Skipping record due to size parse error: %v", err)
+			continue
+		}
+
+		currentUpdates = append(currentUpdates, coincheck.OrderBookLevel{
+			Side:  side,
+			Price: price,
+			Size:  size,
+		})
+	}
+
+	return events, nil
+}
