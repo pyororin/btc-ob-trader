@@ -237,11 +237,11 @@ def run_simulation(params, sim_csv_path):
 
     except subprocess.CalledProcessError as e:
         logging.error(f"Simulation failed for config {temp_config_path}: {e.stderr}")
-        return None
+        return {}
     except json.JSONDecodeError as e:
         logging.error(f"Failed to parse simulation output for {temp_config_path}: {e}")
         logging.error(f"Received output: {result.stdout}")
-        return None
+        return {}
     finally:
         # 5. Clean up the temporary config file
         if temp_config_path and os.path.exists(temp_config_path):
@@ -306,7 +306,7 @@ def objective(trial, study, min_trades_for_pruning: int):
     summary = run_simulation(params, study.user_attrs.get('current_csv_path'))
 
 
-    if summary is None:
+    if not isinstance(summary, dict) or not summary:
         return -1.0 # Return a poor score
 
     total_trades = summary.get('TotalTrades', 0)
@@ -439,7 +439,7 @@ def main(run_once=False):
                     logging.info(f"--- [Attempt {retries_attempted}/{MAX_RETRY}] OOS Validation for IS Rank #{is_rank} (Trial {trial_to_validate.number}) ---")
                     oos_summary = run_simulation(trial_to_validate.params, oos_csv_path)
 
-                    if oos_summary is None:
+                    if not isinstance(oos_summary, dict) or not oos_summary:
                         logging.warning(f"OOS simulation failed for trial {trial_to_validate.number}. Treating as failure.")
                         oos_pf = 0.0
                         oos_sharpe = -999.0
