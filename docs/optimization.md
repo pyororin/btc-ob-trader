@@ -14,37 +14,31 @@
     *   IS最適化で得られた優秀なパラメータセットが、未知のデータ（OOSデータ）に対しても有効であるか（過剰最適化されていないか）を検証します。
     *   この検証を通過したパラメータセットのみが、実際の取引に使用される設定ファイル (`trade_config.yaml`) に反映されます。
 
-## IS順位とOOS再検証（リトライ機構）
+## Robust Parameter Selection
 
-ISフェーズで成績が良かったパラメータが、必ずしもOOSフェーズでも良い結果を出すとは限りません。偶然ISデータにだけ適合してしまった（過剰最適化された）可能性があります。
+Simply picking the best-performing parameter set from the In-Sample (IS) phase carries a high risk of overfitting. A parameter set might perform exceptionally well on the IS data by chance, but fail on unseen Out-of-Sample (OOS) data.
 
-このリスクを軽減し、より堅牢なパラメータを発見するため、本システムはISの成績上位のパラメータを順次OOSで再検証するリトライ機構を備えています。
+To mitigate this risk, this system implements a robust parameter selection process. Instead of just picking the single best trial, it analyzes the characteristics of a group of top-performing trials to find a parameter set that is more likely to be stable and profitable in the future.
 
-### アルゴリズム
+### Algorithm
 
-1.  IS最適化が完了すると、成績（SQN）が良かった順にパラメータセットのランキングが作成されます。
-2.  ランキング1位のパラメータセットでOOS検証を実行します。
-3.  OOS検証が事前に定義された合格基準（Profit Factor, Sharpe Ratioなど）を満たした場合、そのパラメータセットを採用し、プロセスは成功として終了します。
-4.  不合格だった場合、ランキング2位のパラメータセットでOOS検証を試みます（リトライ）。
-5.  このリトライは、以下のいずれかの条件を満たすまで、ランキング下位のパラメータセットを対象に繰り返されます。
-    *   OOS検証に合格するパラメータセットが見つかる。
-    *   事前に設定された最大リトライ回数に達する。
-    *   成績の著しく悪いパラメータが連続し、早期停止条件に合致する。
+1.  **IS Optimization**: The optimizer runs a large number of trials on the IS data to explore the parameter space.
+2.  **Top-Tier Selection**: After the IS optimization is complete, the system selects a subset of the best-performing trials (e.g., the top 10% based on the SQN score).
+3.  **Robustness Analysis**: The `analyzer.py` script is executed. It analyzes the distribution of each parameter within this top-tier group.
+    *   For numerical parameters, it uses Kernel Density Estimation (KDE) to find the value where the highest density of top-performing trials is concentrated (the mode).
+    *   For categorical parameters, it selects the most frequently occurring value (the mode).
+4.  **Parameter Recommendation**: The combination of these "mode" values forms a new, robust parameter set. This set represents a region in the parameter space where good performance is consistently found, rather than a single, potentially anomalous, peak.
+5.  **OOS Validation**: This single, robust parameter set is then validated against the OOS data.
+    *   If it passes the predefined criteria (e.g., `oos_min_profit_factor`), it is adopted as the new official parameter set.
+    *   If it fails, the optimization run is considered unsuccessful, and no changes are made. The system will wait for the next scheduled optimization.
 
-### 設定項目
+This approach prioritizes the stability and generalizability of the parameters over the raw performance on the IS data, leading to a more reliable trading strategy.
 
-リトライ機構の挙動は `optimizer.py` 内の定数によって制御されます。
+### Configuration
 
-*   `MAX_RETRY`: OOS検証を試行する最大回数。ISランキングの上位何位までを検証対象とするかを定義します。
-    *   デフォルト: `5`
-*   `OOS_MIN_PROFIT_FACTOR`: OOS検証の合格基準となるProfit Factorの最小値。
-    *   デフォルト: `1.0`
-*   `OOS_MIN_SHARPE_RATIO`: OOS検証の合格基準となるSharpe Ratioの最小値。
-    *   デフォルト: `0.5`
-*   `EARLY_STOP_COUNT`: 早期停止の条件となる、連続不合格回数。
-    *   デフォルト: `2`
-*   `EARLY_STOP_THRESHOLD_RATIO`: 早期停止の判断に用いるSharpe Ratioの閾値係数。OOSのSharpe Ratioが `OOS_MIN_SHARPE_RATIO * EARLY_STOP_THRESHOLD_RATIO` を下回った場合に不合格カウントが1つ加算されます。
-    *   デフォルト: `0.7`
+The behavior of the analysis is controlled by the `analyzer` section in the `optimizer_config.yaml` file.
+
+*   `top_trials_quantile`: This determines the percentage of top trials to include in the robustness analysis. For example, a value of `0.1` means the top 10% of trials (by SQN score) will be used to find the robust parameter set.
 
 ### 結果の確認
 
