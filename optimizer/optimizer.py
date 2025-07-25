@@ -367,6 +367,7 @@ def main():
             # Get min_trades from job, with a default from the config file
             min_trades_for_pruning = job.get('min_trades', MIN_TRADES_FOR_PRUNING)
             logging.info(f"Using manual pruning with min_trades = {min_trades_for_pruning}")
+            optuna.delete_study(study_name='obi-scalp-optimization', storage=STORAGE_URL)
 
             pruner = HyperbandPruner(
                 min_resource=1,
