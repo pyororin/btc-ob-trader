@@ -88,6 +88,31 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 		return nil, fmt.Errorf("LiveExecutionEngine: exchange client is not initialized")
 	}
 
+	// --- Risk Management ---
+	balance, err := e.GetBalance()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get balance for risk check: %w", err)
+	}
+	jpyBalance, _ := strconv.ParseFloat(balance.Jpy, 64)
+
+	// Max drawdown check
+	currentDrawdown := -e.pnlCalculator.GetRealizedPnL()
+	maxDrawdown := jpyBalance * (cfg.Trade.Risk.MaxDrawdownPercent / 100.0)
+	if currentDrawdown > maxDrawdown {
+		return nil, &RiskCheckError{Message: fmt.Sprintf("risk check failed: current drawdown %.2f exceeds max drawdown %.2f", currentDrawdown, maxDrawdown)}
+	}
+
+	// Max position size check
+	positionSize, avgEntryPrice := e.position.Get()
+	currentPositionValue := math.Abs(positionSize * avgEntryPrice)
+	orderValue := amount * rate
+	prospectivePositionValue := currentPositionValue + orderValue
+	maxPositionValue := jpyBalance * cfg.Trade.Risk.MaxPositionRatio
+	if prospectivePositionValue > maxPositionValue {
+		return nil, &RiskCheckError{Message: fmt.Sprintf("risk check failed: prospective position value %.2f exceeds max position value %.2f", prospectivePositionValue, maxPositionValue)}
+	}
+	// --- End Risk Management ---
+
 	// Place the order
 	req := coincheck.OrderRequest{
 		Pair:      pair,

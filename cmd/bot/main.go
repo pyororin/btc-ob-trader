@@ -607,11 +607,15 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 		wsClient := coincheck.NewWebSocketClient(orderBookHandler, tradeHandler)
 		go func() {
 			logger.Info("Connecting to Coincheck WebSocket API...")
-			if err := wsClient.Connect(); err != nil {
+			if err := wsClient.Connect(ctx); err != nil {
 				logger.Warnf("WebSocket client exited with error: %v", err)
 				sigs <- syscall.SIGTERM
 			}
 		}()
+
+		// Wait for the WebSocket client to be ready before proceeding.
+		<-wsClient.Ready()
+		logger.Info("WebSocket client is ready.")
 	}
 }
 
