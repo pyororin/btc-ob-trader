@@ -217,10 +217,10 @@ def run_simulation(params, sim_csv_path):
         # 2. Construct the command to run the Go simulation
         command = [
             str(APP_ROOT / 'build' / 'obi-scalp-bot'),
-            '--backtest',
-            f'--config={temp_config_path}',
+            '--simulate',
+            f'--trade-config={temp_config_path}',
             f'--csv={sim_csv_path}',
-            '--summary'
+            '--json-output'
         ]
 
         # 3. Execute the command
