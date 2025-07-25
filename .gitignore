@@ -25,3 +25,4 @@ data\params\trade_config.yaml
 # Go deps
 vendor/
 
+optimizer/__pycache__/optimizer.cpython-312.pyc
