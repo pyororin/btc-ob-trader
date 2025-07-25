@@ -57,6 +57,10 @@ adaptive_position_sizing:
 
 # long: ロング（買い）エントリーの戦略設定。
 long:
+  # entry_trigger: ロングエントリーのトリガーを 'obi' (Order Book Imbalance) または 'ofi' (Order Flow Imbalance) から選択します。
+  entry_trigger: {{ long_entry_trigger }}
+  # exit_trigger: ロングポジションの出口戦略を 'tp' (利食いのみ), 'sl' (損切りのみ), 'both' (両方) から選択します。
+  exit_trigger: {{ long_exit_trigger }}
   # obi_threshold: ロングエントリーをトリガーするOBI (Order Book Imbalance) の閾値。
   # OBIがこの値を超えると、買いシグナルの候補となります。正の値を指定します。
   obi_threshold: {{ long_obi_threshold }}
@@ -70,6 +74,10 @@ long:
 
 # short: ショート（売り）エントリーの戦略設定。
 short:
+  # entry_trigger: ショートエントリーのトリガーを 'obi' (Order Book Imbalance) または 'ofi' (Order Flow Imbalance) から選択します。
+  entry_trigger: {{ short_entry_trigger }}
+  # exit_trigger: ショートポジションの出口戦略を 'tp' (利食いのみ), 'sl' (損切りのみ), 'both' (両方) から選択します。
+  exit_trigger: {{ short_exit_trigger }}
   # obi_threshold: ショートエントリーをトリガーするOBIの閾値。
   # OBIがこの値を下回ると（より負の方向に大きいと）、売りシグナルの候補となります。負の値を指定します。
   obi_threshold: {{ short_obi_threshold }}
