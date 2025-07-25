@@ -6,7 +6,7 @@ if [ ! -f "$DATA_ZIP" ]; then
   exit 0
 fi
 TODAY=$(date -u "+%Y-%m-%d")
-psql -v ON_ERROR_STOP=1 --username="$DB_USER" --dbname="$DB_NAME" <<'EOSQL'
+psql -v ON_ERROR_STOP=1 --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" <<'EOSQL'
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 CREATE UNLOGGED TABLE IF NOT EXISTS order_book_updates (
   time TIMESTAMPTZ NOT NULL,
@@ -19,6 +19,6 @@ CREATE UNLOGGED TABLE IF NOT EXISTS order_book_updates (
 EOSQL
 unzip -p "$DATA_ZIP" \
 | awk -F, -v d="$TODAY" 'NR==1{print;next}{sub(/^[0-9]{4}-[0-9]{2}-[0-9]{2}/, d, $1); OFS=","; print}' \
-| psql --username="$DB_USER" --dbname="$DB_NAME" \
+| psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" \
        -c "\COPY order_book_updates (time,pair,side,price,size,is_snapshot) FROM STDIN CSV HEADER"
 echo "✅  Seed completed"

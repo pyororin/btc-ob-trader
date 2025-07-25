@@ -1,6 +1,13 @@
 services:
   timescaledb:
     image: timescaledb-lite:pg17-alpine
+    container_name: timescaledb-obi
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     build:
       context: .
       dockerfile: docker/jules/Dockerfile.timescaledb
@@ -9,10 +16,22 @@ services:
       - ./db/schema/jules/order_book_updates_jules.zip:/seed/order_book_updates_jules.zip:ro
       # 🔹 DB データ領域をホスト側 named volume へ
       - pgdata_jules:/var/lib/postgresql/data
-    environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+      - ./db/schema:/docker-entrypoint-initdb.d/01_schema
+      
+    command: postgres -c timezone=Asia/Tokyo
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - bot_network
+    
+networks:
+  bot_network:
+    driver: bridge
+
 volumes:
   pgdata_jules:
     driver: local
