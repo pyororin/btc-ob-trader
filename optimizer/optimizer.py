@@ -318,7 +318,7 @@ def progress_callback(study, trial):
             logging.info(f"Trial {trial.number}: No best trial available yet.")
 
 
-def objective(trial, min_trades_for_pruning: int):
+def objective(trial, study, min_trades_for_pruning: int):
     """Optuna objective function."""
     params = {
         'spread_limit': trial.suggest_int('spread_limit', 10, 150),
@@ -355,7 +355,7 @@ def objective(trial, min_trades_for_pruning: int):
 
     # The CURRENT_SIM_CSV_PATH is now passed to run_simulation directly
     # The objective function itself doesn't need to know which CSV is being used.
-    summary = run_simulation(params, trial.storage.get_study_user_attrs(study_name='obi-scalp-optimization').get('current_csv_path'))
+    summary = run_simulation(params, study.user_attrs.get('current_csv_path'))
 
 
     if summary is None:
@@ -451,7 +451,7 @@ def main(run_once=False):
             )
             catch_exceptions = (sqlalchemy.exc.OperationalError, optuna.exceptions.StorageInternalError, sqlite3.OperationalError)
             min_trades_for_pruning = job.get('min_trades', MIN_TRADES_FOR_PRUNING)
-            objective_with_pruning = lambda trial: objective(trial, min_trades_for_pruning)
+            objective_with_pruning = lambda trial: objective(trial, study, min_trades_for_pruning)
 
             # --- Start Simulation Server ---
             start_simulation_server(is_csv_path)
