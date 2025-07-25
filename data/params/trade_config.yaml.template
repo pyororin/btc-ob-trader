@@ -17,7 +17,7 @@ pair: "btc_jpy"
 
 # order_amount: 1回の取引で発注する量。
 # 例: 0.01
-order_amount: {{ order_amount }}
+order_amount: 0.01
 
 # spread_limit: 取引を許可する最大のスプレッド（最良買値と最良売値の差）を円で指定します。
 # これよりスプレッドが広い場合、ボットは新規エントリーを見送ります。
