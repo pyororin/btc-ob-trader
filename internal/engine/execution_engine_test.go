@@ -4,7 +4,6 @@ package engine
 import (
 	"context"
 	"encoding/json"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -21,6 +20,63 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// setupTest configures a mock server and a default configuration for tests.
+func setupTest(t *testing.T) (*httptest.Server, *config.Config) {
+	t.Helper()
+
+	// Create a default config to prevent nil pointers
+	cfg := &config.Config{
+		App: config.AppConfig{
+			Order: config.OrderConfig{
+				PollIntervalMs: 10,
+				TimeoutSeconds: 1,
+			},
+		},
+		Trade: config.TradeConfig{
+			OrderRatio:  0.1,
+			LotMaxRatio: 0.1,
+			Risk: config.RiskConfig{
+				MaxDrawdownPercent: 10.0,
+				MaxPositionRatio:   0.5,
+			},
+			AdaptivePositionSizing: config.AdaptiveSizingConfig{
+				Enabled:       false,
+				NumTrades:     5,
+				ReductionStep: 0.8,
+				MinRatio:      0.5,
+			},
+			Twap: config.TwapConfig{
+				PartialExitEnabled: false,
+			},
+		},
+		EnableTrade: true,
+	}
+	config.SetTestConfig(cfg) // Use a setter to inject the mock config
+
+	// Default handlers that can be overridden by tests
+	mockServer := mockCoincheckServer(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(coincheck.OrderResponse{Success: true, ID: 12345})
+		},
+		nil,
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"})
+		},
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}})
+		},
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(coincheck.TransactionsResponse{Success: true, Transactions: []coincheck.Transaction{}})
+		},
+	)
+
+	return mockServer, cfg
+}
 
 // mockCoincheckServer is a helper to create a mock HTTP server for Coincheck API.
 func mockCoincheckServer(
@@ -64,8 +120,13 @@ func mockCoincheckServer(
 func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 	var requestCount int32
 	var orderID int64 = 12345
-	mockServer := mockCoincheckServer(
-		func(w http.ResponseWriter, r *http.Request) { // NewOrder Handler
+	mockServer, _ := setupTest(t)
+	defer mockServer.Close()
+
+	// Override default handlers for this specific test
+	mockServer.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/exchange/orders":
 			atomic.AddInt32(&requestCount, 1)
 			var reqBody coincheck.OrderRequest
 			_ = json.NewDecoder(r.Body).Decode(&reqBody)
@@ -81,19 +142,13 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		},
-		nil, // No cancel handler needed for success case
-		func(w http.ResponseWriter, r *http.Request) { // Balance Handler
-			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
+		case "/api/accounts/balance":
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // OpenOrders Handler
-			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
+			_ = json.NewEncoder(w).Encode(coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"})
+		case "/api/exchange/orders/opens":
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // Transactions Handler
+			_ = json.NewEncoder(w).Encode(coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}})
+		case "/api/exchange/orders/transactions":
 			resp := coincheck.TransactionsResponse{
 				Success: true,
 				Transactions: []coincheck.Transaction{
@@ -102,68 +157,57 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		},
-	)
-	defer mockServer.Close()
+		default:
+			http.NotFound(w, r)
+		}
+	})
 
 	ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
 	originalBaseURL := coincheck.GetBaseURL()
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	config.LoadConfig("../../config/app_config.yaml", "../../config/trade_config.yaml")
 	execEngine := NewLiveExecutionEngine(ccClient, nil, nil)
 
 	// Test normal order
 	resp, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, false)
-	if err != nil {
-		t.Fatalf("PlaceOrder returned an error: %v", err)
-	}
-	if !resp.Success {
-		t.Errorf("PlaceOrder success was false. API Error: %s %s", resp.Error, resp.ErrorDescription)
-	}
-	if resp.ID != orderID {
-		t.Errorf("Expected order ID %d, got %d", orderID, resp.ID)
-	}
+	require.NoError(t, err)
+	require.True(t, resp.Success, "PlaceOrder success was false. API Error: %s %s", resp.Error, resp.ErrorDescription)
+	assert.Equal(t, orderID, resp.ID)
 
 	// Test post_only order
 	respPostOnly, errPostOnly := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, true)
-	if errPostOnly != nil {
-		t.Fatalf("PlaceOrder (postOnly) returned an error: %v", errPostOnly)
-	}
-	if !respPostOnly.Success {
-		t.Errorf("PlaceOrder (postOnly) success was false. API Error: %s %s", respPostOnly.Error, respPostOnly.ErrorDescription)
-	}
-	if respPostOnly.TimeInForce != "post_only" {
-		t.Errorf("Expected TimeInForce to be 'post_only', got '%s'", respPostOnly.TimeInForce)
-	}
+	require.NoError(t, errPostOnly)
+	require.True(t, respPostOnly.Success, "PlaceOrder (postOnly) success was false. API Error: %s %s", respPostOnly.Error, respPostOnly.ErrorDescription)
+	assert.Equal(t, "post_only", respPostOnly.TimeInForce)
 }
 
 func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 	var adjustedAmount float64
 	var orderID int64
-	mockServer := mockCoincheckServer(
-		func(w http.ResponseWriter, r *http.Request) { // NewOrder Handler
+	mockServer, cfg := setupTest(t)
+	defer mockServer.Close()
+
+	// Override handlers
+	mockServer.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/exchange/orders":
 			var reqBody coincheck.OrderRequest
 			_ = json.NewDecoder(r.Body).Decode(&reqBody)
 			adjustedAmount = reqBody.Amount
-			orderID = 123 // Set orderID for the transaction handler to use
+			orderID = 123
 			resp := coincheck.OrderResponse{Success: true, ID: orderID}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		},
-		nil, // No cancel handler
-		func(w http.ResponseWriter, r *http.Request) { // Balance Handler
+		case "/api/accounts/balance":
 			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // OpenOrders Handler
+		case "/api/exchange/orders/opens":
 			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // Transactions Handler
+		case "/api/exchange/orders/transactions":
 			resp := coincheck.TransactionsResponse{
 				Success: true,
 				Transactions: []coincheck.Transaction{
@@ -172,50 +216,42 @@ func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		},
-	)
-	defer mockServer.Close()
+		default:
+			http.NotFound(w, r)
+		}
+	})
 
 	ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
 	originalBaseURL := coincheck.GetBaseURL()
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	config.LoadConfig("../../config/app_config.yaml", "../../config/trade_config.yaml")
-	cfg := config.GetConfig()
 	cfg.Trade.OrderRatio = 0.5
 	cfg.Trade.Risk.MaxPositionRatio = 1.0 // Disable risk check for this test
 	execEngine := NewLiveExecutionEngine(ccClient, nil, nil)
 
 	_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.2, false)
-	if err != nil {
-		t.Fatalf("PlaceOrder returned an unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	expectedAmount := 0.1
-	if adjustedAmount != expectedAmount {
-		t.Errorf("Expected adjusted amount to be %.8f, got %.8f", expectedAmount, adjustedAmount)
-	}
+	assert.Equal(t, expectedAmount, adjustedAmount)
 }
 
 func TestExecutionEngine_CancelOrder_Success(t *testing.T) {
 	var cancelRequestCount int32
-	mockServer := mockCoincheckServer(
-		nil,
-		func(w http.ResponseWriter, r *http.Request) { // CancelOrder Handler
+	mockServer, _ := setupTest(t)
+	defer mockServer.Close()
+
+	mockServer.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/exchange/orders/") && r.Method == http.MethodDelete {
 			atomic.AddInt32(&cancelRequestCount, 1)
-			resp := coincheck.CancelResponse{
-				Success: true,
-				ID:      56789,
-			}
+			resp := coincheck.CancelResponse{Success: true, ID: 56789}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		},
-		nil,
-		nil,
-		nil,
-	)
-	defer mockServer.Close()
+		} else {
+			http.NotFound(w, r)
+		}
+	})
 
 	ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
 	originalBaseURL := coincheck.GetBaseURL()
@@ -225,37 +261,27 @@ func TestExecutionEngine_CancelOrder_Success(t *testing.T) {
 	execEngine := NewLiveExecutionEngine(ccClient, nil, nil)
 
 	resp, err := execEngine.CancelOrder(context.Background(), 56789)
-	if err != nil {
-		t.Fatalf("CancelOrder returned an error: %v", err)
-	}
-	if !resp.Success {
-		t.Errorf("CancelOrder success was false. API Error: %s", resp.Error)
-	}
-	if resp.ID != 56789 {
-		t.Errorf("Expected cancelled order ID 56789, got %d", resp.ID)
-	}
-	if atomic.LoadInt32(&cancelRequestCount) != 1 {
-		t.Errorf("Expected 1 request to cancel order endpoint, got %d", atomic.LoadInt32(&cancelRequestCount))
-	}
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.True(t, resp.Success)
+	assert.EqualValues(t, 56789, resp.ID)
+	assert.EqualValues(t, 1, atomic.LoadInt32(&cancelRequestCount))
 }
 
 func TestExecutionEngine_CancelOrder_Failure(t *testing.T) {
-	mockServer := mockCoincheckServer(
-		nil,
-		func(w http.ResponseWriter, r *http.Request) { // CancelOrder Handler for failure
-			resp := coincheck.CancelResponse{
-				Success: false,
-				ID:      11111,
-				Error:   "Order not found or already processed",
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(resp)
-		},
-		nil,
-		nil,
-		nil,
-	)
+	mockServer, _ := setupTest(t)
 	defer mockServer.Close()
+
+	mockServer.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := coincheck.CancelResponse{
+			Success: false,
+			ID:      11111,
+			Error:   "Order not found or already processed",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK) // Coincheck API might return 200 OK with success:false
+		_ = json.NewEncoder(w).Encode(resp)
+	})
 
 	ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
 	originalBaseURL := coincheck.GetBaseURL()
@@ -265,83 +291,61 @@ func TestExecutionEngine_CancelOrder_Failure(t *testing.T) {
 	execEngine := NewLiveExecutionEngine(ccClient, nil, nil)
 
 	resp, err := execEngine.CancelOrder(context.Background(), 11111)
-	if err == nil {
-		t.Fatal("CancelOrder was expected to return an error, but it didn't")
-	}
-	if resp == nil {
-		t.Fatal("CancelOrder response should not be nil on API error")
-	}
-	if resp.Success {
-		t.Error("CancelOrder success was true when expecting API error")
-	}
-	if resp.Error != "Order not found or already processed" {
-		t.Errorf("Expected API error 'Order not found or already processed', got '%s'", resp.Error)
-	}
-	if !strings.Contains(err.Error(), "Order not found or already processed") {
-		t.Errorf("Error message does not contain expected API error. Got: %s", err.Error())
-	}
+	require.Error(t, err)
+	require.NotNil(t, resp)
+	assert.False(t, resp.Success)
+	assert.Equal(t, "Order not found or already processed", resp.Error)
+	assert.Contains(t, err.Error(), "Order not found or already processed")
 }
 
 func TestExecutionEngine_PlaceOrder_Timeout(t *testing.T) {
 	var orderID int64 = 67890
-	mockServer := mockCoincheckServer(
-		func(w http.ResponseWriter, r *http.Request) { // NewOrder Handler
+	mockServer, cfg := setupTest(t)
+	defer mockServer.Close()
+
+	mockServer.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/exchange/orders" && r.Method == http.MethodPost:
 			resp := coincheck.OrderResponse{Success: true, ID: orderID}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // CancelOrder Handler
-			// Extract order ID from URL path, e.g., /api/exchange/orders/67890
+		case strings.HasPrefix(r.URL.Path, "/api/exchange/orders/") && r.Method == http.MethodDelete:
 			pathParts := strings.Split(r.URL.Path, "/")
 			cancelledIDStr := pathParts[len(pathParts)-1]
-			var cancelledID int64
-			if id, err := Atoi64(cancelledIDStr); err == nil {
-				cancelledID = id
-			}
-
+			cancelledID, _ := Atoi64(cancelledIDStr)
 			resp := coincheck.CancelResponse{Success: true, ID: cancelledID}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // Balance Handler
+		case r.URL.Path == "/api/accounts/balance":
 			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // OpenOrders Handler
+		case r.URL.Path == "/api/exchange/orders/opens":
 			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // Transactions Handler (returns no matching transaction)
+		case r.URL.Path == "/api/exchange/orders/transactions":
 			resp := coincheck.TransactionsResponse{Success: true, Transactions: []coincheck.Transaction{}}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		},
-	)
-	defer mockServer.Close()
+		default:
+			http.NotFound(w, r)
+		}
+	})
 
 	ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
 	originalBaseURL := coincheck.GetBaseURL()
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	config.LoadConfig("../../config/app_config.yaml", "../../config/trade_config.yaml")
-	cfg := config.GetConfig()
 	cfg.App.Order.PollIntervalMs = 1
 	cfg.App.Order.TimeoutSeconds = 1
 
-	execEngine := NewLiveExecutionEngine(ccClient, nil, nil) // Assuming dbWriter is not essential for this test
+	execEngine := NewLiveExecutionEngine(ccClient, nil, nil)
 
 	_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, false)
-	if err == nil {
-		t.Fatal("PlaceOrder was expected to return a timeout error, but it didn't")
-	}
-
-	expectedErrorMsg := "timed out and was cancelled"
-	if !strings.Contains(err.Error(), expectedErrorMsg) {
-		t.Errorf("Expected error message to contain '%s', got '%s'", expectedErrorMsg, err.Error())
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timed out and was cancelled")
 }
 
 // mockDBWriter is a mock implementation of the dbwriter.DBWriter for testing.
@@ -408,82 +412,13 @@ func TestMain(m *testing.M) {
 }
 
 func TestExecutionEngine_AdaptivePositionSizing(t *testing.T) {
-	var requestCount int32
 	var orderIDCounter int64 = 1000
 	var lastRequestedAmount float64
-	var mu sync.Mutex // To protect lastRequestedAmount
+	var mu sync.Mutex
 
-	// This handler will simulate successful order placement and capture the amount.
-	newOrderHandler := func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&requestCount, 1)
-		currentOrderID := atomic.AddInt64(&orderIDCounter, 1)
-
-		var reqBody coincheck.OrderRequest
-		_ = json.NewDecoder(r.Body).Decode(&reqBody)
-
-		mu.Lock()
-		lastRequestedAmount = reqBody.Amount
-		mu.Unlock()
-
-		resp := coincheck.OrderResponse{
-			Success:   true,
-			ID:        currentOrderID,
-			Rate:      "5000000.0",
-			Amount:    strconv.FormatFloat(reqBody.Amount, 'f', -1, 64),
-			OrderType: "buy",
-			Pair:      "btc_jpy",
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
-	}
-
-	// This handler simulates the transaction appearing after the order is placed.
-	transactionsHandler := func(w http.ResponseWriter, r *http.Request) {
-		currentOrderID := atomic.LoadInt64(&orderIDCounter)
-		mu.Lock()
-		mu.Unlock()
-
-		resp := coincheck.TransactionsResponse{
-			Success: true,
-			Transactions: []coincheck.Transaction{
-				{
-					ID:      currentOrderID + 5000, // Just a unique tx id
-					OrderID: currentOrderID,
-					Pair:    "btc_jpy",
-					Rate:    "5000000.0", // Assume execution at this price
-					Side:    "buy",
-					CreatedAt: time.Now().UTC().Format(time.RFC3339),
-				},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
-	}
-
-	mockServer := mockCoincheckServer(
-		newOrderHandler,
-		nil, // No cancel handler
-		func(w http.ResponseWriter, r *http.Request) { // Balance Handler
-			resp := coincheck.BalanceResponse{Success: true, Jpy: "100000000", Btc: "10.0"} // Large balance
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // OpenOrders Handler
-			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(resp)
-		},
-		transactionsHandler,
-	)
+	mockServer, cfg := setupTest(t)
 	defer mockServer.Close()
 
-	ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
-	originalBaseURL := coincheck.GetBaseURL()
-	coincheck.SetBaseURL(mockServer.URL)
-	defer coincheck.SetBaseURL(originalBaseURL)
-
-	config.LoadConfig("../../config/app_config.yaml", "../../config/trade_config.yaml")
-	cfg := config.GetConfig()
 	cfg.Trade.OrderRatio = 0.2
 	cfg.Trade.LotMaxRatio = 0.2
 	cfg.Trade.AdaptivePositionSizing = config.AdaptiveSizingConfig{
@@ -492,65 +427,77 @@ func TestExecutionEngine_AdaptivePositionSizing(t *testing.T) {
 		ReductionStep: 0.8,
 		MinRatio:      0.5,
 	}
-	cfg.App.Order.PollIntervalMs = 1
-	cfg.App.Order.TimeoutSeconds = 1
-	cfg.Trade.Risk.MaxPositionRatio = 1.0 // Disable risk check for this test
+	cfg.Trade.Risk.MaxPositionRatio = 1.0 // Disable risk check
+
+	mockServer.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/exchange/orders":
+			currentOrderID := atomic.AddInt64(&orderIDCounter, 1)
+			var reqBody coincheck.OrderRequest
+			_ = json.NewDecoder(r.Body).Decode(&reqBody)
+			mu.Lock()
+			lastRequestedAmount = reqBody.Amount
+			mu.Unlock()
+			resp := coincheck.OrderResponse{
+				Success: true, ID: currentOrderID, Amount: strconv.FormatFloat(reqBody.Amount, 'f', -1, 64),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+		case "/api/exchange/orders/transactions":
+			currentOrderID := atomic.LoadInt64(&orderIDCounter)
+			resp := coincheck.TransactionsResponse{
+				Success: true,
+				Transactions: []coincheck.Transaction{{ID: currentOrderID + 5000, OrderID: currentOrderID}},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+		case "/api/accounts/balance":
+			resp := coincheck.BalanceResponse{Success: true, Jpy: "100000000", Btc: "10.0"}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+		case "/api/exchange/orders/opens":
+			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
+	originalBaseURL := coincheck.GetBaseURL()
+	coincheck.SetBaseURL(mockServer.URL)
+	defer coincheck.SetBaseURL(originalBaseURL)
 
 	execEngine := NewLiveExecutionEngine(ccClient, nil, nil)
 
-	// --- Scenario 1: Losing trades lead to reduced size ---
 	t.Run("size reduction after losses", func(t *testing.T) {
-		// Simulate 5 losing trades to trigger the reduction logic.
-		// We can do this by calling PlaceOrder and manually manipulating the PnL tracker inside the engine.
-		// However, the engine's PnL tracking is internal. A better approach is to simulate the full loop.
-		// For this test, we'll assume every trade results in a fixed loss.
-		// The engine calculates PnL based on position changes.
-		// To simulate a loss, we need a buy and a sell.
-		// Let's simplify: we will manually update the internal PnL list for the test.
-		// This is a white-box test.
 		execEngine.UpdateRecentPnLsForTest(t, []float64{-100, -100, -100, -100, -100})
-
-		// Now, place an order. The size should be reduced.
-		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 10.0, false) // Large amount to trigger adjustment
-		if err != nil {
-			t.Fatalf("PlaceOrder returned an unexpected error: %v", err)
-		}
+		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 10.0, false)
+		require.NoError(t, err)
 
 		mu.Lock()
 		finalAmount := lastRequestedAmount
 		mu.Unlock()
 
 		expectedReducedAmount := (100000000 * (cfg.Trade.OrderRatio * cfg.Trade.AdaptivePositionSizing.ReductionStep)) / 5000000
-		const epsilon = 1e-9
-		if math.Abs(finalAmount-expectedReducedAmount) > epsilon {
-			t.Errorf("Expected amount to be reduced to %.8f, but got %.8f", expectedReducedAmount, finalAmount)
-		}
+		assert.InDelta(t, expectedReducedAmount, finalAmount, 1e-9)
 	})
 
-	// --- Scenario 2: Winning trades reset the size ---
 	t.Run("size reset after profits", func(t *testing.T) {
-		// First, ensure the size is reduced
 		execEngine.UpdateRecentPnLsForTest(t, []float64{-100, -100, -100, -100, -100})
 		_, _ = execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 10.0, false)
 
-		// Now, simulate a winning streak that turns the PnL positive
 		execEngine.UpdateRecentPnLsForTest(t, []float64{200, 200, 200, 200, 200})
-
-		// Place another order. The size should be reset to the original ratio.
-		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 10.0, false) // Large amount
-		if err != nil {
-			t.Fatalf("PlaceOrder returned an unexpected error: %v", err)
-		}
+		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 10.0, false)
+		require.NoError(t, err)
 
 		mu.Lock()
 		finalAmount := lastRequestedAmount
 		mu.Unlock()
 
 		originalAmount := (100000000 * cfg.Trade.OrderRatio) / 5000000
-		const epsilon = 1e-9
-		if math.Abs(finalAmount-originalAmount) > epsilon {
-			t.Errorf("Expected amount to be reset to %.8f, but got %.8f", originalAmount, finalAmount)
-		}
+		assert.InDelta(t, originalAmount, finalAmount, 1e-9)
 	})
 }
 
@@ -575,8 +522,8 @@ func (e *LiveExecutionEngine) SetRealizedPnLForTest(t *testing.T, pnl float64) {
 }
 
 func TestLiveExecutionEngine_CheckAndTriggerPartialExit(t *testing.T) {
-	config.LoadConfig("../../config/app_config.yaml", "../../config/trade_config.yaml")
-	cfg := config.GetConfig()
+	mockServer, cfg := setupTest(t)
+	defer mockServer.Close()
 	cfg.Trade.Twap = config.TwapConfig{
 		PartialExitEnabled: true,
 		ProfitThreshold:    1.0, // 1%
@@ -585,8 +532,7 @@ func TestLiveExecutionEngine_CheckAndTriggerPartialExit(t *testing.T) {
 
 	t.Run("Long position with profit above threshold", func(t *testing.T) {
 		engine := NewLiveExecutionEngine(nil, nil, nil)
-		engine.position = position.NewPosition()
-		engine.position.Update(1.0, 100000) // Buy 1 BTC @ 100,000
+		engine.SetPositionForTest(t, 1.0, 100000) // Buy 1 BTC @ 100,000
 
 		marketPrice := 102000.0 // 2% profit
 		exitOrder := engine.CheckAndTriggerPartialExit(marketPrice)
@@ -599,8 +545,7 @@ func TestLiveExecutionEngine_CheckAndTriggerPartialExit(t *testing.T) {
 
 	t.Run("Long position with profit below threshold", func(t *testing.T) {
 		engine := NewLiveExecutionEngine(nil, nil, nil)
-		engine.position = position.NewPosition()
-		engine.position.Update(1.0, 100000)
+		engine.SetPositionForTest(t, 1.0, 100000)
 
 		marketPrice := 100500.0 // 0.5% profit
 		exitOrder := engine.CheckAndTriggerPartialExit(marketPrice)
@@ -611,8 +556,7 @@ func TestLiveExecutionEngine_CheckAndTriggerPartialExit(t *testing.T) {
 
 	t.Run("Short position with profit above threshold", func(t *testing.T) {
 		engine := NewLiveExecutionEngine(nil, nil, nil)
-		engine.position = position.NewPosition()
-		engine.position.Update(-1.0, 100000) // Sell 1 BTC @ 100,000
+		engine.SetPositionForTest(t, -1.0, 100000) // Sell 1 BTC @ 100,000
 
 		marketPrice := 98000.0 // 2% profit
 		exitOrder := engine.CheckAndTriggerPartialExit(marketPrice)
@@ -625,99 +569,76 @@ func TestLiveExecutionEngine_CheckAndTriggerPartialExit(t *testing.T) {
 
 	t.Run("No position", func(t *testing.T) {
 		engine := NewLiveExecutionEngine(nil, nil, nil)
-		engine.position = position.NewPosition()
-
 		marketPrice := 102000.0
 		exitOrder := engine.CheckAndTriggerPartialExit(marketPrice)
-
 		assert.Nil(t, exitOrder)
 	})
 
 	t.Run("Disabled in config", func(t *testing.T) {
+		originalValue := cfg.Trade.Twap.PartialExitEnabled
 		cfg.Trade.Twap.PartialExitEnabled = false
-		defer func() { cfg.Trade.Twap.PartialExitEnabled = true }() // Restore
-		engine := NewLiveExecutionEngine(nil, nil, nil)
-		engine.position = position.NewPosition()
-		engine.position.Update(1.0, 100000)
+		defer func() { cfg.Trade.Twap.PartialExitEnabled = originalValue }()
 
+		engine := NewLiveExecutionEngine(nil, nil, nil)
+		engine.SetPositionForTest(t, 1.0, 100000)
 		marketPrice := 102000.0
 		exitOrder := engine.CheckAndTriggerPartialExit(marketPrice)
-
 		assert.Nil(t, exitOrder)
 	})
 
 	t.Run("Already exiting", func(t *testing.T) {
 		engine := NewLiveExecutionEngine(nil, nil, nil)
-		engine.position = position.NewPosition()
-		engine.position.Update(1.0, 100000)
-		engine.SetPartialExitStatus(true) // Manually set flag
+		engine.SetPositionForTest(t, 1.0, 100000)
+		engine.SetPartialExitStatus(true)
 
 		marketPrice := 102000.0
 		exitOrder := engine.CheckAndTriggerPartialExit(marketPrice)
-
 		assert.Nil(t, exitOrder, "Should not trigger another exit if one is in progress")
 	})
 }
 
 func TestExecutionEngine_RiskManagement(t *testing.T) {
 	var newOrderRequestCount int32
-	mockServer := mockCoincheckServer(
-		func(w http.ResponseWriter, r *http.Request) { // NewOrder Handler
+	mockServer, _ := setupTest(t)
+	defer mockServer.Close()
+
+	mockServer.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/exchange/orders" && r.Method == http.MethodPost:
 			atomic.AddInt32(&newOrderRequestCount, 1)
 			resp := coincheck.OrderResponse{Success: true, ID: 12345}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // CancelOrder Handler
+		case strings.HasPrefix(r.URL.Path, "/api/exchange/orders/") && r.Method == http.MethodDelete:
 			resp := coincheck.CancelResponse{Success: true, ID: 12345}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // Balance Handler
-			// Initial capital = 1,000,000 JPY
+		case r.URL.Path == "/api/accounts/balance":
 			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // OpenOrders Handler
+		case r.URL.Path == "/api/exchange/orders/opens":
 			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // Transactions Handler
-			// Empty transaction, order will not be marked as filled to simplify the test
-			resp := coincheck.TransactionsResponse{Success: true, Transactions: []coincheck.Transaction{}}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(resp)
-		},
-	)
-	defer mockServer.Close()
+		default:
+			http.NotFound(w, r)
+		}
+	})
 
 	ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
 	originalBaseURL := coincheck.GetBaseURL()
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	config.LoadConfig("../../config/app_config.yaml", "../../config/trade_config.yaml")
-	cfg := config.GetConfig()
-	cfg.Trade.OrderRatio = 0.1
-	cfg.App.Order.PollIntervalMs = 10
-	cfg.App.Order.TimeoutSeconds = 1
-
 	setupEngine := func() *LiveExecutionEngine {
 		atomic.StoreInt32(&newOrderRequestCount, 0)
-		cfg.Trade.Risk = config.RiskConfig{
-			MaxDrawdownPercent: 10.0, // 10%
-			MaxPositionRatio:   0.5,  // 50% of 1,000,000 JPY balance = 500,000 JPY
-		}
 		return NewLiveExecutionEngine(ccClient, nil, nil)
 	}
 
 	t.Run("stops order on max drawdown breach", func(t *testing.T) {
 		execEngine := setupEngine()
-		// Initial capital is 1,000,000. 10% drawdown is -100,000 JPY.
-		// Set realized PnL to -110,000 JPY to breach the threshold.
-		execEngine.SetRealizedPnLForTest(t, -110000)
+		execEngine.SetRealizedPnLForTest(t, -110000) // 11% drawdown on 1M capital
 
 		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, false)
 
@@ -728,11 +649,8 @@ func TestExecutionEngine_RiskManagement(t *testing.T) {
 
 	t.Run("stops order on max position breach", func(t *testing.T) {
 		execEngine := setupEngine()
-		// Set position to 0.1 BTC at 5,000,000 JPY, which is 500,000 JPY.
-		// This is exactly at the 50% limit of the 1,000,000 JPY balance.
-		execEngine.SetPositionForTest(t, 0.1, 5000000)
+		execEngine.SetPositionForTest(t, 0.1, 5000000) // Position value is 500,000 JPY (50% of 1M balance)
 
-		// Attempt to place an order, which should be blocked because any new order would exceed the ratio.
 		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.001, false)
 
 		require.Error(t, err)
@@ -742,18 +660,14 @@ func TestExecutionEngine_RiskManagement(t *testing.T) {
 
 	t.Run("allows order when within risk limits", func(t *testing.T) {
 		execEngine := setupEngine()
-		// Set PnL to -50,000 (5% drawdown, within limit)
 		execEngine.SetRealizedPnLForTest(t, -50000)
-		// Set position to 0.05 BTC at 5,000,000 (250,000 JPY, within limit)
 		execEngine.SetPositionForTest(t, 0.05, 5000000)
 
-		// Use a context that times out to prevent the test from hanging
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 
 		_, err := execEngine.PlaceOrder(ctx, "btc_jpy", "buy", 5000000, 0.01, false)
 
-		// We expect an error because the order times out (no fill transaction), but it should pass the risk check.
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "timed out")
 		assert.EqualValues(t, 1, atomic.LoadInt32(&newOrderRequestCount), "NewOrder should have been called")

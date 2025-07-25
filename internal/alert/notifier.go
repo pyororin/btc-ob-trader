@@ -72,3 +72,11 @@ func (n *DiscordNotifier) Close() error {
 	}
 	return nil
 }
+
+// NoOpNotifier is a notifier that does nothing.
+type NoOpNotifier struct{}
+
+// Send does nothing and returns nil. It's a no-op implementation.
+func (n *NoOpNotifier) Send(message string) error {
+	return nil
+}
