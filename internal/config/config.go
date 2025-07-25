@@ -284,3 +284,9 @@ func LoadTradeConfigFromBytes(data []byte) (*TradeConfig, error) {
 	}
 	return &tradeCfg, nil
 }
+
+// SetTestConfig sets the global configuration to a specific config object.
+// This is intended for use in tests to inject a mock configuration.
+func SetTestConfig(cfg *Config) {
+	globalConfig.Store(cfg)
+}
