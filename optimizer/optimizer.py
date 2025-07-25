@@ -256,64 +256,11 @@ def run_simulation_fast(trade_config_dict):
         return None
 
     try:
-        # Convert the Python dict to a YAML string
-        # This is a bit tricky as we need to match the structure of the trade_config.yaml
-        # The params dict is flat, so we need to reconstruct the nested structure.
-        nested_config = {
-            'pair': 'btc_jpy', # This should ideally come from a base config
-            'order_amount': 0.01, # Same as above
-            'spread_limit': trade_config_dict.get('spread_limit'),
-            'lot_max_ratio': trade_config_dict.get('lot_max_ratio'),
-            'order_ratio': trade_config_dict.get('order_ratio'),
-            'long': {
-                'obi_threshold': trade_config_dict.get('long_obi_threshold'),
-                'tp': trade_config_dict.get('long_tp'),
-                'sl': trade_config_dict.get('long_sl'),
-            },
-            'short': {
-                'obi_threshold': trade_config_dict.get('short_obi_threshold'),
-                'tp': trade_config_dict.get('short_tp'),
-                'sl': trade_config_dict.get('short_sl'),
-            },
-            'signal': {
-                'hold_duration_ms': trade_config_dict.get('hold_duration_ms'),
-                'slope_filter': {
-                    'enabled': trade_config_dict.get('slope_filter_enabled'),
-                    'period': trade_config_dict.get('slope_period'),
-                    'threshold': trade_config_dict.get('slope_threshold'),
-                }
-            },
-            'volatility': {
-                'ewma_lambda': trade_config_dict.get('ewma_lambda'),
-                'dynamic_obi': {
-                    'enabled': trade_config_dict.get('dynamic_obi_enabled'),
-                    'volatility_factor': trade_config_dict.get('volatility_factor'),
-                    'min_threshold_factor': trade_config_dict.get('min_threshold_factor'),
-                    'max_threshold_factor': trade_config_dict.get('max_threshold_factor'),
-                }
-            },
-             'twap': {
-                'enabled': trade_config_dict.get('twap_enabled'),
-                'max_order_size_btc': trade_config_dict.get('twap_max_order_size_btc'),
-                'interval_seconds': trade_config_dict.get('twap_interval_seconds'),
-                'partial_exit_enabled': trade_config_dict.get('twap_partial_exit_enabled'),
-                'profit_threshold': trade_config_dict.get('twap_profit_threshold'),
-                'exit_ratio': trade_config_dict.get('twap_exit_ratio'),
-            },
-            'risk': {
-                'max_drawdown_percent': trade_config_dict.get('risk_max_drawdown_percent'),
-                'max_position_ratio': trade_config_dict.get('risk_max_position_ratio'),
-            },
-            'adaptive_position_sizing': {
-                'enabled': trade_config_dict.get('adaptive_position_sizing_enabled'),
-                'num_trades': trade_config_dict.get('adaptive_num_trades'),
-                'reduction_step': trade_config_dict.get('adaptive_reduction_step'),
-                'min_ratio': trade_config_dict.get('adaptive_min_ratio'),
-            }
-        }
+        # Render the template with the given parameters
+        with open(CONFIG_TEMPLATE_PATH, 'r') as f:
+            template = Template(f.read())
 
-        # Convert dict to YAML string
-        config_yaml_str = yaml.dump(nested_config)
+        config_yaml_str = template.render(trade_config_dict)
 
         # Send to server
         GO_SIM_SERVER.stdin.write(config_yaml_str + '\n')
