@@ -80,8 +80,8 @@ func main() {
 	}
 	go watchConfigFiles(f.configPath, f.tradeConfigPath)
 
-	if f.simulateMode && f.csvPath == "" {
-		logger.Fatal("CSV file path must be provided in simulation mode using --csv flag")
+	if (f.simulateMode || f.serveMode) && f.csvPath == "" {
+		logger.Fatal("CSV file path must be provided in simulation or serve mode using --csv flag")
 	}
 
 	if !f.simulateMode && !f.serveMode {
@@ -976,22 +976,12 @@ func runServerMode(ctx context.Context, f flags, sigs chan<- os.Signal) {
 
 	// Data is now loaded on-demand per request
 	marketDataCache := make(map[string][]coincheck.OrderBookData)
-	reader := bufio.NewReader(os.Stdin)
 
+	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Println("READY")
 
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				logger.Info("Stdin closed, exiting server mode.")
-			} else {
-				logger.Fatalf("Error reading from stdin: %v", err)
-			}
-			break
-		}
-
-		line = strings.TrimSpace(line)
+	for scanner.Scan() {
+		line := scanner.Text()
 		if line == "EXIT" {
 			logger.Info("Received EXIT command. Shutting down server mode.")
 			break
