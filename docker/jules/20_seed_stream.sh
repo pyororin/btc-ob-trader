@@ -22,17 +22,15 @@ CREATE TABLE IF NOT EXISTS order_book_updates (
 );
 EOSQL
 
-unzip -p /seed/order_book_updates_jules.zip \
-| awk -F, -v d="$(date -u +%Y-%m-%d)" 'BEGIN{OFS=","}
-  NR==1 { print; next }
-  {
-    # timeがスペースで区切られていたら統合
-    if ($1 ~ / /) {
-      $1 = d "T" substr($1, index($1, " ") + 1)
-    }
-    print
-  }' \
+unzip -p "$DATA_ZIP" \
+| awk -F, -v d="$TODAY" 'NR==1{print; next} {
+  if ($1 ~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}(T| )/) {
+    sub(/^[0-9]{4}-[0-9]{2}-[0-9]{2}/, d, $1)
+  }
+  OFS=","
+  print
+}' \
 | psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" \
-  -c "\COPY order_book_updates (time,pair,side,price,size,is_snapshot) FROM STDIN CSV HEADER"
+       -c "\COPY order_book_updates (time,pair,side,price,size,is_snapshot) FROM STDIN CSV HEADER"
 
 echo "✅  Seed completed"
