@@ -370,7 +370,7 @@ def main():
 
             pruner = HyperbandPruner(
                 min_resource=1,
-                max_resource='auto',
+                max_resource=100,
                 reduction_factor=3
             )
             study = optuna.create_study(
