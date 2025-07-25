@@ -38,6 +38,7 @@ import (
 
 import (
 	"bufio"
+	"strings"
 	"sync"
 )
 
@@ -972,47 +973,67 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal) {
 // runServerMode runs the bot in a loop, accepting new configurations via stdin.
 func runServerMode(ctx context.Context, f flags, sigs chan<- os.Signal) {
 	logger.Info("--- SERVER MODE ---")
-	logger.Infof("CSV File: %s", f.csvPath)
 
-	// Pre-load market events from CSV to memory
-	logger.Info("Pre-loading market data from CSV...")
-	marketEvents, err := datastore.LoadMarketEventsFromCSV(f.csvPath)
-	if err != nil {
-		logger.Fatalf("Failed to load market events from %s: %v", f.csvPath, err)
-	}
-	logger.Infof("Finished loading %d market events.", len(marketEvents))
+	// Data is now loaded on-demand per request
+	marketDataCache := make(map[string][]coincheck.OrderBookData)
 
-	// Listen to stdin for new configurations
 	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Println("READY") // Signal to the optimizer that the server is ready
+	fmt.Println("READY")
 
 	for scanner.Scan() {
-		cfgBytes := scanner.Bytes()
-		if len(cfgBytes) == 0 {
+		line := scanner.Text()
+		if line == "EXIT" {
+			logger.Info("Received EXIT command. Shutting down server mode.")
+			break
+		}
+		if len(line) == 0 {
 			continue
 		}
 
-		// Reload trade config from the received bytes
-		newTradeConfig, err := config.LoadTradeConfigFromBytes(cfgBytes)
+		parts := strings.Split(line, ",")
+		if len(parts) != 2 {
+			logger.Warnf("Invalid input format received: %s", line)
+			fmt.Println(`{"error": "invalid input format, expected <config_path>,<csv_path>"}`)
+			continue
+		}
+		tempConfigPath := parts[0]
+		csvPath := parts[1]
+
+		// Load market data for the given CSV, using cache if available
+		marketEvents, ok := marketDataCache[csvPath]
+		if !ok {
+			logger.Infof("Cache miss for %s. Loading market data...", csvPath)
+			var err error
+			marketEvents, err = datastore.LoadMarketEventsFromCSV(csvPath)
+			if err != nil {
+				logger.Warnf("Failed to load market events from %s: %v", csvPath, err)
+				fmt.Printf(`{"error": "failed to load market data from %s"}`, csvPath)
+				continue
+			}
+			marketDataCache[csvPath] = marketEvents
+			logger.Infof("Finished loading and caching %d market events from %s.", len(marketEvents), csvPath)
+		} else {
+			logger.Debugf("Cache hit for %s.", csvPath)
+		}
+
+		// Load the trade configuration for this specific run
+		newCfg, err := config.LoadConfig(f.configPath, tempConfigPath)
 		if err != nil {
-			logger.Warnf("Failed to load trade config from stdin: %v", err)
-			fmt.Println(`{"error": "failed to parse config"}`)
+			logger.Warnf("Failed to load config from %s and %s: %v", f.configPath, tempConfigPath, err)
+			fmt.Printf(`{"error": "failed to load trade config from %s"}`, tempConfigPath)
 			continue
 		}
 
-		// Create a new context for this simulation run
 		simCtx, simCancel := context.WithCancel(ctx)
+		summary := runSingleSimulationInMemory(simCtx, &newCfg.Trade, marketEvents)
+		simCancel()
 
-		// Run the simulation with the new config and pre-loaded data
-		summary := runSingleSimulationInMemory(simCtx, newTradeConfig, marketEvents)
 		output, err := json.Marshal(summary)
 		if err != nil {
 			fmt.Printf(`{"error": "failed to marshal summary: %v"}`, err)
 		} else {
 			fmt.Println(string(output))
 		}
-
-		simCancel()
 	}
 
 	if err := scanner.Err(); err != nil {
