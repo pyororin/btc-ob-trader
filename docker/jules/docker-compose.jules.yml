@@ -16,8 +16,7 @@ services:
       - ./db/schema/jules/order_book_updates_jules.zip:/seed/order_book_updates_jules.zip:ro
       # 🔹 DB データ領域をホスト側 named volume へ
       - pgdata_jules:/var/lib/postgresql/data
-      - ./db/schema:/docker-entrypoint-initdb.d/01_schema
-      
+
     command: postgres -c timezone=Asia/Tokyo
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
