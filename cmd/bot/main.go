@@ -38,7 +38,6 @@ import (
 
 import (
 	"bufio"
-	"io"
 	"strings"
 	"sync"
 )
@@ -1047,7 +1046,9 @@ func runServerMode(ctx context.Context, f flags, sigs chan<- os.Signal) {
 		}
 	}
 
-	// The new loop handles errors, so scanner.Err() is no longer needed.
+	if err := scanner.Err(); err != nil {
+		logger.Fatalf("Error reading from stdin: %v", err)
+	}
 
 	logger.Info("Server mode finished.")
 	sigs <- syscall.SIGTERM
