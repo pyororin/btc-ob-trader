@@ -466,7 +466,10 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 	}
 
 	if !executed {
-		return &coincheck.OrderResponse{Success: false, Error: "order not executed"}, nil
+		return &coincheck.OrderResponse{
+			Success: false,
+			Error:   fmt.Sprintf("order not executed: rate=%.2f, best_bid=%.2f, best_ask=%.2f", rate, bestBid, bestAsk),
+		}, nil
 	}
 
 	// Generate a deterministic transaction ID using the counter.
