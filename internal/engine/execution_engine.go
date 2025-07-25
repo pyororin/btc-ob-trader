@@ -52,13 +52,21 @@ type LiveExecutionEngine struct {
 // NewLiveExecutionEngine creates a new LiveExecutionEngine.
 func NewLiveExecutionEngine(client *coincheck.Client, dbWriter dbwriter.DBWriter, notifier alert.Notifier) *LiveExecutionEngine {
 	cfg := config.GetConfig()
+
+	var activeNotifier alert.Notifier
+	if notifier == nil {
+		activeNotifier = &alert.NoOpNotifier{}
+	} else {
+		activeNotifier = notifier
+	}
+
 	engine := &LiveExecutionEngine{
 		exchangeClient: client,
 		dbWriter:       dbWriter,
 		position:       position.NewPosition(),
 		pnlCalculator:  pnl.NewCalculator(),
 		recentPnLs:     make([]float64, 0),
-		notifier:       notifier,
+		notifier:       activeNotifier,
 	}
 	// Initialize ratios from config
 	engine.currentRatios.OrderRatio = cfg.Trade.OrderRatio
