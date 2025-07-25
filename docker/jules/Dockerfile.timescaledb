@@ -1,0 +1,47 @@
+# ----------------------------------------------------------
+#  Postgres 16 (Alpine) + TimescaleDB extension via apk
+#  * イメージ ≈120 MB
+#  * order_book_updates をストリームでロード
+# ----------------------------------------------------------
+FROM postgres:16-alpine
+
+# 1. TimescaleDB と unzip を追加
+USER root
+RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories \
+ && apk update \
+ && apk add --no-cache timescaledb unzip
+
+# 2. エントリポイントで ZIP → 日付置換 → COPY (ストリーム)
+RUN cat > /docker-entrypoint-initdb.d/20_seed_stream.sh <<'EOSH'
+#!/bin/sh -e
+echo "🌱  Streaming order_book_updates …"
+DATA_ZIP="/seed/order_book_updates_jules.zip"
+if [ ! -f "$DATA_ZIP" ]; then
+  echo "⚠️  $DATA_ZIP not found; skipping seed." >&2
+  exit 0
+fi
+TODAY=$(date -u "+%Y-%m-%d")
+psql -v ON_ERROR_STOP=1 --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" <<'EOSQL'
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+CREATE UNLOGGED TABLE IF NOT EXISTS order_book_updates (
+  time TIMESTAMPTZ NOT NULL,
+  pair TEXT NOT NULL,
+  side TEXT NOT NULL CHECK (side IN ('bid','ask')),
+  price DECIMAL NOT NULL,
+  size  DECIMAL NOT NULL,
+  is_snapshot BOOLEAN NOT NULL DEFAULT FALSE
+);
+EOSQL
+unzip -p "$DATA_ZIP" \
+| awk -F, -v d="$TODAY" 'NR==1{print;next}{sub(/^[0-9]{4}-[0-9]{2}-[0-9]{2}/, d, $1); OFS=","; print}' \
+| psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" \
+       -c "\COPY order_book_updates (time,pair,side,price,size,is_snapshot) FROM STDIN CSV HEADER"
+echo "✅  Seed completed"
+EOSH
+RUN chmod +x /docker-entrypoint-initdb.d/20_seed_stream.sh
+
+# 3. 余分ファイル削除で若干圧縮
+RUN rm -rf /usr/share/doc /usr/share/man /var/cache/apk/*
+USER postgres
+EXPOSE 5432
+CMD ["postgres", "-c", "shared_preload_libraries=timescaledb"]
