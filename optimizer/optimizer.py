@@ -395,7 +395,7 @@ def main(run_once=False):
                 study_name='obi-scalp-optimization',
                 storage=STORAGE_URL,
                 direction='maximize',
-                load_if_exists=True,
+                load_if_exists=False,
                 pruner=pruner
             )
             catch_exceptions = (sqlalchemy.exc.OperationalError, optuna.exceptions.StorageInternalError, sqlite3.OperationalError)
@@ -408,7 +408,7 @@ def main(run_once=False):
             study.optimize(
                 objective_with_pruning,
                 n_trials=n_trials,
-                n_jobs=1,
+                n_jobs=-1,
                 show_progress_bar=True,
                 catch=catch_exceptions,
                 callbacks=[progress_callback],
