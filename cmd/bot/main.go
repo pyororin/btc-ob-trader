@@ -454,13 +454,18 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 						}
 
 						logger.Infof("Executing trade for signal: %s. %s", tradingSignal.Type.String(), orderLogMsg)
-						orderAmount := currentCfg.Trade.OrderAmount
+						orderAmount := 0.0
+						// For live trading, amount is determined by PlaceOrder based on balance.
+						// For simulation, we must provide a non-zero amount.
+						if _, ok := execEngine.(*engine.ReplayExecutionEngine); ok {
+							orderAmount = currentCfg.Trade.OrderAmount
+						}
 
 						if currentCfg.Trade.Twap.Enabled && orderAmount > currentCfg.Trade.Twap.MaxOrderSizeBtc {
 							logger.Infof("Order amount %.8f exceeds max size %.8f. Executing with TWAP.", orderAmount, currentCfg.Trade.Twap.MaxOrderSizeBtc)
 							go executeTwapOrder(ctx, execEngine, currentCfg.Trade.Pair, orderType, finalPrice, orderAmount)
 						} else {
-							logger.Infof("Calling PlaceOrder with: type=%s, price=%.2f, amount=%.2f", orderType, finalPrice, orderAmount)
+							logger.Infof("Calling PlaceOrder with: type=%s, price=%.2f, amount=%.8f", orderType, finalPrice, orderAmount)
 							resp, err := execEngine.PlaceOrder(ctx, currentCfg.Trade.Pair, orderType, finalPrice, orderAmount, false)
 							if err != nil {
 								if _, ok := err.(*engine.RiskCheckError); ok {
