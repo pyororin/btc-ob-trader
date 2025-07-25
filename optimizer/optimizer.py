@@ -354,7 +354,7 @@ def objective(trial, min_trades_for_pruning: int):
 
     # The CURRENT_SIM_CSV_PATH is now passed to run_simulation directly
     # The objective function itself doesn't need to know which CSV is being used.
-    summary = run_simulation(params, trial.study.user_attrs.get('current_csv_path'))
+    summary = run_simulation(params, trial.storage.get_study_user_attrs(study_name='obi-scalp-optimization').get('current_csv_path'))
 
 
     if summary is None:
