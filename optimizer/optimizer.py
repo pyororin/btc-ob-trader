@@ -243,7 +243,10 @@ def run_simulation(params, sim_csv_path):
     finally:
         # 5. Clean up the temporary config file
         if temp_config_path and os.path.exists(temp_config_path):
-            os.remove(temp_config_path)
+            try:
+                os.remove(temp_config_path)
+            except OSError as e:
+                logging.error(f"Failed to remove temporary config file {temp_config_path}: {e}")
 
 def progress_callback(study, trial):
     """
