@@ -3,6 +3,7 @@ package indicator
 
 import (
 	"context"
+	"github.com/your-org/obi-scalp-bot/pkg/logger"
 	"sync"
 	"time"
 )
