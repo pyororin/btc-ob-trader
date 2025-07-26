@@ -235,8 +235,8 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 	}
 
 	// Added for debugging
-	// logger.Debugf("OBI: %.4f, LongThr: %.4f, ShortThr: %.4f, RawSignal: %s, CurrentSignal: %s",
-	// 	obiValue, longThreshold, -shortThreshold, rawSignal, e.currentSignal)
+	logger.Debugf("OBI: %.4f, LongThr: %.4f, ShortThr: %.4f, RawSignal: %s, CurrentSignal: %s",
+		obiValue, longThreshold, -shortThreshold, rawSignal, e.currentSignal)
 
 	if rawSignal != e.currentSignal {
 		if e.config.SignalHoldDuration > 0 {
@@ -261,7 +261,7 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 	}
 
 	holdDuration := currentTime.Sub(e.currentSignalSince)
-	// logger.Debugf("Signal %s held for %v. Required: %v", e.currentSignal, holdDuration, e.config.SignalHoldDuration)
+	logger.Debugf("Signal %s held for %v. Required: %v", e.currentSignal, holdDuration, e.config.SignalHoldDuration)
 
 	if holdDuration >= e.config.SignalHoldDuration || e.config.SignalHoldDuration == 0 {
 		if e.lastSignal != e.currentSignal && e.currentSignal != SignalNone {
@@ -296,10 +296,10 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 				TriggerTime:        currentTime,
 			}
 		}
-		// logger.Debugf("Signal %s already triggered. Ignoring.", e.currentSignal)
+		logger.Debugf("Signal %s already triggered. Ignoring.", e.currentSignal)
 		return nil // Already reported or no new signal state
 	}
-	// logger.Debugf("Signal %s not held long enough. Current hold: %v, Required: %v", e.currentSignal, holdDuration, e.config.SignalHoldDuration)
+	logger.Debugf("Signal %s not held long enough. Current hold: %v, Required: %v", e.currentSignal, holdDuration, e.config.SignalHoldDuration)
 	return nil // Active and stable, but not yet persisted long enough.
 }
 
