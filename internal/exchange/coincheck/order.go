@@ -256,8 +256,8 @@ func (c *Client) GetOpenOrders() (*OpenOrdersResponse, error) {
 }
 
 // GetTransactions retrieves the transaction history from Coincheck.
-func (c *Client) GetTransactions() (*TransactionsResponse, error) {
-	endpoint := "/api/exchange/orders/transactions"
+func (c *Client) GetTransactions(limit int) (*TransactionsResponse, error) {
+	endpoint := fmt.Sprintf("/api/exchange/orders/transactions_pagination?limit=%d", limit)
 
 	httpReq, err := c.newRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -275,17 +275,31 @@ func (c *Client) GetTransactions() (*TransactionsResponse, error) {
 		return nil, fmt.Errorf("failed to read get transactions response body (status: %d): %w", resp.StatusCode, err)
 	}
 
-	var transactionsResp TransactionsResponse
-	if err := json.Unmarshal(bodyBytes, &transactionsResp); err != nil {
-		return nil, fmt.Errorf("failed to decode get transactions response (status: %d, body: %s): %w", resp.StatusCode, string(bodyBytes), err)
+	// The pagination endpoint returns a different structure, so we need to adapt.
+	// The actual transaction data is in a "data" field.
+	var paginatedResp struct {
+		Success    bool                   `json:"success"`
+		Data       []Transaction          `json:"data"`
+		Pagination map[string]interface{} `json:"pagination"`
+		Error      string                 `json:"error"`
 	}
 
-	if !transactionsResp.Success {
-		if transactionsResp.Error != "" {
-			return &transactionsResp, fmt.Errorf("coincheck API error on get transactions: %s", transactionsResp.Error)
+	if err := json.Unmarshal(bodyBytes, &paginatedResp); err != nil {
+		return nil, fmt.Errorf("failed to decode get transactions paginated response (status: %d, body: %s): %w", resp.StatusCode, string(bodyBytes), err)
+	}
+
+	if !paginatedResp.Success {
+		if paginatedResp.Error != "" {
+			return nil, fmt.Errorf("coincheck API error on get paginated transactions: %s", paginatedResp.Error)
 		}
-		return &transactionsResp, fmt.Errorf("coincheck API returned success=false for get transactions, status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("coincheck API returned success=false for get paginated transactions, status: %d", resp.StatusCode)
 	}
 
-	return &transactionsResp, nil
+	// Adapt the paginated response to the existing TransactionsResponse structure.
+	transactionsResp := &TransactionsResponse{
+		Success:      paginatedResp.Success,
+		Transactions: paginatedResp.Data,
+	}
+
+	return transactionsResp, nil
 }
