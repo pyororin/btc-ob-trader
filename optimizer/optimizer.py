@@ -57,6 +57,7 @@ MIN_TRADES_FOR_PRUNING = config['min_trades_for_pruning']
 # 合格/不合格基準
 OOS_MIN_PROFIT_FACTOR = config['oos_min_profit_factor']
 OOS_MIN_SHARPE_RATIO = config['oos_min_sharpe_ratio']
+OOS_MIN_TRADES = config.get('oos_min_trades', 10)
 
 # リトライ & 早期停止基準
 MAX_RETRY = config['max_retry']
@@ -394,17 +395,16 @@ def objective(trial, study, min_trades_for_pruning: int):
     # --- New Objective Calculation ---
     # The new objective is calculated *after* the study has run,
     # so for the first trial, we can't calculate a scaled objective.
-    # We will use SQN as an intermediate value for the pruner.
-    # The final "best" trial will be re-evaluated based on the new objective.
-    intermediate_value_for_pruner = sqn
-    trial.report(intermediate_value_for_pruner, 1)
+    # We will use Sharpe Ratio as the primary objective for the pruner.
+    # It's generally more robust than SQN, which can be skewed by a high number of trades.
+    objective_value = sharpe_ratio
+    trial.report(objective_value, 1)
 
     if trial.should_prune():
         raise optuna.exceptions.TrialPruned()
 
-    # We return the intermediate value. The "real" objective value will be calculated
-    # after the optimization is complete.
-    return intermediate_value_for_pruner
+    # The final "best" trial will be re-evaluated based on the multi-metric custom objective.
+    return objective_value
 
 
 def main(run_once=False):
@@ -578,10 +578,15 @@ def main(run_once=False):
 
                     oos_pf = oos_summary.get('ProfitFactor', 0.0)
                     oos_sharpe = oos_summary.get('SharpeRatio', 0.0)
-                    oos_trades = oos_summary.get('TotalTrades', 'N/A')
+                    oos_trades = oos_summary.get('TotalTrades', 0)
                     logging.info(f"OOS Result: PF={oos_pf:.2f}, SR={oos_sharpe:.2f}, Trades={oos_trades}")
 
-                    if oos_pf >= OOS_MIN_PROFIT_FACTOR and oos_sharpe >= OOS_MIN_SHARPE_RATIO:
+                    # --- OOS Validation Criteria ---
+                    passed_trades = oos_trades >= OOS_MIN_TRADES
+                    passed_pf = oos_pf >= OOS_MIN_PROFIT_FACTOR
+                    passed_sr = oos_sharpe >= OOS_MIN_SHARPE_RATIO
+
+                    if passed_trades and passed_pf and passed_sr:
                         logging.info(f"OOS validation PASSED for attempt #{retries_attempted}.")
                         oos_validation_passed = True
                         best_oos_summary = oos_summary
@@ -596,12 +601,22 @@ def main(run_once=False):
                         logging.info(f"Successfully updated {BEST_CONFIG_OUTPUT_PATH}")
                         break # Exit the loop on success
                     else:
-                        logging.warning(f"OOS validation FAILED for attempt #{retries_attempted}.")
+                        # Construct detailed failure reason
+                        reasons = []
+                        if not passed_trades: reasons.append(f"trades < {OOS_MIN_TRADES}")
+                        if not passed_pf: reasons.append(f"PF < {OOS_MIN_PROFIT_FACTOR}")
+                        if not passed_sr: reasons.append(f"SR < {OOS_MIN_SHARPE_RATIO}")
+                        fail_reason_str = ", ".join(reasons)
+
+                        fail_log_message = f"OOS validation FAILED for attempt #{retries_attempted} ({fail_reason_str})."
+
                         if oos_sharpe < early_stop_threshold:
                             early_stop_trigger_count += 1
-                            logging.warning(f"Sharpe ratio below early stop threshold. Trigger count: {early_stop_trigger_count}/{EARLY_STOP_COUNT}")
+                            fail_log_message += f" Sharpe ratio below early stop threshold. Trigger count: {early_stop_trigger_count}/{EARLY_STOP_COUNT}"
                         else:
-                             early_stop_trigger_count = 0 # Reset if a trial performs better
+                            early_stop_trigger_count = 0 # Reset if a trial performs better
+
+                        logging.warning(fail_log_message)
 
                         if early_stop_trigger_count >= EARLY_STOP_COUNT:
                             logging.error("Early stopping triggered due to consecutively poor OOS performance. Aborting retries.")
