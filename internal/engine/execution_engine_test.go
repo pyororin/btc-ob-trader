@@ -182,6 +182,68 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 	assert.Equal(t, "post_only", respPostOnly.TimeInForce)
 }
 
+func TestExecutionEngine_PlaceOrder_SuccessAfterMultiplePolls(t *testing.T) {
+	var orderID int64 = 54321
+	var pollCount int32
+	mockServer, _ := setupTest(t)
+	defer mockServer.Close()
+
+	// This handler will return an empty transaction list for the first 2 polls,
+	// then return the transaction on the 3rd poll.
+	mockServer.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/exchange/orders":
+			resp := coincheck.OrderResponse{Success: true, ID: orderID, Amount: "0.01"}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		case "/api/accounts/balance":
+			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		case "/api/exchange/orders/transactions":
+			currentPollCount := atomic.AddInt32(&pollCount, 1)
+			var transactions []coincheck.Transaction
+			if currentPollCount >= 3 {
+				transactions = []coincheck.Transaction{
+					{ID: 98765, OrderID: orderID, Pair: "btc_jpy", Rate: "5100000.0", Side: "buy", CreatedAt: time.Now().UTC().Format(time.RFC3339)},
+				}
+			}
+			resp := coincheck.TransactionsResponse{Success: true, Transactions: transactions}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
+	originalBaseURL := coincheck.GetBaseURL()
+	coincheck.SetBaseURL(mockServer.URL)
+	defer coincheck.SetBaseURL(originalBaseURL)
+
+	// Use a mock DB writer to verify data is being saved
+	mockWriter := &mockDBWriter{
+		saveTradeCalled: make(chan bool, 1),
+	}
+	execEngine := NewLiveExecutionEngine(ccClient, mockWriter, nil)
+
+	resp, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5100000, 0.01, false)
+	require.NoError(t, err)
+	require.True(t, resp.Success)
+	assert.Equal(t, orderID, resp.ID)
+	assert.True(t, atomic.LoadInt32(&pollCount) >= 3, "Expected at least 3 polls to GetTransactions")
+
+	// Verify that the trade was saved to the DB
+	select {
+	case <-mockWriter.saveTradeCalled:
+		assert.Equal(t, int64(98765), mockWriter.savedTrade.TransactionID)
+		assert.False(t, mockWriter.savedTrade.IsCancelled)
+		assert.True(t, mockWriter.savedTrade.IsMyTrade)
+	case <-time.After(2 * time.Second):
+		t.Fatal("SaveTrade was not called within the timeout")
+	}
+}
+
 func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 	var requestedAmount float64
 	var orderID int64

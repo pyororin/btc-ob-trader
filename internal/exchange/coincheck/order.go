@@ -73,14 +73,19 @@ func (c *Client) newRequest(method, endpoint string, body io.Reader) (*http.Requ
 	message := nonce + url
 	if body != nil && body != http.NoBody {
 		buf := new(bytes.Buffer)
-		_, err := buf.ReadFrom(body) // bodyの内容を読み取る
+		// TeeReader creates a reader that writes to buf as it is read from body.
+		// This allows us to capture the request body for the signature without consuming it.
+		teeReader := io.TeeReader(body, buf)
+		bodyBytes, err := io.ReadAll(teeReader)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read request body for signature: %w", err)
 		}
-		message += buf.String() // 読み取った内容をmessageに追加
-		// bodyを再度設定するために、元のbodyを複製するか、bufを再度利用する
-		// ここではbufを再度利用する
-		req.Body = io.NopCloser(buf)
+		message += string(bodyBytes)
+
+		// After reading, the original body is consumed, but buf contains the content.
+		// We must reset the request's body to be a new reader from the captured bytes
+		// so it can be sent by the http.Client.
+		req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 	}
 
 	mac := hmac.New(sha256.New, []byte(c.secretKey))
@@ -256,11 +261,8 @@ func (c *Client) GetOpenOrders() (*OpenOrdersResponse, error) {
 }
 
 // GetTransactions retrieves the transaction history from Coincheck.
-func (c *Client) GetTransactions(limit int) (*TransactionsResponse, error) {
+func (c *Client) GetTransactions() (*TransactionsResponse, error) {
 	endpoint := "/api/exchange/orders/transactions"
-	if limit > 0 {
-		endpoint = fmt.Sprintf("%s?limit=%d", endpoint, limit)
-	}
 
 	httpReq, err := c.newRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
