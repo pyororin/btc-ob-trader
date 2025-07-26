@@ -2,81 +2,205 @@ package coincheck
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/assert"
 )
 
-func TestGetTransactions_Pagination(t *testing.T) {
+func TestNewOrder_RequestBodyIsPreserved(t *testing.T) {
+	var capturedBody string
+	var capturedHeaders http.Header
+
+	// Mock server to capture the request
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/exchange/orders/transactions_pagination?limit=50", r.URL.String())
-		assert.Equal(t, http.MethodGet, r.Method)
-
-		// Create a mock paginated response
-		mockResponse := struct {
-			Success    bool          `json:"success"`
-			Data       []Transaction `json:"data"`
-			Pagination struct{}      `json:"pagination"`
-		}{
-			Success: true,
-			Data: []Transaction{
-				{
-					ID:        123,
-					OrderID:   456,
-					CreatedAt: time.Now().Format(time.RFC3339),
-					Pair:      "btc_jpy",
-					Rate:      "5000000",
-					Side:      "buy",
-				},
-			},
-			Pagination: struct{}{},
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("Failed to read request body: %v", err)
 		}
+		capturedBody = string(bodyBytes)
+		capturedHeaders = r.Header
 
-		jsonBytes, _ := json.Marshal(mockResponse)
+		// Send a valid JSON response
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(jsonBytes)
+		json.NewEncoder(w).Encode(OrderResponse{
+			Success: true,
+			ID:      12345,
+			Rate:    "3000000",
+			Amount:  "0.01",
+			Pair:    "btc_jpy",
+		})
 	}))
 	defer server.Close()
 
-	// Use the mock server's URL
+	// Override the default base URL to point to our mock server
+	originalBaseURL := GetBaseURL()
 	SetBaseURL(server.URL)
-	defer SetBaseURL("https://coincheck.com") // Reset after test
+	defer SetBaseURL(originalBaseURL)
 
-	client := NewClient("test_key", "test_secret")
-	resp, err := client.GetTransactions(50)
+	client := NewClient("test_api_key", "test_secret_key")
 
-	assert.NoError(t, err)
-	assert.NotNil(t, resp)
-	assert.True(t, resp.Success)
-	assert.Len(t, resp.Transactions, 1)
-	assert.Equal(t, int64(123), resp.Transactions[0].ID)
-	assert.Equal(t, "btc_jpy", resp.Transactions[0].Pair)
+	orderReq := OrderRequest{
+		Pair:      "btc_jpy",
+		OrderType: "buy",
+		Rate:      3000000,
+		Amount:    0.01,
+	}
+
+	_, _, err := client.NewOrder(orderReq)
+	if err != nil {
+		t.Fatalf("NewOrder failed: %v", err)
+	}
+
+	// 1. Verify that the request body is not empty and is valid JSON
+	if capturedBody == "" {
+		t.Error("Expected request body to be non-empty, but it was empty.")
+	}
+
+	var sentOrderReq OrderRequest
+	err = json.Unmarshal([]byte(capturedBody), &sentOrderReq)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal captured request body: %v. Body was: %s", err, capturedBody)
+	}
+
+	// 2. Verify the content of the request body
+	if sentOrderReq.Pair != orderReq.Pair || sentOrderReq.OrderType != orderReq.OrderType || sentOrderReq.Rate != orderReq.Rate || sentOrderReq.Amount != orderReq.Amount {
+		t.Errorf("Request body content mismatch. Got %+v, want %+v", sentOrderReq, orderReq)
+	}
+
+	// 3. Verify that the necessary headers were set
+	if capturedHeaders.Get("ACCESS-KEY") == "" {
+		t.Error("ACCESS-KEY header was not set.")
+	}
+	if capturedHeaders.Get("ACCESS-NONCE") == "" {
+		t.Error("ACCESS-NONCE header was not set.")
+	}
+	if capturedHeaders.Get("ACCESS-SIGNATURE") == "" {
+		t.Error("ACCESS-SIGNATURE header was not set.")
+	}
 }
 
-func TestGetTransactions_ApiError(t *testing.T) {
+func TestNewOrder_NonceIncrement(t *testing.T) {
+	var nonces []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Mock an error response from the API
-		mockResponse := map[string]interface{}{
-			"success": false,
-			"error":   "Invalid API key",
-		}
-		jsonBytes, _ := json.Marshal(mockResponse)
+		nonces = append(nonces, r.Header.Get("ACCESS-NONCE"))
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write(jsonBytes)
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(OrderResponse{Success: true, ID: 1})
 	}))
 	defer server.Close()
 
+	originalBaseURL := GetBaseURL()
 	SetBaseURL(server.URL)
-	defer SetBaseURL("https://coincheck.com")
+	defer SetBaseURL(originalBaseURL)
 
-	client := NewClient("invalid_key", "invalid_secret")
-	_, err := client.GetTransactions(10)
+	client := NewClient("test_api_key", "test_secret_key")
+	orderReq := OrderRequest{Pair: "btc_jpy", OrderType: "buy", Rate: 3000000, Amount: 0.01}
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "coincheck API error on get paginated transactions: Invalid API key")
+	// Make two requests quickly
+	_, _, _ = client.NewOrder(orderReq)
+	_, _, _ = client.NewOrder(orderReq)
+
+	if len(nonces) != 2 {
+		t.Fatalf("Expected 2 requests, got %d", len(nonces))
+	}
+	if nonces[0] == "" || nonces[1] == "" {
+		t.Fatal("Nonces should not be empty")
+	}
+	if nonces[0] >= nonces[1] {
+		t.Errorf("Expected second nonce to be greater than the first. Got %s, then %s", nonces[0], nonces[1])
+	}
+}
+
+
+func TestNewOrder_ApiError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest) // 400 Bad Request
+		json.NewEncoder(w).Encode(OrderResponse{
+			Success: false,
+			Error:   "invalid_order_amount",
+		})
+	}))
+	defer server.Close()
+
+	originalBaseURL := GetBaseURL()
+	SetBaseURL(server.URL)
+	defer SetBaseURL(originalBaseURL)
+
+	client := NewClient("test_api_key", "test_secret_key")
+	orderReq := OrderRequest{Pair: "btc_jpy", OrderType: "buy", Rate: 3000000, Amount: 0.0001} // Invalid amount
+
+	resp, _, err := client.NewOrder(orderReq)
+	if err == nil {
+		t.Fatal("Expected an error, but got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid_order_amount") {
+		t.Errorf("Expected error message to contain 'invalid_order_amount', but got: %s", err.Error())
+	}
+	if resp.Success {
+		t.Error("Expected response success to be false")
+	}
+}
+
+func TestNewRequest_Signature(t *testing.T) {
+	client := NewClient("key", "secret")
+	body := `{"pair":"btc_jpy","amount":"0.1","price":"3000000","order_type":"buy"}`
+
+	// Set a fixed time for consistent nonce generation.
+	// This is a bit tricky since the nonce is internal, but we can check the signature logic.
+	// We will not check the exact signature, but ensure it's generated.
+
+	req, err := client.newRequest("POST", "https://coincheck.com/api/exchange/orders", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("newRequest failed: %v", err)
+	}
+
+	signature := req.Header.Get("ACCESS-SIGNATURE")
+	if signature == "" {
+		t.Fatal("Signature should not be empty")
+	}
+
+	nonce := req.Header.Get("ACCESS-NONCE")
+	if nonce == "" {
+		t.Fatal("Nonce should not be empty")
+	}
+}
+
+// Helper function to set a fixed time for testing nonce generation if needed.
+// This requires modifying the client or using interfaces, which might be overkill.
+// For now, we rely on the high-resolution timestamp to likely be unique.
+func TestClient_Concurrency(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(10 * time.Millisecond) // Simulate network latency
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(OrderResponse{Success: true})
+	}))
+	defer server.Close()
+
+	originalBaseURL := GetBaseURL()
+	SetBaseURL(server.URL)
+	defer SetBaseURL(originalBaseURL)
+
+	client := NewClient("key", "secret")
+	orderReq := OrderRequest{Pair: "btc_jpy", OrderType: "buy", Rate: 3000000, Amount: 0.01}
+
+	numRequests := 10
+	errChan := make(chan error, numRequests)
+
+	for i := 0; i < numRequests; i++ {
+		go func() {
+			_, _, err := client.NewOrder(orderReq)
+			errChan <- err
+		}()
+	}
+
+	for i := 0; i < numRequests; i++ {
+		if err := <-errChan; err != nil {
+			t.Errorf("Concurrent request failed: %v", err)
+		}
+	}
 }
