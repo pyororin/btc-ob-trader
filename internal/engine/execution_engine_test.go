@@ -95,7 +95,7 @@ func mockCoincheckServer(
 		mux.HandleFunc("/api/exchange/orders/opens", openOrdersHandler)
 	}
 	if transactionsHandler != nil {
-		mux.HandleFunc("/api/exchange/orders/transactions", transactionsHandler)
+		mux.HandleFunc("/api/exchange/orders/transactions_pagination", transactionsHandler)
 	}
 
 	mux.HandleFunc("/api/exchange/orders", func(w http.ResponseWriter, r *http.Request) {
@@ -148,10 +148,13 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 		case "/api/exchange/orders/opens":
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}})
-		case "/api/exchange/orders/transactions":
-			resp := coincheck.TransactionsResponse{
+		case "/api/exchange/orders/transactions_pagination":
+			resp := struct {
+				Success bool `json:"success"`
+				Data    []coincheck.Transaction `json:"data"`
+			}{
 				Success: true,
-				Transactions: []coincheck.Transaction{
+				Data: []coincheck.Transaction{
 					{ID: 98765, OrderID: orderID, Pair: "btc_jpy", Rate: "5000000.0", Side: "buy", CreatedAt: time.Now().UTC().Format(time.RFC3339)},
 				},
 			}
@@ -207,10 +210,13 @@ func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		case "/api/exchange/orders/transactions":
-			resp := coincheck.TransactionsResponse{
+		case "/api/exchange/orders/transactions_pagination":
+			resp := struct {
+				Success bool `json:"success"`
+				Data    []coincheck.Transaction `json:"data"`
+			}{
 				Success: true,
-				Transactions: []coincheck.Transaction{
+				Data: []coincheck.Transaction{
 					{ID: 98766, OrderID: orderID, Pair: "btc_jpy", Rate: "5000000.0", Side: "buy", CreatedAt: time.Now().UTC().Format(time.RFC3339)},
 				},
 			}
@@ -325,8 +331,14 @@ func TestExecutionEngine_PlaceOrder_Timeout(t *testing.T) {
 			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		case r.URL.Path == "/api/exchange/orders/transactions":
-			resp := coincheck.TransactionsResponse{Success: true, Transactions: []coincheck.Transaction{}}
+		case r.URL.Path == "/api/exchange/orders/transactions_pagination":
+			resp := struct {
+				Success bool `json:"success"`
+				Data    []coincheck.Transaction `json:"data"`
+			}{
+				Success: true,
+				Data:    []coincheck.Transaction{},
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
 		default:
@@ -444,11 +456,14 @@ func TestExecutionEngine_AdaptivePositionSizing(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		case "/api/exchange/orders/transactions":
+		case "/api/exchange/orders/transactions_pagination":
 			currentOrderID := atomic.LoadInt64(&orderIDCounter)
-			resp := coincheck.TransactionsResponse{
+			resp := struct {
+				Success bool `json:"success"`
+				Data    []coincheck.Transaction `json:"data"`
+			}{
 				Success: true,
-				Transactions: []coincheck.Transaction{{ID: currentOrderID + 5000, OrderID: currentOrderID}},
+				Data:    []coincheck.Transaction{{ID: currentOrderID + 5000, OrderID: currentOrderID}},
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
