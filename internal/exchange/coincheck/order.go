@@ -73,14 +73,19 @@ func (c *Client) newRequest(method, endpoint string, body io.Reader) (*http.Requ
 	message := nonce + url
 	if body != nil && body != http.NoBody {
 		buf := new(bytes.Buffer)
-		_, err := buf.ReadFrom(body) // bodyの内容を読み取る
+		// TeeReader creates a reader that writes to buf as it is read from body.
+		// This allows us to capture the request body for the signature without consuming it.
+		teeReader := io.TeeReader(body, buf)
+		bodyBytes, err := io.ReadAll(teeReader)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read request body for signature: %w", err)
 		}
-		message += buf.String() // 読み取った内容をmessageに追加
-		// bodyを再度設定するために、元のbodyを複製するか、bufを再度利用する
-		// ここではbufを再度利用する
-		req.Body = io.NopCloser(buf)
+		message += string(bodyBytes)
+
+		// After reading, the original body is consumed, but buf contains the content.
+		// We must reset the request's body to be a new reader from the captured bytes
+		// so it can be sent by the http.Client.
+		req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 	}
 
 	mac := hmac.New(sha256.New, []byte(c.secretKey))
@@ -111,11 +116,6 @@ func (c *Client) NewOrder(reqBody OrderRequest) (*OrderResponse, time.Time, erro
 	if err != nil {
 		return nil, time.Time{}, fmt.Errorf("failed to create new order request: %w", err)
 	}
-	// After newRequest, the body of httpReq is already set with bytes.NewBuffer(jsonBody)
-	// If newRequest consumes the body for signature generation, it should also reset it.
-	// Let's ensure the body is correctly set here if it was consumed and not reset.
-	// For POST, we definitely need the body.
-	httpReq.Body = io.NopCloser(bytes.NewBuffer(jsonBody))
 
 	orderSentTime := time.Now().UTC()
 	resp, err := c.httpClient.Do(httpReq)
@@ -256,8 +256,8 @@ func (c *Client) GetOpenOrders() (*OpenOrdersResponse, error) {
 }
 
 // GetTransactions retrieves the transaction history from Coincheck.
-func (c *Client) GetTransactions() (*TransactionsResponse, error) {
-	endpoint := "/api/exchange/orders/transactions"
+func (c *Client) GetTransactions(limit int) (*TransactionsResponse, error) {
+	endpoint := fmt.Sprintf("/api/exchange/orders/transactions_pagination?limit=%d", limit)
 
 	httpReq, err := c.newRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -275,17 +275,31 @@ func (c *Client) GetTransactions() (*TransactionsResponse, error) {
 		return nil, fmt.Errorf("failed to read get transactions response body (status: %d): %w", resp.StatusCode, err)
 	}
 
-	var transactionsResp TransactionsResponse
-	if err := json.Unmarshal(bodyBytes, &transactionsResp); err != nil {
-		return nil, fmt.Errorf("failed to decode get transactions response (status: %d, body: %s): %w", resp.StatusCode, string(bodyBytes), err)
+	// The pagination endpoint returns a different structure, so we need to adapt.
+	// The actual transaction data is in a "data" field.
+	var paginatedResp struct {
+		Success    bool                   `json:"success"`
+		Data       []Transaction          `json:"data"`
+		Pagination map[string]interface{} `json:"pagination"`
+		Error      string                 `json:"error"`
 	}
 
-	if !transactionsResp.Success {
-		if transactionsResp.Error != "" {
-			return &transactionsResp, fmt.Errorf("coincheck API error on get transactions: %s", transactionsResp.Error)
+	if err := json.Unmarshal(bodyBytes, &paginatedResp); err != nil {
+		return nil, fmt.Errorf("failed to decode get transactions paginated response (status: %d, body: %s): %w", resp.StatusCode, string(bodyBytes), err)
+	}
+
+	if !paginatedResp.Success {
+		if paginatedResp.Error != "" {
+			return nil, fmt.Errorf("coincheck API error on get paginated transactions: %s", paginatedResp.Error)
 		}
-		return &transactionsResp, fmt.Errorf("coincheck API returned success=false for get transactions, status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("coincheck API returned success=false for get paginated transactions, status: %d", resp.StatusCode)
 	}
 
-	return &transactionsResp, nil
+	// Adapt the paginated response to the existing TransactionsResponse structure.
+	transactionsResp := &TransactionsResponse{
+		Success:      paginatedResp.Success,
+		Transactions: paginatedResp.Data,
+	}
+
+	return transactionsResp, nil
 }
