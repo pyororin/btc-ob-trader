@@ -256,8 +256,11 @@ func (c *Client) GetOpenOrders() (*OpenOrdersResponse, error) {
 }
 
 // GetTransactions retrieves the transaction history from Coincheck.
-func (c *Client) GetTransactions() (*TransactionsResponse, error) {
+func (c *Client) GetTransactions(limit int) (*TransactionsResponse, error) {
 	endpoint := "/api/exchange/orders/transactions"
+	if limit > 0 {
+		endpoint = fmt.Sprintf("%s?limit=%d", endpoint, limit)
+	}
 
 	httpReq, err := c.newRequest(http.MethodGet, endpoint, nil)
 	if err != nil {

@@ -179,7 +179,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 			return nil, fmt.Errorf("order %d timed out and was cancelled", orderResp.ID)
 
 		case <-time.After(pollInterval):
-			transactions, err := e.exchangeClient.GetTransactions()
+			transactions, err := e.exchangeClient.GetTransactions(50) // Fetch last 50 transactions
 			if err != nil {
 				logger.Warnf("[Live] Failed to get transactions to check order status: %v", err)
 				continue // Retry on the next tick
