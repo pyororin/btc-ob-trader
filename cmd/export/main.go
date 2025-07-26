@@ -63,8 +63,14 @@ func main() {
 
 	// --- Database Connection ---
 	ctx := context.Background()
-	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		cfg.App.Database.User, cfg.App.Database.Password, cfg.App.Database.Host, cfg.App.Database.Port, cfg.App.Database.Name, cfg.App.Database.SSLMode)
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		logger.Info("DATABASE_URL not set, constructing from config.")
+		dbURL = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+			cfg.App.Database.User, cfg.App.Database.Password, cfg.App.Database.Host, cfg.App.Database.Port, cfg.App.Database.Name, cfg.App.Database.SSLMode)
+	} else {
+		logger.Info("Using DATABASE_URL from environment.")
+	}
 	dbpool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		logger.Fatalf("Unable to connect to database: %v", err)

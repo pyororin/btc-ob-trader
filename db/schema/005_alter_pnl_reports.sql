@@ -89,4 +89,9 @@ BEGIN
         ALTER TABLE pnl_reports ADD COLUMN return_vs_buy_and_hold DECIMAL;
     END IF;
 
+    -- last_trade_id
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pnl_reports' AND column_name='last_trade_id') THEN
+        ALTER TABLE pnl_reports ADD COLUMN last_trade_id BIGINT;
+    END IF;
+
 END $$;
