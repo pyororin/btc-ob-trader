@@ -6,8 +6,6 @@ import (
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
 	"sync"
 	"time"
-
-	"github.com/your-org/obi-scalp-bot/pkg/logger"
 )
 
 // OBILevels specifies which levels of OBI to calculate.
