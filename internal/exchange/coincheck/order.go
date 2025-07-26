@@ -116,11 +116,6 @@ func (c *Client) NewOrder(reqBody OrderRequest) (*OrderResponse, time.Time, erro
 	if err != nil {
 		return nil, time.Time{}, fmt.Errorf("failed to create new order request: %w", err)
 	}
-	// After newRequest, the body of httpReq is already set with bytes.NewBuffer(jsonBody)
-	// If newRequest consumes the body for signature generation, it should also reset it.
-	// Let's ensure the body is correctly set here if it was consumed and not reset.
-	// For POST, we definitely need the body.
-	httpReq.Body = io.NopCloser(bytes.NewBuffer(jsonBody))
 
 	orderSentTime := time.Now().UTC()
 	resp, err := c.httpClient.Do(httpReq)

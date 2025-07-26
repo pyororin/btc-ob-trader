@@ -4,7 +4,7 @@
 # ボットの動作、データベース接続、リプレイモードなど、システム全体に関わる設定です。
 
 # ログレベル ("debug", "info", "warn", "error")
-log_level: "info"
+log_level: "debug"
 
 # 注文執行エンジン設定
 order:
