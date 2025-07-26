@@ -73,9 +73,20 @@ func (s *Service) AnalyzeTrades(trades []Trade) (Report, error) {
 		return Report{}, fmt.Errorf("no trades to analyze")
 	}
 
+	var myTrades []Trade
+	for _, t := range trades {
+		if t.IsMyTrade {
+			myTrades = append(myTrades, t)
+		}
+	}
+
+	if len(myTrades) == 0 {
+		return Report{}, fmt.Errorf("no trades to analyze")
+	}
+
 	var executedTrades []Trade
 	cancelledCount := 0
-	for _, t := range trades {
+	for _, t := range myTrades {
 		if t.IsCancelled {
 			cancelledCount++
 		} else {
