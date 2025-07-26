@@ -37,8 +37,11 @@ func (c *OBICalculator) Calculate(timestamp time.Time) {
 	isBookReady := !c.orderBook.Time.IsZero()
 	c.orderBook.RUnlock()
 
+	logger.Debugf("OBICalculator.Calculate called. isBookReady: %v", isBookReady)
+
 	if isBookReady {
 		if obiResult, ok := c.orderBook.CalculateOBI(OBILevels...); ok {
+			logger.Debugf("OBI calculated successfully. OBI8: %.4f, ok: %v", obiResult.OBI8, ok)
 			// Override the timestamp with the one provided, crucial for simulations
 			obiResult.Timestamp = timestamp
 			select {
@@ -46,7 +49,10 @@ func (c *OBICalculator) Calculate(timestamp time.Time) {
 			default:
 				// Channel is full, indicating that the consumer is not keeping up.
 				// In a simulation, this might be fine, but in live trading, it could be an issue.
+				logger.Warn("OBICalculator output channel is full, skipping send.")
 			}
+		} else {
+			logger.Debug("c.orderBook.CalculateOBI returned ok=false")
 		}
 	}
 }
