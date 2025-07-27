@@ -81,94 +81,82 @@ graph TD
 
 ### `order_book_updates`
 
--   **役割**: L2オーダーブックの更新情報（スナップショットまたは差分）を格納します。これは市場の流動性を分析するための最も基本的なデータです。
--   **カラム**:
-    -   `time` (TIMESTAMPTZ): 更新時刻
-    -   `pair` (TEXT): 通貨ペア (例: `btc_jpy`)
-    -   `side` (TEXT): `bid` または `ask`
-    -   `price` (DECIMAL): 価格
-    -   `size` (DECIMAL): 数量
-    -   `is_snapshot` (BOOLEAN): スナップショットか差分かを示すフラグ
+-   **役割**: L2オーダーブックの更新情報（スナップショットまたは差分）を格納します。これは市場の流動性を分析するための最も基本的なデータです。`bot`サービスがリアルタイムでデータを書き込み、主にバックテスト用のデータとして`export`サービスによって読み出されます。
 -   **CRUD**:
-| サービス | Create | Read | Update | Delete |
-| :--- | :---: | :---: | :---: | :---: |
-| `bot` | ✅ | | | |
-| `export` | | ✅ | | |
+| サービス | Create | Read | Update | Delete | 機能 |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| `bot` | ✅ | | | | WebSocketからの板情報受信 |
+| `export` | | ✅ | | | バックテスト用データのエクスポート (`make export-sim-data`) |
 
 ---
 
 ### `trades`
 
--   **役割**: WebSocketから受信した全ての約定情報を記録します。自分の取引だけでなく、市場全体の取引履歴が含まれます。
--   **カラム**:
-    -   `time` (TIMESTAMPTZ): 約定時刻
-    -   `pair` (TEXT): 通貨ペア
-    -   `side` (TEXT): `buy` または `sell`
-    -   `price` (DECIMAL): 約定価格
-    -   `size` (DECIMAL): 約定数量
-    -   `transaction_id` (BIGINT): 取引ID
-    -   `is_my_trade` (BOOLEAN): 自分の取引かどうか
+-   **役割**: WebSocketから受信した全ての約定情報を記録します。自分の取引だけでなく、市場全体の取引履歴が含まれます。このデータは`bot`によって書き込まれ、`report`サービスがパフォーマンス分析のために読み出します。
 -   **CRUD**:
-| サービス | Create | Read | Update | Delete |
-| :--- | :---: | :---: | :---: | :---: |
-| `bot` | ✅ | | | |
-| `report` | | ✅ | | |
+| サービス | Create | Read | Update | Delete | 機能 |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| `bot` | ✅ | | | | WebSocketからの約定情報受信 |
+| `report` | | ✅ | | | PnLレポート生成 (`make report`) |
+| `optimizer` | | ✅ | | | パラメータ最適化のための過去データ分析 |
 
 ---
 
 ### `pnl_summary`
 
--   **役割**: 定期的なPnL（損益）のスナップショットや重要なイベント発生時のPnLを記録します。Grafanaでのリアルタイム損益表示に使用されます。
--   **カラム**:
-    -   `time` (TIMESTAMTZO): 記録時刻
-    -   `strategy_id` (TEXT): 戦略ID
-    -   `pair` (TEXT): 通貨ペア
-    -   `realized_pnl` (DECIMAL): 実現損益
-    -   `unrealized_pnl` (DECIMAL): 未実現損益
-    -   `total_pnl` (DECIMAL): 合計損益
-    -   `position_size` (DECIMAL): 現在のポジションサイズ
-    -   `avg_entry_price` (DECIMAL): 平均取得価格
+-   **役割**: 定期的なPnL（損益）のスナップショットを記録します。`bot`がポジションを更新するたびに書き込まれ、`grafana`がリアルタイムの損益チャートを描画するために使用します。
 -   **CRUD**:
-| サービス | Create | Read | Update | Delete |
-| :--- | :---: | :---: | :---: | :---: |
-| `bot` | ✅ | | | |
-| `grafana` | | ✅ | | |
+| サービス | Create | Read | Update | Delete | 機能 |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| `bot` | ✅ | | | | ポジション評価・損益計算 |
+| `grafana` | | ✅ | | | 損益ダッシュボードでの可視化 |
+| `drift-monitor` | | ✅ | | | パフォーマンス劣化の監視 |
+
 
 ---
 
 ### `pnl_reports`
 
--   **役割**: `report-generator`サービスによって生成された、より詳細なパフォーマンス分析レポートの結果を格納します。
--   **カラム**:
-    -   `time` (TIMESTAMPTZ): レポート生成時刻
-    -   `start_date` / `end_date` (TIMESTAMPTZ): レポート対象期間
-    -   `total_trades` (INT): 総トレード数
-    -   `win_rate` (REAL): 勝率
-    -   `total_pnl` (DECIMAL): 合計損益
-    -   `risk_reward_ratio` (REAL): リスクリワード比
-    -   `sharpe_ratio`, `profit_factor`, `max_drawdown` など多数のパフォーマンス指標
+-   **役割**: `report`サービスによって定期的に生成される、詳細なパフォーマンス分析レポートの結果を格納します。`grafana`での表示や、`optimizer`が最適化のベースラインとして利用することがあります。
 -   **CRUD**:
-| サービス | Create | Read | Update | Delete |
-| :--- | :---: | :---: | :---: | :---: |
-| `report` | ✅ | | | |
-| `bot` | | ✅ | | |
-| `grafana` | | ✅ | | |
+| サービス | Create | Read | Update | Delete | 機能 |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| `report` | ✅ | | | | 定期的なパフォーマンスレポート生成 |
+| `grafana` | | ✅ | | | パフォーマンスレポートのダッシュボード表示 |
+| `optimizer` | | ✅ | | | 最適化の評価指標として参照 |
+
+---
+
+### `trades_pnl`
+
+-   **役割**: 個別の取引ごとに実現損益（PnL）と、その時点までの累積損益を記録します。どの取引が利益を出し、どれが損失を出したかを正確に追跡するために使用されます。
+-   **CRUD**:
+| サービス | Create | Read | Update | Delete | 機能 |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| `report` | ✅ | | | | PnLレポート生成プロセスの一部として取引ごとの損益を計算・保存 |
+| `grafana` | | ✅ | | | 取引ごとの損益分析ダッシュボード |
 
 ---
 
 ### `benchmark_values`
 
--   **役割**: ベンチマーク（例：市場のミッドプライス）の価格を時系列で保存します。ボットのパフォーマンスを市場平均と比較するために使用されます。
--   **カラム**:
-    -   `time` (TIMESTAMPTZ): 記録時刻
-    -   `price` (DOUBLE PRECISION): ベンチマーク価格
+-   **役割**: ベンチマーク（例：市場のミッドプライス）の価格を時系列で保存します。ボットのパフォーマンスを市場平均（Buy & Hold戦略など）と比較するために使用されます。
 -   **CRUD**:
-| サービス | Create | Read | Update | Delete |
-| :--- | :---: | :---: | :---: | :---: |
-| `bot` | ✅ | | | |
-| `grafana` | | ✅ | | |
+| サービス | Create | Read | Update | Delete | 機能 |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| `bot` | ✅ | | | | ベンチマーク価格の定期記録 |
+| `grafana` | | ✅ | | | パフォーマンス比較ダッシュボードでの可視化 |
+| `report` | | ✅ | | | レポートでのBuy & Holdリターン計算 |
 
 ---
+
+### `v_performance_vs_benchmark` (View)
+
+-   **役割**: `pnl_summary`テーブルのボットのパフォーマンスと`benchmark_values`テーブルの市場ベンチマークを結合し、正規化して比較するためのビューです。Grafanaなどで、ボットが市場に対してどれだけ優位性があったか（アルファ）を視覚的に確認するために利用されます。
+-   **CRUD**:
+| サービス | Create | Read | Update | Delete | 機能 |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| `grafana` | | ✅ | | | ボットのパフォーマンスと市場ベンチマークの比較チャート |
 
 
 
