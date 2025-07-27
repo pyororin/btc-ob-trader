@@ -671,7 +671,7 @@ def main(run_once=False):
             except ValueError:
                 logging.error("No best trial found (all trials may have been pruned). Aborting optimization run.")
 
-        except Exception as e:
+        except (Exception, ValueError) as e:
             logging.error(f"An unexpected error occurred during the optimization job: {e}", exc_info=True)
         finally:
             # --- Cleanup ---
