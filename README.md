@@ -75,6 +75,130 @@ graph TD
 | `bot-simulate`     | `obi-scalp-bot-simulate`    | **シミュレーション実行**: `make simulate` で使用。過去データ(CSV)を使い、取引戦略のバックテストを高速に実行します。                  |
 | `builder`          | -                           | **ビルド用**: Goアプリケーションをビルドするための一時的なコンテナです。                                                            |
 
+## データベース・テーブル
+
+このセクションでは、システムで使用される主要なデータベーステーブルの概要、その役割、そして各サービスとのインタラクションについて説明します。
+
+### `order_book_updates`
+
+-   **役割**: L2オーダーブックの更新情報（スナップショットまたは差分）を格納します。これは市場の流動性を分析するための最も基本的なデータです。
+-   **カラム**:
+    -   `time` (TIMESTAMPTZ): 更新時刻
+    -   `pair` (TEXT): 通貨ペア (例: `btc_jpy`)
+    -   `side` (TEXT): `bid` または `ask`
+    -   `price` (DECIMAL): 価格
+    -   `size` (DECIMAL): 数量
+    -   `is_snapshot` (BOOLEAN): スナップショットか差分かを示すフラグ
+-   **CRUD**:
+| サービス | Create | Read | Update | Delete |
+| :--- | :---: | :---: | :---: | :---: |
+| `bot` | ✅ | | | |
+| `export` | | ✅ | | |
+
+---
+
+### `trades`
+
+-   **役割**: WebSocketから受信した全ての約定情報を記録します。自分の取引だけでなく、市場全体の取引履歴が含まれます。
+-   **カラム**:
+    -   `time` (TIMESTAMPTZ): 約定時刻
+    -   `pair` (TEXT): 通貨ペア
+    -   `side` (TEXT): `buy` または `sell`
+    -   `price` (DECIMAL): 約定価格
+    -   `size` (DECIMAL): 約定数量
+    -   `transaction_id` (BIGINT): 取引ID
+    -   `is_my_trade` (BOOLEAN): 自分の取引かどうか
+-   **CRUD**:
+| サービス | Create | Read | Update | Delete |
+| :--- | :---: | :---: | :---: | :---: |
+| `bot` | ✅ | | | |
+| `report` | | ✅ | | |
+
+---
+
+### `pnl_summary`
+
+-   **役割**: 定期的なPnL（損益）のスナップショットや重要なイベント発生時のPnLを記録します。Grafanaでのリアルタイム損益表示に使用されます。
+-   **カラム**:
+    -   `time` (TIMESTAMTZO): 記録時刻
+    -   `strategy_id` (TEXT): 戦略ID
+    -   `pair` (TEXT): 通貨ペア
+    -   `realized_pnl` (DECIMAL): 実現損益
+    -   `unrealized_pnl` (DECIMAL): 未実現損益
+    -   `total_pnl` (DECIMAL): 合計損益
+    -   `position_size` (DECIMAL): 現在のポジションサイズ
+    -   `avg_entry_price` (DECIMAL): 平均取得価格
+-   **CRUD**:
+| サービス | Create | Read | Update | Delete |
+| :--- | :---: | :---: | :---: | :---: |
+| `bot` | ✅ | | | |
+| `grafana` | | ✅ | | |
+
+---
+
+### `pnl_reports`
+
+-   **役割**: `report-generator`サービスによって生成された、より詳細なパフォーマンス分析レポートの結果を格納します。
+-   **カラム**:
+    -   `time` (TIMESTAMPTZ): レポート生成時刻
+    -   `start_date` / `end_date` (TIMESTAMPTZ): レポート対象期間
+    -   `total_trades` (INT): 総トレード数
+    -   `win_rate` (REAL): 勝率
+    -   `total_pnl` (DECIMAL): 合計損益
+    -   `risk_reward_ratio` (REAL): リスクリワード比
+    -   `sharpe_ratio`, `profit_factor`, `max_drawdown` など多数のパフォーマンス指標
+-   **CRUD**:
+| サービス | Create | Read | Update | Delete |
+| :--- | :---: | :---: | :---: | :---: |
+| `report` | ✅ | | | |
+| `bot` | | ✅ | | |
+| `grafana` | | ✅ | | |
+
+---
+
+### `benchmark_values`
+
+-   **役割**: ベンチマーク（例：市場のミッドプライス）の価格を時系列で保存します。ボットのパフォーマンスを市場平均と比較するために使用されます。
+-   **カラム**:
+    -   `time` (TIMESTAMPTZ): 記録時刻
+    -   `price` (DOUBLE PRECISION): ベンチマーク価格
+-   **CRUD**:
+| サービス | Create | Read | Update | Delete |
+| :--- | :---: | :---: | :---: | :---: |
+| `bot` | ✅ | | | |
+| `grafana` | | ✅ | | |
+
+---
+
+### `optimization_history`
+
+-   **役割**: `optimizer`サービスによるパラメータ最適化の実行履歴と結果を保存します。
+-   **カラム**:
+    -   `time` (TIMESTAMPTZ): 最適化実行時刻
+    -   `trigger_type` (TEXT): 実行トリガー（例: `drift`, `manual`）
+    -   `is_profit_factor`, `oos_sharpe_ratio` などIn-Sample/Out-of-Sampleの各種パフォーマンス指標
+    -   `validation_passed` (BOOLEAN): OOS検証に合格したか
+    -   `best_params` (JSONB): 最適化で見つかったパラメータ
+-   **CRUD**:
+| サービス | Create | Read | Update | Delete |
+| :--- | :---: | :---: | :---: | :---: |
+| `optimizer` | ✅ | | | |
+| `grafana` | | ✅ | | |
+
+---
+
+### `latencies`
+
+-   **役割**: 注文のレイテンシ（遅延）を記録します。現在は`bot`のメインロジックでは使用されていませんが、将来的なパフォーマンス分析のために残されています。
+-   **カラム**:
+    -   `time` (TIMESTAMPTZ): 記録時刻
+    -   `order_id` (BIGINT): 注文ID
+    -   `latency_ms` (BIGINT): 遅延時間（ミリ秒）
+-   **CRUD**:
+| サービス | Create | Read | Update | Delete |
+| :--- | :---: | :---: | :---: | :---: |
+| (未使用) | | | | |
+
 
 ## 主な特徴
 
