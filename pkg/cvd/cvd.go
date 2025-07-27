@@ -1,20 +1,78 @@
 package cvd
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
-// CalculateCVD calculates the Cumulative Volume Delta from a slice of trades.
-// Buy trades contribute positively to CVD, sell trades contribute negatively.
-func CalculateCVD(trades []Trade) float64 {
-	var totalCVD float64
-	for _, trade := range trades {
-		// Normalize side to lowercase for consistent comparison
+// Trade represents a single market trade.
+type Trade struct {
+	ID        string
+	Side      string
+	Price     float64
+	Size      float64
+	Timestamp time.Time
+}
+
+// CVDCalculator calculates Cumulative Volume Delta over a rolling window.
+type CVDCalculator struct {
+	trades      []Trade
+	windowSize  time.Duration
+	currentCVD  float64
+	lastTradeID string
+}
+
+// NewCVDCalculator creates a new CVDCalculator.
+func NewCVDCalculator(windowSize time.Duration) *CVDCalculator {
+	return &CVDCalculator{
+		windowSize: windowSize,
+	}
+}
+
+// Update adds new trades and recalculates the CVD.
+// It avoids double-counting by checking trade IDs.
+func (c *CVDCalculator) Update(newTrades []Trade) float64 {
+	// Add new trades, avoiding duplicates
+	for _, trade := range newTrades {
+		isNew := true
+		for _, existingTrade := range c.trades {
+			if trade.ID == existingTrade.ID {
+				isNew = false
+				break
+			}
+		}
+		if isNew {
+			c.trades = append(c.trades, trade)
+		}
+	}
+
+	// Remove old trades that are outside the window
+	now := time.Now()
+	firstValidIndex := 0
+	for i, trade := range c.trades {
+		if now.Sub(trade.Timestamp) > c.windowSize {
+			firstValidIndex = i + 1
+		} else {
+			break
+		}
+	}
+	c.trades = c.trades[firstValidIndex:]
+
+	// Recalculate CVD from the trades within the window
+	c.currentCVD = 0
+	for _, trade := range c.trades {
 		side := strings.ToLower(trade.Side)
 		if side == "buy" {
-			totalCVD += trade.Size
+			c.currentCVD += trade.Size
 		} else if side == "sell" {
-			totalCVD -= trade.Size
+			c.currentCVD -= trade.Size
 		}
-		// Trades with other side strings (if any) are ignored.
 	}
-	return totalCVD
+
+	return c.currentCVD
+}
+
+// GetCVD returns the current CVD value.
+func (c *CVDCalculator) GetCVD() float64 {
+	return c.currentCVD
 }

@@ -8,7 +8,8 @@ import (
 
 	"github.com/shopspring/decimal"
 	"github.com/your-org/obi-scalp-bot/internal/config"
-	"github.com/your-org/obi-scalp-bot/internal/indicator" // Added
+	"github.com/your-org/obi-scalp-bot/internal/indicator"
+	"github.com/your-org/obi-scalp-bot/pkg/cvd"
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
 )
 
@@ -50,10 +51,16 @@ func (s SignalType) String() string {
 
 // EngineConfig encapsulates configuration for the SignalEngine.
 type EngineConfig struct {
-	LongOBIBaseThreshold  float64 // Base threshold from config
-	ShortOBIBaseThreshold float64 // Base threshold from config
+	LongOBIBaseThreshold  float64
+	ShortOBIBaseThreshold float64
 	SignalHoldDuration    time.Duration
-	DynamicOBIConf        config.DynamicOBIConf // Added
+	DynamicOBIConf        config.DynamicOBIConf
+	CVDWindow             time.Duration
+	OBIWeight             float64
+	OFIWeight             float64
+	CVDWeight             float64
+	MicroPriceWeight      float64
+	CompositeThreshold    float64
 }
 
 // Regime represents the market regime.
@@ -73,6 +80,7 @@ type SignalEngine struct {
 	config                   EngineConfig
 	volatilityCalc           *indicator.VolatilityCalculator
 	ofiCalc                  *indicator.OFICalculator
+	cvdCalc                  *cvd.CVDCalculator
 	lastSignal               SignalType
 	lastSignalTime           time.Time
 	currentSignal            SignalType
@@ -84,6 +92,9 @@ type SignalEngine struct {
 	longSL                   float64
 	shortTP                  float64
 	shortSL                  float64
+	ofiValue                 float64
+	cvdValue                 float64
+	microPrice               float64
 
 	// Fields for OBI slope filter
 	slopeFilterConfig config.SlopeFilterConfig
@@ -100,18 +111,26 @@ type SignalEngine struct {
 // NewSignalEngine creates a new SignalEngine.
 func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
 	signalHoldDuration := time.Duration(tradeCfg.Signal.HoldDurationMs) * time.Millisecond
+	cvdWindow := time.Duration(tradeCfg.Signal.CVDWindowMinutes) * time.Minute
 
 	engineCfg := EngineConfig{
 		LongOBIBaseThreshold:  tradeCfg.Long.OBIThreshold,
 		ShortOBIBaseThreshold: tradeCfg.Short.OBIThreshold,
 		SignalHoldDuration:    signalHoldDuration,
 		DynamicOBIConf:        tradeCfg.Volatility.DynamicOBI,
+		CVDWindow:             cvdWindow,
+		OBIWeight:             tradeCfg.Signal.OBIWeight,
+		OFIWeight:             tradeCfg.Signal.OFIWeight,
+		CVDWeight:             tradeCfg.Signal.CVDWeight,
+		MicroPriceWeight:      tradeCfg.Signal.MicroPriceWeight,
+		CompositeThreshold:    tradeCfg.Signal.CompositeThreshold,
 	}
 
 	return &SignalEngine{
 		config:                   engineCfg,
 		volatilityCalc:           indicator.NewVolatilityCalculator(tradeCfg.Volatility.EWMALambda),
 		ofiCalc:                  indicator.NewOFICalculator(),
+		cvdCalc:                  cvd.NewCVDCalculator(cvdWindow),
 		lastSignal:               SignalNone,
 		currentSignal:            SignalNone,
 		currentLongOBIThreshold:  engineCfg.LongOBIBaseThreshold,
@@ -130,20 +149,17 @@ func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
 	}, nil
 }
 
-// UpdateMarketData updates the engine with the latest market data including price for volatility,
-// and best bid/ask for OFI. This method should be called before Evaluate.
-// Parameters like bestBid, bestAsk, bestBidSize, bestAskSize are for OFI.
-// currentMidPrice is for volatility and for TP/SL calculation base.
-func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, bestBid, bestAsk, bestBidSize, bestAskSize float64) {
-	e.currentMidPrice = currentMidPrice // Store for Evaluate method
+// UpdateMarketData updates the engine with the latest market data.
+func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, bestBid, bestAsk, bestBidSize, bestAskSize float64, trades []cvd.Trade) {
+	e.currentMidPrice = currentMidPrice
 
-	// Update price history
+	// Update price history for regime detection
 	e.priceHistory = append(e.priceHistory, currentMidPrice)
 	if len(e.priceHistory) > e.maxHistory {
 		e.priceHistory = e.priceHistory[1:]
 	}
 
-	// Update regime, but not on every single tick to save CPU
+	// Update regime periodically
 	const hurstCalculationInterval = 1 * time.Minute
 	if len(e.priceHistory) == e.maxHistory && currentTime.Sub(e.lastHurstCalculationTime) > hurstCalculationInterval {
 		e.lastHurstCalculationTime = currentTime
@@ -163,7 +179,6 @@ func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, 
 	// Update Volatility and dynamic OBI thresholds
 	if e.config.DynamicOBIConf.Enabled {
 		_, stdDev := e.volatilityCalc.Update(e.currentMidPrice)
-
 		longAdjustment := e.config.DynamicOBIConf.VolatilityFactor * stdDev
 		adjustedLongThreshold := e.config.LongOBIBaseThreshold * (1 + longAdjustment)
 		minLong := e.config.LongOBIBaseThreshold * e.config.DynamicOBIConf.MinThresholdFactor
@@ -175,57 +190,54 @@ func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, 
 		minShort := e.config.ShortOBIBaseThreshold * e.config.DynamicOBIConf.MinThresholdFactor
 		maxShort := e.config.ShortOBIBaseThreshold * e.config.DynamicOBIConf.MaxThresholdFactor
 		e.currentShortOBIThreshold = math.Max(minShort, math.Min(adjustedShortThreshold, maxShort))
-	} else {
-		e.currentLongOBIThreshold = e.config.LongOBIBaseThreshold
-		e.currentShortOBIThreshold = e.config.ShortOBIBaseThreshold
 	}
 
-	// Update OFI (T-13 related)
-	// Convert float64 to decimal.Decimal for OFICalculator
+	// Update indicators
+	e.microPrice = indicator.CalculateMicroPrice(bestBid, bestAsk, bestBidSize, bestAskSize)
+	e.cvdValue = e.cvdCalc.Update(trades)
+
 	decBestBid := decimal.NewFromFloat(bestBid)
 	decBestAsk := decimal.NewFromFloat(bestAsk)
 	decBestBidSize := decimal.NewFromFloat(bestBidSize)
 	decBestAskSize := decimal.NewFromFloat(bestAskSize)
-
-	_ = e.ofiCalc.UpdateAndCalculateOFI( // Result can be stored or used if needed
-		decBestBid, decBestAsk,
-		decBestBidSize, decBestAskSize,
-	)
+	ofiDecimal := e.ofiCalc.UpdateAndCalculateOFI(decBestBid, decBestAsk, decBestBidSize, decBestAskSize)
+	e.ofiValue, _ = ofiDecimal.Float64()
 }
 
-// Evaluate evaluates the current OBI value against (potentially dynamic) thresholds
-// and returns a TradingSignal if a new signal is confirmed, otherwise nil.
+// Evaluate evaluates the current market data and returns a TradingSignal if a new signal is confirmed.
 func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *TradingSignal {
-	// Update OBI history
+	microPriceDiff := e.microPrice - e.currentMidPrice
+	compositeScore := (obiValue * e.config.OBIWeight) +
+		(e.ofiValue * e.config.OFIWeight) +
+		(e.cvdValue * e.config.CVDWeight) +
+		(microPriceDiff * e.config.MicroPriceWeight)
+
+	// Update score history for slope filter
 	if e.slopeFilterConfig.Enabled {
-		e.obiHistory = append(e.obiHistory, obiValue)
+		e.obiHistory = append(e.obiHistory, compositeScore) // Re-using obiHistory for composite score
 		if len(e.obiHistory) > e.slopeFilterConfig.Period {
 			e.obiHistory = e.obiHistory[1:]
 		}
 	}
 
-	longThreshold := e.currentLongOBIThreshold
-	shortThreshold := e.currentShortOBIThreshold
-
+	threshold := e.config.CompositeThreshold
 	switch e.currentRegime {
 	case RegimeTrending:
-		longThreshold *= 0.9
-		shortThreshold *= 0.9
+		threshold *= 0.9
 	case RegimeMeanReverting:
-		longThreshold *= 1.1
-		shortThreshold *= 1.1
+		threshold *= 1.1
 	}
 
 	rawSignal := SignalNone
-	if obiValue >= longThreshold {
+	if compositeScore >= threshold {
 		rawSignal = SignalLong
-	} else if obiValue <= shortThreshold {
+	} else if compositeScore <= -threshold {
 		rawSignal = SignalShort
 	}
 
-	// Apply OBI slope filter
+	// Apply slope filter to the composite score
 	if e.slopeFilterConfig.Enabled && rawSignal != SignalNone {
-		slope := e.calculateOBISlope()
+		slope := e.calculateOBISlope() // This now calculates slope of composite score
 		if rawSignal == SignalLong && slope < e.slopeFilterConfig.Threshold {
 			rawSignal = SignalNone
 		}
@@ -234,9 +246,8 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 		}
 	}
 
-	// Added for debugging
-	logger.Debugf("OBI: %.4f, LongThr: %.4f, ShortThr: %.4f, RawSignal: %s, CurrentSignal: %s",
-		obiValue, longThreshold, -shortThreshold, rawSignal, e.currentSignal)
+	logger.Debugf("Score: %.4f, Thr: %.4f, RawSignal: %s, CurrentSignal: %s, OBI: %.4f, OFI: %.4f, CVD: %.4f, MicroPriceDiff: %.4f",
+		compositeScore, threshold, rawSignal, e.currentSignal, obiValue, e.ofiValue, e.cvdValue, microPriceDiff)
 
 	if rawSignal != e.currentSignal {
 		if e.config.SignalHoldDuration > 0 {

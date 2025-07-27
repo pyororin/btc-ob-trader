@@ -1,15 +1,5 @@
 package cvd
 
-import "time"
-
-// Trade represents a single trade event.
-type Trade struct {
-	Timestamp time.Time
-	Price     float64
-	Size      float64
-	Side      string // "buy" or "sell"
-}
-
 // RingBuffer holds trades in a circular buffer.
 type RingBuffer struct {
 	trades []Trade
