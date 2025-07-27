@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -35,6 +36,8 @@ type WebSocketClient struct {
 	interrupt        chan os.Signal
 	done             chan struct{}
 	ready            chan bool
+	mu               sync.Mutex
+	trades           []TradeData
 }
 
 // NewWebSocketClient creates a new WebSocketClient.
@@ -43,7 +46,24 @@ func NewWebSocketClient(obHandler OrderBookHandler, tHandler TradeHandler) *WebS
 		orderBookHandler: obHandler,
 		tradeHandler:     tHandler,
 		ready:            make(chan bool),
+		trades:           make([]TradeData, 0, 100),
 	}
+}
+
+// AddTrade adds a trade to the internal buffer.
+func (c *WebSocketClient) AddTrade(trade TradeData) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.trades = append(c.trades, trade)
+}
+
+// GetTrades returns the buffered trades and clears the buffer.
+func (c *WebSocketClient) GetTrades() []TradeData {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	trades := c.trades
+	c.trades = make([]TradeData, 0, 100)
+	return trades
 }
 
 // Connect establishes a WebSocket connection and handles message receiving and pinging.
@@ -233,6 +253,7 @@ func (c *WebSocketClient) handleMessage(message []byte, targetPair string) {
 					AmountStr: tradeMsg[4],
 					SideStr:   tradeMsg[5],
 				}
+				c.AddTrade(tradeData)
 				if c.tradeHandler != nil {
 					c.tradeHandler(tradeData)
 				}

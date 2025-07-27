@@ -1,141 +1,64 @@
 package cvd
 
 import (
-	"encoding/csv"
-	"io"
-	"os"
-	"strconv"
-	"strings"
 	"testing"
 	"time"
 )
 
-const (
-	testTradesCSVPath = "test_trades.csv"
-	floatTolerance    = 1e-9 // Tolerance for float comparisons
-)
+const floatTolerance = 1e-9 // Tolerance for float comparisons
 
-func loadTradesFromCSV(filePath string) ([]Trade, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, err
+func TestCVDCalculator_Update(t *testing.T) {
+	calc := NewCVDCalculator(1 * time.Minute)
+
+	trades1 := []Trade{
+		{ID: "1", Side: "buy", Size: 1.0, Timestamp: time.Now()},
+		{ID: "2", Side: "sell", Size: 0.5, Timestamp: time.Now()},
 	}
-	defer file.Close()
-
-	reader := csv.NewReader(file)
-	_, err = reader.Read() // Skip header row
-	if err != nil {
-		return nil, err
+	cvd := calc.Update(trades1)
+	if absFloat(cvd-0.5) > floatTolerance {
+		t.Errorf("Expected CVD 0.5, got %f", cvd)
 	}
 
-	var trades []Trade
-	for {
-		record, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			// Allow comments or empty lines
-			if perr, ok := err.(*csv.ParseError); ok && (perr.Err == csv.ErrFieldCount || strings.HasPrefix(strings.TrimSpace(strings.Join(record, "")), "#")) {
-				continue
-			}
-			return nil, err
-		}
-
-		// Skip lines that are comments (e.g. start with #) or obviously too short
-		if len(record) < 4 || strings.HasPrefix(strings.TrimSpace(record[0]), "#") {
-			continue
-		}
-
-		timestamp, err := time.Parse(time.RFC3339, record[0])
-		if err != nil {
-			// try to see if it's a comment after all
-			if strings.HasPrefix(strings.TrimSpace(record[0]), "#") {
-				continue
-			}
-			return nil, err
-		}
-		price, err := strconv.ParseFloat(record[1], 64)
-		if err != nil {
-			return nil, err
-		}
-		size, err := strconv.ParseFloat(record[2], 64)
-		if err != nil {
-			return nil, err
-		}
-		side := record[3]
-
-		trades = append(trades, Trade{
-			Timestamp: timestamp,
-			Price:     price,
-			Size:      size,
-			Side:      side,
-		})
+	trades2 := []Trade{
+		{ID: "3", Side: "buy", Size: 0.2, Timestamp: time.Now()},
 	}
-	return trades, nil
-}
-
-func TestCalculateCVD_FromCSV(t *testing.T) {
-	trades, err := loadTradesFromCSV(testTradesCSVPath)
-	if err != nil {
-		t.Fatalf("Failed to load trades from CSV: %v", err)
-	}
-
-	// Expected CVD calculated manually from test_trades.csv
-	// 0.1 (buy) - 0.05 (sell) + 0.2 (buy) - 0.15 (sell) + 0.02 (BUY) - 0.03 (SELL) + 0.07 (buy) = 0.16
-	expectedCVD := 0.16
-	actualCVD := CalculateCVD(trades)
-
-	if absFloat(actualCVD-expectedCVD) > floatTolerance {
-		t.Errorf("Expected CVD %f, got %f", expectedCVD, actualCVD)
+	cvd = calc.Update(trades2)
+	if absFloat(cvd-0.7) > floatTolerance {
+		t.Errorf("Expected CVD 0.7, got %f", cvd)
 	}
 }
 
-func TestCalculateCVD_EmptyTrades(t *testing.T) {
-	trades := []Trade{}
-	expectedCVD := 0.0
-	actualCVD := CalculateCVD(trades)
-	if actualCVD != expectedCVD {
-		t.Errorf("Expected CVD %f for empty trades, got %f", expectedCVD, actualCVD)
-	}
-}
+func TestCVDCalculator_Window(t *testing.T) {
+	calc := NewCVDCalculator(1 * time.Minute)
 
-func TestCalculateCVD_OnlyBuys(t *testing.T) {
 	trades := []Trade{
-		{Timestamp: time.Now(), Price: 100, Size: 1.0, Side: "buy"},
-		{Timestamp: time.Now(), Price: 101, Size: 0.5, Side: "BUY"},
+		{ID: "1", Side: "buy", Size: 1.0, Timestamp: time.Now().Add(-2 * time.Minute)},
+		{ID: "2", Side: "sell", Size: 0.5, Timestamp: time.Now().Add(-90 * time.Second)},
+		{ID: "3", Side: "buy", Size: 0.2, Timestamp: time.Now()},
 	}
-	expectedCVD := 1.5
-	actualCVD := CalculateCVD(trades)
-	if absFloat(actualCVD-expectedCVD) > floatTolerance {
-		t.Errorf("Expected CVD %f, got %f", expectedCVD, actualCVD)
+	cvd := calc.Update(trades)
+
+	// Only trade 3 should be in the window
+	if absFloat(cvd-0.2) > floatTolerance {
+		t.Errorf("Expected CVD 0.2, got %f", cvd)
 	}
 }
 
-func TestCalculateCVD_OnlySells(t *testing.T) {
-	trades := []Trade{
-		{Timestamp: time.Now(), Price: 100, Size: 1.0, Side: "sell"},
-		{Timestamp: time.Now(), Price: 99, Size: 0.5, Side: "SELL"},
-	}
-	expectedCVD := -1.5
-	actualCVD := CalculateCVD(trades)
-	if absFloat(actualCVD-expectedCVD) > floatTolerance {
-		t.Errorf("Expected CVD %f, got %f", expectedCVD, actualCVD)
-	}
-}
+func TestCVDCalculator_DuplicateTrades(t *testing.T) {
+	calc := NewCVDCalculator(1 * time.Minute)
 
-func TestCalculateCVD_MixedCaseAndInvalidSide(t *testing.T) {
-	trades := []Trade{
-		{Timestamp: time.Now(), Price: 100, Size: 1.0, Side: "Buy"},
-		{Timestamp: time.Now(), Price: 101, Size: 0.5, Side: "sElL"},
-		{Timestamp: time.Now(), Price: 102, Size: 0.2, Side: "unknown"}, // This should be ignored
-		{Timestamp: time.Now(), Price: 103, Size: 0.3, Side: "BUY"},
+	trades1 := []Trade{
+		{ID: "1", Side: "buy", Size: 1.0, Timestamp: time.Now()},
 	}
-	// 1.0 - 0.5 + 0.3 = 0.8
-	expectedCVD := 0.8
-	actualCVD := CalculateCVD(trades)
-	if absFloat(actualCVD-expectedCVD) > floatTolerance {
-		t.Errorf("Expected CVD %f, got %f", expectedCVD, actualCVD)
+	cvd := calc.Update(trades1)
+	if absFloat(cvd-1.0) > floatTolerance {
+		t.Errorf("Expected CVD 1.0, got %f", cvd)
+	}
+
+	// Update with the same trade again
+	cvd = calc.Update(trades1)
+	if absFloat(cvd-1.0) > floatTolerance {
+		t.Errorf("Expected CVD to remain 1.0 after duplicate update, got %f", cvd)
 	}
 }
 
