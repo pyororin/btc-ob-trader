@@ -465,7 +465,10 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 				if benchmarkService != nil {
 					benchmarkService.Tick(ctx, midPrice)
 				}
-				trades := webSocketClient.GetTrades()
+				var trades []coincheck.TradeData
+				if webSocketClient != nil {
+					trades = webSocketClient.GetTrades()
+				}
 				cvdTrades := convertTrades(trades)
 
 				signalEngine.UpdateMarketData(result.Timestamp, midPrice, result.BestBid, result.BestAsk, 1.0, 1.0, cvdTrades)
