@@ -425,8 +425,6 @@ func TestExecutionEngine_PlaceOrder_Timeout(t *testing.T) {
 
 // mockDBWriter is a mock implementation of the dbwriter.DBWriter for testing.
 type mockDBWriter struct {
-	saveLatencyCalled   chan bool
-	savedLatency        dbwriter.Latency
 	saveTradeCalled     chan bool
 	savedTrade          dbwriter.Trade
 	savePnlSummaryCalled chan bool
@@ -435,12 +433,6 @@ type mockDBWriter struct {
 	savedTradePnl       dbwriter.TradePnL
 }
 
-func (m *mockDBWriter) SaveLatency(latency dbwriter.Latency) {
-	m.savedLatency = latency
-	if m.saveLatencyCalled != nil {
-		m.saveLatencyCalled <- true
-	}
-}
 
 func (m *mockDBWriter) SaveTrade(trade dbwriter.Trade) {
 	m.savedTrade = trade
@@ -760,72 +752,3 @@ func TestExecutionEngine_RiskManagement(t *testing.T) {
 	})
 }
 
-/*
-func TestExecutionEngine_PlaceOrder_Latency_Recording(t *testing.T) {
-	orderID := int64(999)
-	var orderSentTime time.Time
-	var txCreatedAt time.Time
-	var mu sync.Mutex
-
-	mockServer := mockCoincheckServer(
-		func(w http.ResponseWriter, r *http.Request) { // NewOrder Handler
-			resp := coincheck.OrderResponse{Success: true, ID: orderID}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
-		},
-		nil, // No cancel
-		func(w http.ResponseWriter, r *http.Request) { // Balance Handler
-			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // OpenOrders Handler
-			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // Transactions Handler
-			mu.Lock()
-			txCreatedAt = time.Now().UTC().Add(50 * time.Millisecond)
-			mu.Unlock()
-			resp := coincheck.TransactionsResponse{
-				Success: true,
-				Transactions: []coincheck.Transaction{
-					{ID: 1, OrderID: orderID, CreatedAt: txCreatedAt.Format(time.RFC3339), Rate: "5000000", Side: "buy"},
-				},
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
-		},
-	)
-	defer mockServer.Close()
-
-	ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
-	originalBaseURL := coincheck.GetBaseURL()
-	coincheck.SetBaseURL(mockServer.URL)
-	defer coincheck.SetBaseURL(originalBaseURL)
-
-	tradeCfg := &config.TradeConfig{OrderRatio: 0.1}
-	orderCfg := &config.OrderConfig{PollIntervalMs: 10, TimeoutSeconds: 2}
-	riskCfg := &config.RiskConfig{}
-
-	mockWriter := &mockDBWriter{
-		saveLatencyCalled: make(chan bool, 1),
-	}
-	execEngine := NewLiveExecutionEngine(ccClient, tradeCfg, orderCfg, riskCfg, mockWriter)
-
-	_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, false)
-	require.NoError(t, err)
-
-	select {
-	case <-mockWriter.saveLatencyCalled:
-		assert.Equal(t, orderID, mockWriter.savedLatency.OrderID)
-		assert.True(t, mockWriter.savedLatency.LatencyMs >= 0, "Latency should be non-negative")
-		mu.Lock()
-		assert.WithinDuration(t, txCreatedAt, mockWriter.savedLatency.Time, 150*time.Millisecond, "Latency timestamp should be close to transaction time")
-		mu.Unlock()
-	case <-time.After(2 * time.Second):
-		t.Fatal("SaveLatency was not called within the timeout")
-	}
-}
-*/

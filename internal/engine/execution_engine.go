@@ -204,15 +204,6 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 							filledTime = time.Now().UTC()
 						}
 
-						// レイテンシを計算して保存
-						latency := filledTime.Sub(orderSentTime)
-						latencyMs := latency.Milliseconds()
-						e.dbWriter.SaveLatency(dbwriter.Latency{
-							Time:      filledTime,
-							OrderID:   orderResp.ID,
-							LatencyMs: latencyMs,
-						})
-						logger.Infof("[Live] Order ID %d latency: %d ms", orderResp.ID, latencyMs)
 
 						trade := dbwriter.Trade{
 							Time:          filledTime,
