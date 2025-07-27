@@ -36,39 +36,35 @@ type defaultLogger struct {
 // NewLogger creates and new Logger instance, and updates the global `std` logger.
 // loglevel could be "debug", "info", "warn", "error", "fatal"
 func NewLogger(logLevel string) Logger {
-	infoHandle := os.Stderr
-	warnHandle := os.Stderr
-	errorHandle := os.Stderr
-	fatalHandle := os.Stderr // Typically fatal also goes to stderr
-	debugHandle := os.Stderr
+	debugHandle := io.Discard
+	infoHandle := io.Discard
+	warnHandle := io.Discard
+	errorHandle := io.Discard
+	fatalHandle := os.Stderr // Fatal logs always go to stderr
 
-	var dLog, iLog, wLog, eLog, fLog *log.Logger
-
-	dLog = log.New(debugHandle, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile)
-	iLog = log.New(infoHandle, "INFO:  ", log.Ldate|log.Ltime|log.Lshortfile)
-	wLog = log.New(warnHandle, "WARN:  ", log.Ldate|log.Ltime|log.Lshortfile)
-	eLog = log.New(errorHandle, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
-	fLog = log.New(fatalHandle, "FATAL: ", log.Ldate|log.Ltime|log.Lshortfile)
-
-	if logLevel != "debug" {
-		dLog = log.New(io.Discard, "", 0)
-	}
-	if logLevel == "warn" || logLevel == "error" || logLevel == "fatal" {
-		iLog = log.New(io.Discard, "", 0)
-	}
-	if logLevel == "error" || logLevel == "fatal" {
-		wLog = log.New(io.Discard, "", 0)
-	}
-	if logLevel == "fatal" {
-		eLog = log.New(io.Discard, "", 0)
+	switch logLevel {
+	case "debug":
+		debugHandle = os.Stderr
+		infoHandle = os.Stderr
+		warnHandle = os.Stderr
+		errorHandle = os.Stderr
+	case "info":
+		infoHandle = os.Stderr
+		warnHandle = os.Stderr
+		errorHandle = os.Stderr
+	case "warn":
+		warnHandle = os.Stderr
+		errorHandle = os.Stderr
+	case "error":
+		errorHandle = os.Stderr
 	}
 
 	return &defaultLogger{
-		debugLogger: dLog,
-		infoLogger:  iLog,
-		warnLogger:  wLog,
-		errorLogger: eLog,
-		fatalLogger: fLog,
+		debugLogger: log.New(debugHandle, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile),
+		infoLogger:  log.New(infoHandle, "INFO:  ", log.Ldate|log.Ltime|log.Lshortfile),
+		warnLogger:  log.New(warnHandle, "WARN:  ", log.Ldate|log.Ltime|log.Lshortfile),
+		errorLogger: log.New(errorHandle, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile),
+		fatalLogger: log.New(fatalHandle, "FATAL: ", log.Ldate|log.Ltime|log.Lshortfile),
 		prefix:      "",
 	}
 }
