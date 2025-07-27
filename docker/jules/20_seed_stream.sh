@@ -22,8 +22,8 @@ CREATE TABLE IF NOT EXISTS order_book_updates (
 );
 EOSQL
 
-unzip -p "$DATA_ZIP" \
-| psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" \
-       -c "\COPY order_book_updates (time,pair,side,price,size,is_snapshot) FROM STDIN CSV HEADER"
-
+#unzip -p "$DATA_ZIP" \
+#| psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" \
+#       -c "\COPY order_book_updates (time,pair,side,price,size,is_snapshot) FROM STDIN CSV HEADER"
+#
 echo "✅  Seed completed"
