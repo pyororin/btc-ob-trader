@@ -667,7 +667,6 @@ def main(run_once=False):
                     "is_rank": is_rank,
                     "retries_attempted": retries_attempted,
                 }
-                save_optimization_history(history)
 
             except ValueError:
                 logging.error("No best trial found (all trials may have been pruned). Aborting optimization run.")
@@ -687,50 +686,6 @@ def main(run_once=False):
         time.sleep(10)
 
     logging.info("Optimizer shutting down.")
-
-def save_optimization_history(history_data):
-    """Saves the optimization run details to the database."""
-    import psycopg2
-    try:
-        conn = psycopg2.connect(
-            dbname=os.getenv('DB_NAME'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASSWORD'),
-            host=os.getenv('DB_HOST', 'timescaledb'),
-            port=os.getenv('DB_PORT', '5432')
-        )
-        cursor = conn.cursor()
-        query = """
-            INSERT INTO optimization_history (
-                time, trigger_type, is_hours, oos_hours,
-                is_sqn, is_profit_factor, is_sharpe_ratio, is_total_trades,
-                oos_profit_factor, oos_sharpe_ratio, oos_total_trades,
-                validation_passed, best_params, is_rank, retries_attempted
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        cursor.execute(query, (
-            history_data['time'],
-            history_data['trigger_type'],
-            history_data['is_hours'],
-            history_data['oos_hours'],
-            history_data.get('is_sqn'),
-            history_data.get('is_profit_factor'),
-            history_data.get('is_sharpe_ratio'),
-            history_data.get('is_total_trades'),
-            history_data.get('oos_profit_factor'),
-            history_data.get('oos_sharpe_ratio'),
-            history_data.get('oos_total_trades'),
-            history_data['validation_passed'],
-            json.dumps(history_data.get('best_params')),
-            history_data.get('is_rank'),
-            history_data.get('retries_attempted')
-        ))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        logging.info("Successfully saved optimization history to database.")
-    except Exception as e:
-        logging.error(f"Failed to save optimization history: {e}")
 
 
 if __name__ == "__main__":

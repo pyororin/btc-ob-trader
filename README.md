@@ -170,23 +170,6 @@ graph TD
 
 ---
 
-### `optimization_history`
-
--   **役割**: `optimizer`サービスによるパラメータ最適化の実行履歴と結果を保存します。
--   **カラム**:
-    -   `time` (TIMESTAMPTZ): 最適化実行時刻
-    -   `trigger_type` (TEXT): 実行トリガー（例: `drift`, `manual`）
-    -   `is_profit_factor`, `oos_sharpe_ratio` などIn-Sample/Out-of-Sampleの各種パフォーマンス指標
-    -   `validation_passed` (BOOLEAN): OOS検証に合格したか
-    -   `best_params` (JSONB): 最適化で見つかったパラメータ
--   **CRUD**:
-| サービス | Create | Read | Update | Delete |
-| :--- | :---: | :---: | :---: | :---: |
-| `optimizer` | ✅ | | | |
-| `grafana` | | ✅ | | |
-
----
-
 ### `latencies`
 
 -   **役割**: 注文のレイテンシ（遅延）を記録します。現在は`bot`のメインロジックでは使用されていませんが、将来的なパフォーマンス分析のために残されています。
