@@ -496,7 +496,8 @@ def main(run_once=False):
 
             completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
             if not completed_trials:
-                raise ValueError("No trials were completed successfully.")
+                logging.warning("No trials were completed successfully. Skipping post-optimization analysis.")
+                continue
 
             objective_weights = config.get('objective_weights', {
                 'sharpe_ratio': 1.5,
