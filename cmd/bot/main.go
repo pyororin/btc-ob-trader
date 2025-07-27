@@ -31,6 +31,7 @@ import (
 	"github.com/your-org/obi-scalp-bot/internal/http/handler"
 	"github.com/your-org/obi-scalp-bot/internal/indicator"
 	tradingsignal "github.com/your-org/obi-scalp-bot/internal/signal"
+	"github.com/your-org/obi-scalp-bot/pkg/cvd"
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
 	"go.uber.org/zap"
 	"reflect"
@@ -245,6 +246,22 @@ func watchConfigFiles(appConfigPath, tradeConfigPath string) {
 	}
 }
 
+func convertTrades(trades []coincheck.TradeData) []cvd.Trade {
+	cvdTrades := make([]cvd.Trade, len(trades))
+	for i, t := range trades {
+		price, _ := strconv.ParseFloat(t.Rate(), 64)
+		size, _ := strconv.ParseFloat(t.Amount(), 64)
+		cvdTrades[i] = cvd.Trade{
+			ID:        t.TransactionID(),
+			Side:      t.TakerSide(),
+			Price:     price,
+			Size:      size,
+			Timestamp: time.Now(), // This is an approximation
+		}
+	}
+	return cvdTrades
+}
+
 // logConfigChanges compares two config structs and logs the differences.
 func logConfigChanges(oldCfg, newCfg *config.Config) {
 	if oldCfg == nil || newCfg == nil {
@@ -422,7 +439,7 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter *dbwriter.Writer, pa
 }
 
 // processSignalsAndExecute subscribes to indicators, evaluates signals, and executes trades.
-func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBICalculator, execEngine engine.ExecutionEngine, benchmarkService *benchmark.Service, wg *sync.WaitGroup, cfg *config.Config) {
+func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBICalculator, execEngine engine.ExecutionEngine, benchmarkService *benchmark.Service, webSocketClient *coincheck.WebSocketClient, wg *sync.WaitGroup, cfg *config.Config) {
 	signalEngine, err := tradingsignal.NewSignalEngine(&cfg.Trade)
 	if err != nil {
 		logger.Fatalf("Failed to create signal engine: %v", err)
@@ -448,7 +465,10 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 				if benchmarkService != nil {
 					benchmarkService.Tick(ctx, midPrice)
 				}
-				signalEngine.UpdateMarketData(result.Timestamp, midPrice, result.BestBid, result.BestAsk, 1.0, 1.0)
+				trades := webSocketClient.GetTrades()
+				cvdTrades := convertTrades(trades)
+
+				signalEngine.UpdateMarketData(result.Timestamp, midPrice, result.BestBid, result.BestAsk, 1.0, 1.0, cvdTrades)
 
 				logger.Debugf("Evaluating OBI: %.4f, Long Threshold: %.4f, Short Threshold: %.4f",
 					result.OBI8, signalEngine.GetCurrentLongOBIThreshold(), signalEngine.GetCurrentShortOBIThreshold())
@@ -618,11 +638,11 @@ func runMainLoop(ctx context.Context, f flags, dbWriter *dbwriter.Writer, sigs c
 		orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Trade.Pair)
 
 		obiCalculator.Start(ctx)
-		go processSignalsAndExecute(ctx, obiCalculator, execEngine, benchmarkService, nil, config.GetConfig())
+	wsClient := coincheck.NewWebSocketClient(orderBookHandler, tradeHandler)
+	go processSignalsAndExecute(ctx, obiCalculator, execEngine, benchmarkService, wsClient, nil, config.GetConfig())
 		go orderMonitor(ctx, execEngine, client, orderBook)
 		go positionMonitor(ctx, execEngine, orderBook) // Added for partial exit
 
-		wsClient := coincheck.NewWebSocketClient(orderBookHandler, tradeHandler)
 		go func() {
 			logger.Info("Connecting to Coincheck WebSocket API...")
 			if err := wsClient.Connect(ctx); err != nil {
@@ -671,7 +691,7 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal, summaryC
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go processSignalsAndExecute(simCtx, obiCalculator, execEngine, nil, &wg, config.GetConfig())
+	go processSignalsAndExecute(simCtx, obiCalculator, execEngine, nil, nil, &wg, config.GetConfig())
 
 	logger.Infof("Streaming market events from %s", f.csvPath)
 	eventCh, errCh := datastore.StreamMarketEventsFromCSV(ctx, f.csvPath)
@@ -885,7 +905,7 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go processSignalsAndExecute(simCtx, obiCalculator, execEngine, nil, &wg, simConfig)
+	go processSignalsAndExecute(simCtx, obiCalculator, execEngine, nil, nil, &wg, simConfig)
 
 	for _, event := range marketEvents {
 		select {

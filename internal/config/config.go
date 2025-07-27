@@ -75,8 +75,14 @@ type RiskConfig struct {
 
 // SignalConfig holds configuration for signal generation.
 type SignalConfig struct {
-	HoldDurationMs int             `yaml:"hold_duration_ms"`
-	SlopeFilter    SlopeFilterConfig `yaml:"slope_filter"`
+	HoldDurationMs     int               `yaml:"hold_duration_ms"`
+	SlopeFilter        SlopeFilterConfig `yaml:"slope_filter"`
+	CVDWindowMinutes   int               `yaml:"cvd_window_minutes"`
+	OBIWeight          float64           `yaml:"obi_weight"`
+	OFIWeight          float64           `yaml:"ofi_weight"`
+	CVDWeight          float64           `yaml:"cvd_weight"`
+	MicroPriceWeight   float64           `yaml:"micro_price_weight"`
+	CompositeThreshold float64           `yaml:"composite_threshold"`
 }
 
 // SlopeFilterConfig holds settings for the OBI slope filter.
