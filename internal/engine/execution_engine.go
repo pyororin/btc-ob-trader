@@ -78,6 +78,7 @@ func NewLiveExecutionEngine(client *coincheck.Client, dbWriter dbwriter.DBWriter
 
 // PlaceOrder places a new order on the exchange and monitors for execution.
 func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, orderType string, rate float64, amount float64, postOnly bool) (*coincheck.OrderResponse, error) {
+	logger.Infof("PlaceOrder called with: pair=%s, orderType=%s, rate=%.2f, amount=%.8f, postOnly=%t", pair, orderType, rate, amount, postOnly)
 	cfg := config.GetConfig() // Get latest config on every order
 	if !cfg.EnableTrade {
 		logger.Warnf("[Live] Trading is disabled. Skipping order placement.")
