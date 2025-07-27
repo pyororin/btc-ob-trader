@@ -42,10 +42,4 @@ The behavior of the analysis is controlled by the `analyzer` section in the `opt
 
 ### 結果の確認
 
-最適化の実行結果は、`optimization_history`データベーステーブルに保存されます。Grafanaのダッシュボードを通じて、各試行の結果を視覚的に確認できます。
-
-*   **is_rank**: 最終的に採用された、または最後に試行されたパラメータのIS時点でのランキング。
-*   **retries_attempted**: OOS検証を試行した回数。
-*   **validation_passed**: OOS検証に最終的に合格したかどうか (`true`/`false`)。
-
-これらの指標をモニタリングすることで、最適化プロセスが健全に機能しているかを判断できます。例えば、`retries_attempted`が頻繁に`MAX_RETRY`に達し、`validation_passed`が`false`となるケースが多い場合、市場環境の変化やモデルの劣化が考えられ、再最適化のトリガーや取引戦略自体の見直しが必要になる可能性があります。
+最適化の実行結果は、標準出力のログで確認できます。OOS検証に合格したかどうか、どのパラメータが選択されたかなどの重要な情報はログに出力されます。
