@@ -620,7 +620,7 @@ def main(run_once=False):
                         break
 
             if not oos_validation_passed:
-                logging.error("OOS validation failed for all attempted parameter sets.")
+                logging.warning("OOS validation failed for all attempted parameter sets.")
 
         except (Exception, ValueError) as e:
             logging.error(f"An unexpected error occurred during the optimization job: {e}", exc_info=True)
