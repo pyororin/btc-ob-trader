@@ -41,19 +41,24 @@ func (c *OBICalculator) Calculate(timestamp time.Time) {
 	logger.Debugf("OBICalculator.Calculate called. isBookReady: %v", isBookReady)
 
 	if isBookReady {
-		if obiResult, ok := c.orderBook.CalculateOBI(OBILevels...); ok {
-			logger.Debugf("OBI calculated successfully. OBI8: %.4f, ok: %v", obiResult.OBI8, ok)
-			// Override the timestamp with the one provided, crucial for simulations
-			obiResult.Timestamp = timestamp
-			select {
-			case c.output <- obiResult:
-			default:
-				// Channel is full, indicating that the consumer is not keeping up.
-				// In a simulation, this might be fine, but in live trading, it could be an issue.
-				logger.Warn("OBICalculator output channel is full, skipping send.")
-			}
-		} else {
-			logger.Debug("c.orderBook.CalculateOBI returned ok=false")
+		obiResult, ok := c.orderBook.CalculateOBI(OBILevels...)
+		if !ok {
+			logger.Debug("c.orderBook.CalculateOBI returned ok=false, creating a partial result.")
+			// Even if OBI calculation fails (e.g., empty book side), we should still send a heartbeat
+			// with the best bid/ask we have, so the signal engine can use it for other indicators.
+			obiResult.BestBid = c.orderBook.BestBid()
+			obiResult.BestAsk = c.orderBook.BestAsk()
+		}
+
+		logger.Debugf("OBI calculated. OBI8: %.4f, ok: %v", obiResult.OBI8, ok)
+		// Override the timestamp with the one provided, crucial for simulations
+		obiResult.Timestamp = timestamp
+		select {
+		case c.output <- obiResult:
+		default:
+			// Channel is full, indicating that the consumer is not keeping up.
+			// In a simulation, this might be fine, but in live trading, it could be an issue.
+			logger.Warn("OBICalculator output channel is full, skipping send.")
 		}
 	}
 }

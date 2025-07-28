@@ -43,6 +43,7 @@ func TestOrderBook_ApplySnapshotAndCalculateOBI(t *testing.T) {
 			),
 			levels: []int{8, 16},
 			expected: indicator.OBIResult{
+				BestBid:   100,
 				Timestamp: time.Unix(1678886401, 0),
 			},
 		},
@@ -55,6 +56,7 @@ func TestOrderBook_ApplySnapshotAndCalculateOBI(t *testing.T) {
 			),
 			levels: []int{8, 16},
 			expected: indicator.OBIResult{
+				BestAsk:   101,
 				Timestamp: time.Unix(1678886402, 0),
 			},
 		},

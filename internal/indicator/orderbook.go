@@ -198,12 +198,16 @@ func (ob *OrderBook) CalculateOBI(levels ...int) (OBIResult, bool) {
 		return asks[i].Rate < asks[j].Rate
 	})
 
-	if len(bids) == 0 || len(asks) == 0 {
-		return OBIResult{Timestamp: ob.Time}, false
+	if len(bids) > 0 {
+		result.BestBid = bids[0].Rate
+	}
+	if len(asks) > 0 {
+		result.BestAsk = asks[0].Rate
 	}
 
-	result.BestBid = bids[0].Rate
-	result.BestAsk = asks[0].Rate
+	if len(bids) == 0 || len(asks) == 0 {
+		return result, false
+	}
 
 	maxLevel := 0
 	for _, l := range levels {
