@@ -114,16 +114,32 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	}
 
 	// Max position size check
-	positionSize, avgEntryPrice := e.position.Get()
-	currentPositionValue := math.Abs(positionSize * avgEntryPrice)
-	orderValue := amount * rate
-	prospectivePositionValue := currentPositionValue + orderValue
-	maxPositionValue := jpyBalance * cfg.Trade.Risk.MaxPositionRatio
-	logger.Infof("[Live] Risk Check: Prospective Position Value=%.2f, Max Position Value=%.2f", prospectivePositionValue, maxPositionValue)
-	if prospectivePositionValue > maxPositionValue {
-		errMsg := fmt.Sprintf("risk check failed: prospective position value %.2f exceeds max position value %.2f", prospectivePositionValue, maxPositionValue)
-		logger.Errorf("[Live] %s", errMsg)
-		return nil, &RiskCheckError{Message: errMsg}
+	btcBalance, err := strconv.ParseFloat(balance.Btc, 64)
+	if err != nil {
+		logger.Errorf("[Live] Failed to parse BTC balance '%s': %v", balance.Btc, err)
+		return nil, fmt.Errorf("failed to parse BTC balance for risk check: %w", err)
+	}
+
+	if orderType == "buy" {
+		positionSize, avgEntryPrice := e.position.Get()
+		currentPositionValue := math.Abs(positionSize * avgEntryPrice)
+		orderValue := amount * rate
+		prospectivePositionValue := currentPositionValue + orderValue
+		maxPositionValue := jpyBalance * cfg.Trade.Risk.MaxPositionRatio
+		logger.Infof("[Live] Risk Check (JPY): Prospective Position Value=%.2f, Max Position Value=%.2f", prospectivePositionValue, maxPositionValue)
+		if prospectivePositionValue > maxPositionValue {
+			errMsg := fmt.Sprintf("risk check failed: prospective JPY position value %.2f exceeds max JPY position value %.2f", prospectivePositionValue, maxPositionValue)
+			logger.Errorf("[Live] %s", errMsg)
+			return nil, &RiskCheckError{Message: errMsg}
+		}
+	} else if orderType == "sell" {
+		maxBtcPosition := btcBalance * cfg.Trade.Risk.MaxPositionRatio
+		logger.Infof("[Live] Risk Check (BTC): Order Amount=%.8f, Max Position=%.8f", amount, maxBtcPosition)
+		if amount > maxBtcPosition {
+			errMsg := fmt.Sprintf("risk check failed: sell order amount %.8f exceeds max BTC position %.8f", amount, maxBtcPosition)
+			logger.Errorf("[Live] %s", errMsg)
+			return nil, &RiskCheckError{Message: errMsg}
+		}
 	}
 	logger.Info("[Live] Risk management checks passed.")
 	// --- End Risk Management ---
