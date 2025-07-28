@@ -176,25 +176,67 @@ func TestOrderBook_ApplySnapshotAndCalculateOBI(t *testing.T) {
 func TestOrderBook_ApplyUpdate(t *testing.T) {
 	ob := indicator.NewOrderBook()
 
-	initialData := newOrderBookData([][]string{{"100", "10"}}, [][]string{{"101", "5"}}, "1678886400")
+	// Initial snapshot
+	initialData := newOrderBookData(
+		[][]string{{"100", "10"}, {"99", "5"}},
+		[][]string{{"101", "5"}, {"102", "8"}},
+		"1678886400",
+	)
 	ob.ApplySnapshot(initialData)
 
-	updateData := newOrderBookData([][]string{{"200", "20"}}, [][]string{{"201", "15"}}, "1678886401")
-	ob.ApplyUpdate(updateData)
+	// First update: modify existing, remove one, add one
+	updateData1 := newOrderBookData(
+		[][]string{{"100", "12"}, {"98", "3"}}, // Modify 100, Add 98
+		[][]string{{"101", "0"}, {"103", "6"}}, // Remove 101, Add 103
+		"1678886401",
+	)
+	ob.ApplyUpdate(updateData1)
 
-	expected := indicator.OBIResult{
-		OBI8:      (20.0 - 15.0) / (20.0 + 15.0),
-		OBI16:     (20.0 - 15.0) / (20.0 + 15.0),
-		BestBid:   200,
-		BestAsk:   201,
+	// After first update, book should be:
+	// Bids: {100: 12, 99: 5, 98: 3}, Asks: {102: 8, 103: 6}
+	// Best Bid: 100, Best Ask: 102
+	// Total Bids: 12+5+3=20, Total Asks: 8+6=14
+	// OBI = (20-14)/(20+14) = 6/34
+	expected1 := indicator.OBIResult{
+		OBI8:      6.0 / 34.0,
+		OBI16:     6.0 / 34.0,
+		BestBid:   100,
+		BestAsk:   102,
 		Timestamp: time.Unix(1678886401, 0),
 	}
-	actual, ok := ob.CalculateOBI(8, 16)
-	if !ok {
-		t.Fatalf("CalculateOBI() returned ok=false unexpectedly")
+	actual1, ok1 := ob.CalculateOBI(8, 16)
+	if !ok1 {
+		t.Fatalf("CalculateOBI() after first update returned ok=false unexpectedly")
+	}
+	if !cmp.Equal(expected1, actual1, cmpopts.EquateApprox(0.000001, 0)) {
+		t.Errorf("Test 1 After ApplyUpdate: got = %v, want %v, diff: %s", actual1, expected1, cmp.Diff(expected1, actual1, cmpopts.EquateApprox(0.000001, 0)))
 	}
 
-	if !cmp.Equal(expected, actual, cmpopts.EquateApprox(0.000001, 0)) {
-		t.Errorf("CalculateOBI() after ApplyUpdate got = %v, want %v, diff: %s", actual, expected, cmp.Diff(expected, actual, cmpopts.EquateApprox(0.000001, 0)))
+	// Second update: remove another, add another
+	updateData2 := newOrderBookData(
+		[][]string{{"99", "0"}},
+		[][]string{{"104", "10"}},
+		"1678886402",
+	)
+	ob.ApplyUpdate(updateData2)
+
+	// After second update, book should be:
+	// Bids: {100: 12, 98: 3}, Asks: {102: 8, 103: 6, 104: 10}
+	// Best Bid: 100, Best Ask: 102
+	// Total Bids: 12+3=15, Total Asks: 8+6+10=24
+	// OBI = (15-24)/(15+24) = -9/39
+	expected2 := indicator.OBIResult{
+		OBI8:      -9.0 / 39.0,
+		OBI16:     -9.0 / 39.0,
+		BestBid:   100,
+		BestAsk:   102,
+		Timestamp: time.Unix(1678886402, 0),
+	}
+	actual2, ok2 := ob.CalculateOBI(8, 16)
+	if !ok2 {
+		t.Fatalf("CalculateOBI() after second update returned ok=false unexpectedly")
+	}
+	if !cmp.Equal(expected2, actual2, cmpopts.EquateApprox(0.000001, 0)) {
+		t.Errorf("Test 2 After ApplyUpdate: got = %v, want %v, diff: %s", actual2, expected2, cmp.Diff(expected2, actual2, cmpopts.EquateApprox(0.000001, 0)))
 	}
 }

@@ -74,8 +74,35 @@ func (ob *OrderBook) ApplySnapshot(data coincheck.OrderBookData) {
 }
 
 // ApplyUpdate applies a differential update to the order book.
+// It iterates through the bids and asks in the update data.
+// If the amount for a price level is "0", it's removed from the book.
+// Otherwise, the price level is added or updated.
 func (ob *OrderBook) ApplyUpdate(data coincheck.OrderBookData) {
-	ob.ApplySnapshot(data)
+	ob.Lock()
+	defer ob.Unlock()
+
+	update := func(book map[float64]float64, levels [][]string) {
+		for _, level := range levels {
+			rate, amount, err := parseLevel(level)
+			if err != nil {
+				continue
+			}
+			if amount == 0 {
+				delete(book, rate)
+			} else {
+				book[rate] = amount
+			}
+		}
+	}
+
+	update(ob.Bids, data.Bids)
+	update(ob.Asks, data.Asks)
+
+	if ts, err := strconv.ParseInt(data.LastUpdateAt, 10, 64); err == nil {
+		ob.Time = time.Unix(ts, 0)
+	} else {
+		ob.Time = time.Now().UTC()
+	}
 }
 
 // priceLevel represents a price level for heap implementation.

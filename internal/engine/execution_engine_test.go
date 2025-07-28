@@ -203,7 +203,7 @@ func TestExecutionEngine_PlaceOrder_SuccessAfterMultiplePolls(t *testing.T) {
 			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
-		case "/api/exchange/orders/transactions":
+		case "/api/exchange/orders/transactions_pagination":
 			currentPollCount := atomic.AddInt32(&pollCount, 1)
 			var transactions []coincheck.Transaction
 			if currentPollCount >= 3 {
@@ -211,7 +211,14 @@ func TestExecutionEngine_PlaceOrder_SuccessAfterMultiplePolls(t *testing.T) {
 					{ID: 98765, OrderID: orderID, Pair: "btc_jpy", Rate: "5100000.0", Side: "buy", CreatedAt: time.Now().UTC().Format(time.RFC3339)},
 				}
 			}
-			resp := coincheck.TransactionsResponse{Success: true, Transactions: transactions}
+			// The actual response is nested under a "data" key
+			resp := struct {
+				Success bool                    `json:"success"`
+				Data    []coincheck.Transaction `json:"data"`
+			}{
+				Success: true,
+				Data:    transactions,
+			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
 		default:
