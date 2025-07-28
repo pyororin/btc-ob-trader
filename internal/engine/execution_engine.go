@@ -81,26 +81,36 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	logger.Infof("PlaceOrder called with: pair=%s, orderType=%s, rate=%.2f, amount=%.8f, postOnly=%t", pair, orderType, rate, amount, postOnly)
 	cfg := config.GetConfig() // Get latest config on every order
 	if !cfg.EnableTrade {
-		logger.Warnf("[Live] Trading is disabled. Skipping order placement.")
+		logger.Errorf("[Live] Trading is disabled. Skipping order placement.")
 		return nil, fmt.Errorf("trading is disabled via ENABLE_TRADE flag")
 	}
 
 	if e.exchangeClient == nil {
+		logger.Errorf("[Live] Exchange client is not initialized.")
 		return nil, fmt.Errorf("LiveExecutionEngine: exchange client is not initialized")
 	}
 
 	// --- Risk Management ---
+	logger.Info("[Live] Performing risk management checks...")
 	balance, err := e.GetBalance()
 	if err != nil {
+		logger.Errorf("[Live] Failed to get balance for risk check: %v", err)
 		return nil, fmt.Errorf("failed to get balance for risk check: %w", err)
 	}
-	jpyBalance, _ := strconv.ParseFloat(balance.Jpy, 64)
+	jpyBalance, err := strconv.ParseFloat(balance.Jpy, 64)
+	if err != nil {
+		logger.Errorf("[Live] Failed to parse JPY balance '%s': %v", balance.Jpy, err)
+		return nil, fmt.Errorf("failed to parse JPY balance for risk check: %w", err)
+	}
 
 	// Max drawdown check
 	currentDrawdown := -e.pnlCalculator.GetRealizedPnL()
 	maxDrawdown := jpyBalance * (cfg.Trade.Risk.MaxDrawdownPercent / 100.0)
+	logger.Infof("[Live] Risk Check: Current Drawdown=%.2f, Max Drawdown=%.2f", currentDrawdown, maxDrawdown)
 	if currentDrawdown > maxDrawdown {
-		return nil, &RiskCheckError{Message: fmt.Sprintf("risk check failed: current drawdown %.2f exceeds max drawdown %.2f", currentDrawdown, maxDrawdown)}
+		errMsg := fmt.Sprintf("risk check failed: current drawdown %.2f exceeds max drawdown %.2f", currentDrawdown, maxDrawdown)
+		logger.Errorf("[Live] %s", errMsg)
+		return nil, &RiskCheckError{Message: errMsg}
 	}
 
 	// Max position size check
@@ -109,9 +119,13 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	orderValue := amount * rate
 	prospectivePositionValue := currentPositionValue + orderValue
 	maxPositionValue := jpyBalance * cfg.Trade.Risk.MaxPositionRatio
+	logger.Infof("[Live] Risk Check: Prospective Position Value=%.2f, Max Position Value=%.2f", prospectivePositionValue, maxPositionValue)
 	if prospectivePositionValue > maxPositionValue {
-		return nil, &RiskCheckError{Message: fmt.Sprintf("risk check failed: prospective position value %.2f exceeds max position value %.2f", prospectivePositionValue, maxPositionValue)}
+		errMsg := fmt.Sprintf("risk check failed: prospective position value %.2f exceeds max position value %.2f", prospectivePositionValue, maxPositionValue)
+		logger.Errorf("[Live] %s", errMsg)
+		return nil, &RiskCheckError{Message: errMsg}
 	}
+	logger.Info("[Live] Risk management checks passed.")
 	// --- End Risk Management ---
 
 	// Place the order
@@ -128,13 +142,21 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	logger.Infof("[Live] Placing order: %+v", req)
 	orderResp, _, err := e.exchangeClient.NewOrder(req)
 	if err != nil {
-		logger.Warnf("[Live] Error placing order: %v, Response: %+v", err, orderResp)
-		return orderResp, err
+		// This error is from the HTTP client or request creation, not an API error
+		logger.Errorf("[Live] Critical error placing order: %v", err)
+		return nil, err // Return nil for orderResp since the request failed
 	}
+
+	// It's crucial to log the raw response regardless of success
+	logger.Infof("[Live] Raw order response: %+v", orderResp)
+
 	if !orderResp.Success {
+		errMsg := fmt.Sprintf("failed to place order: %s", orderResp.Error)
+		logger.Errorf("[Live] %s", errMsg)
 		e.sendAlert(fmt.Sprintf("Failed to place order: %s", orderResp.Error))
-		return orderResp, fmt.Errorf("failed to place order: %s", orderResp.Error)
+		return orderResp, fmt.Errorf(errMsg)
 	}
+
 	logger.Infof("[Live] Order placed successfully: ID=%d", orderResp.ID)
 	e.sendAlert(fmt.Sprintf("Order placed successfully: ID=%d, Type=%s, Rate=%.2f, Amount=%.8f", orderResp.ID, req.OrderType, req.Rate, req.Amount))
 
@@ -144,16 +166,17 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	logger.Infof("[Live] Starting to monitor order ID %d for execution...", orderResp.ID)
 	for {
 		select {
 		case <-ctx.Done():
 			// Timeout reached, cancel the order
-			logger.Warnf("[Live] Order ID %d did not fill within %v. Cancelling.", orderResp.ID, timeout)
+			logger.Errorf("[Live] Order ID %d did not fill within %v. Cancelling.", orderResp.ID, timeout)
 			e.sendAlert(fmt.Sprintf("Order Timeout: ID=%d did not fill within %v. Cancelling.", orderResp.ID, timeout))
 			_, cancelErr := e.CancelOrder(context.Background(), orderResp.ID) // Use a new context for cancellation
 			if cancelErr != nil {
-				logger.Warnf("[Live] Failed to cancel order ID %d: %v", orderResp.ID, cancelErr)
-				e.sendAlert(fmt.Sprintf("Failed to cancel order ID %d: %v", orderResp.ID, cancelErr))
+				logger.Errorf("[Live] CRITICAL: Failed to cancel timed-out order ID %d: %v", orderResp.ID, cancelErr)
+				e.sendAlert(fmt.Sprintf("CRITICAL: Failed to cancel order ID %d: %v", orderResp.ID, cancelErr))
 				// Even if cancellation fails, we log the attempt as a cancelled trade
 			}
 
