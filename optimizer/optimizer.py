@@ -91,7 +91,7 @@ def export_data(hours_before, is_oos_split=False, oos_hours=0):
         'go',
         'run',
         'cmd/export/main.go',
-        f'--hours-before={hours_before}',
+        f'--hours-before={int(hours_before)}',
         '--no-zip',
         f'--trade-config={BEST_CONFIG_OUTPUT_PATH}'
     ]
@@ -201,21 +201,26 @@ def run_simulation(params, sim_csv_path):
     """
     Runs a single Go simulation for a given set of parameters.
     """
-    temp_config_path = None
+    temp_config_file = None
     try:
-        # 1. Create a temporary config file from the template and parameters
+        # 1. Create a temporary config file that persists until explicitly deleted
         with open(CONFIG_TEMPLATE_PATH, 'r') as f:
             template = Template(f.read())
         config_yaml_str = template.render(params)
 
-        with tempfile.NamedTemporaryFile(mode='w', delete=True, suffix='.yaml', dir=PARAMS_DIR) as tmp:
-            tmp.write(config_yaml_str)
-            tmp.flush()
-            temp_config_path = tmp.name
+        # Use delete=False, so the file is not deleted when the 'with' block exits.
+        # This is crucial for the subprocess to be able to access it.
+        temp_config_file = tempfile.NamedTemporaryFile(
+            mode='w', delete=False, suffix='.yaml', dir=str(PARAMS_DIR)
+        )
+        temp_config_file.write(config_yaml_str)
+        temp_config_file.close() # Close the file to ensure it's written to disk
+
+        temp_config_path = temp_config_file.name
 
         # 2. Construct the command to run the Go simulation
         command = [
-            str(APP_ROOT / 'build' / 'obi-scalp-bot'),
+            'go', 'run', 'cmd/bot/main.go',
             '--simulate',
             f'--trade-config={temp_config_path}',
             f'--csv={sim_csv_path}',
@@ -235,19 +240,21 @@ def run_simulation(params, sim_csv_path):
         return json.loads(result.stdout)
 
     except subprocess.CalledProcessError as e:
-        logging.error(f"Simulation failed for config {temp_config_path}: {e.stderr}")
+        # Provide more context in the error log
+        logging.error(f"Simulation failed for config {getattr(temp_config_file, 'name', 'N/A')}: {e.stderr}")
         return {}
     except json.JSONDecodeError as e:
-        logging.error(f"Failed to parse simulation output for {temp_config_path}: {e}")
-        logging.error(f"Received output: {result.stdout}")
+        logging.error(f"Failed to parse simulation output for {getattr(temp_config_file, 'name', 'N/A')}: {e}")
+        if 'result' in locals():
+            logging.error(f"Received output: {result.stdout}")
         return {}
     finally:
-        # 5. Clean up the temporary config file
-        if temp_config_path and os.path.exists(temp_config_path):
+        # 5. Manually clean up the temporary config file
+        if temp_config_file and os.path.exists(temp_config_file.name):
             try:
-                os.remove(temp_config_path)
+                os.remove(temp_config_file.name)
             except OSError as e:
-                logging.error(f"Failed to remove temporary config file {temp_config_path}: {e}")
+                logging.error(f"Failed to remove temporary config file {temp_config_file.name}: {e}")
 
 def progress_callback(study, trial):
     """
