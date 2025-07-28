@@ -328,7 +328,7 @@ func toTradeInterfaces(trades []Trade) [][]interface{} {
 // SavePnLSummary は単一のPnLサマリーをデータベースに保存します。
 func (w *Writer) SavePnLSummary(ctx context.Context, pnl PnLSummary) error {
 	if w.pool == nil {
-		w.logger.Info("Skipping PnL summary save for dummy writer", zap.Any("pnl", pnl))
+		w.logger.Debug("Skipping PnL summary save for dummy writer", zap.Any("pnl", pnl))
 		return nil
 	}
 
@@ -343,13 +343,14 @@ func (w *Writer) SavePnLSummary(ctx context.Context, pnl PnLSummary) error {
 		w.logger.Error("Failed to insert PnL summary", zap.Error(err), zap.Any("pnl", pnl))
 		return fmt.Errorf("failed to insert PnL summary: %w", err)
 	}
+	w.logger.Debug("[Live] Saved PnL summary to DB.")
 	return nil
 }
 
 // SaveTradePnL は個別の取引のPnLをデータベースに保存します。
 func (w *Writer) SaveTradePnL(ctx context.Context, tradePnl TradePnL) error {
 	if w.pool == nil {
-		w.logger.Info("Skipping trade PnL save for dummy writer", zap.Any("tradePnl", tradePnl))
+		w.logger.Debug("Skipping trade PnL save for dummy writer", zap.Any("tradePnl", tradePnl))
 		return nil
 	}
 
@@ -375,5 +376,6 @@ func (w *Writer) SaveTradePnL(ctx context.Context, tradePnl TradePnL) error {
 		w.logger.Error("Failed to insert trade PnL", zap.Error(err), zap.Any("tradePnl", tradePnl))
 		return fmt.Errorf("failed to insert trade PnL: %w", err)
 	}
+	w.logger.Debug("[Live] Saved trade PnL to DB.")
 	return nil
 }
