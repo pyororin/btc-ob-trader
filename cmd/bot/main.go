@@ -471,7 +471,7 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 				}
 				cvdTrades := convertTrades(trades)
 
-				signalEngine.UpdateMarketData(result.Timestamp, midPrice, result.BestBid, result.BestAsk, 1.0, 1.0, cvdTrades)
+				signalEngine.UpdateMarketData(result.Timestamp, midPrice, result.BestBid, result.BestAsk, result.BestBidSize, result.BestAskSize, cvdTrades)
 
 				logger.Debugf("Evaluating OBI: %.4f, Long Threshold: %.4f, Short Threshold: %.4f",
 					result.OBI8, signalEngine.GetCurrentLongOBIThreshold(), signalEngine.GetCurrentShortOBIThreshold())

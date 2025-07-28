@@ -203,7 +203,7 @@ func TestExecutionEngine_PlaceOrder_SuccessAfterMultiplePolls(t *testing.T) {
 			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
-		case "/api/exchange/orders/transactions":
+		case "/api/exchange/orders/transactions_pagination":
 			currentPollCount := atomic.AddInt32(&pollCount, 1)
 			var transactions []coincheck.Transaction
 			if currentPollCount >= 3 {
@@ -211,7 +211,13 @@ func TestExecutionEngine_PlaceOrder_SuccessAfterMultiplePolls(t *testing.T) {
 					{ID: 98765, OrderID: orderID, Pair: "btc_jpy", Rate: "5100000.0", Side: "buy", CreatedAt: time.Now().UTC().Format(time.RFC3339)},
 				}
 			}
-			resp := coincheck.TransactionsResponse{Success: true, Transactions: transactions}
+			resp := struct {
+				Success bool `json:"success"`
+				Data    []coincheck.Transaction `json:"data"`
+			}{
+				Success: true,
+				Data:    transactions,
+			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
 		default:
@@ -379,12 +385,9 @@ func TestExecutionEngine_PlaceOrder_Timeout(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
 		case strings.HasPrefix(r.URL.Path, "/api/exchange/orders/") && r.Method == http.MethodDelete:
-			pathParts := strings.Split(r.URL.Path, "/")
-			cancelledIDStr := pathParts[len(pathParts)-1]
-			cancelledID, _ := Atoi64(cancelledIDStr)
-			resp := coincheck.CancelResponse{Success: true, ID: cancelledID}
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(resp)
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Not Found"})
 		case r.URL.Path == "/api/accounts/balance":
 			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
 			w.Header().Set("Content-Type", "application/json")
@@ -420,7 +423,7 @@ func TestExecutionEngine_PlaceOrder_Timeout(t *testing.T) {
 
 	_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, false)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "timed out and was cancelled")
+	assert.Contains(t, err.Error(), "order timed out and cancellation failed")
 }
 
 // mockDBWriter is a mock implementation of the dbwriter.DBWriter for testing.

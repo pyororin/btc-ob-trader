@@ -73,10 +73,12 @@ func TestOrderBook_ApplySnapshotAndCalculateOBI(t *testing.T) {
 			),
 			levels: []int{8},
 			expected: indicator.OBIResult{
-				OBI8:      0,
-				BestBid:   100,
-				BestAsk:   101,
-				Timestamp: time.Unix(1678886403, 0),
+				OBI8:        0,
+				BestBid:     100,
+				BestAsk:     101,
+				BestBidSize: 10,
+				BestAskSize: 10,
+				Timestamp:   time.Unix(1678886403, 0),
 			},
 		},
 		{
@@ -95,11 +97,13 @@ func TestOrderBook_ApplySnapshotAndCalculateOBI(t *testing.T) {
 			),
 			levels: []int{8, 16},
 			expected: indicator.OBIResult{
-				OBI8:      14.0 / 34.0,
-				OBI16:     16.0 / 36.0,
-				BestBid:   100,
-				BestAsk:   101,
-				Timestamp: time.Unix(1678886404, 0),
+				OBI8:        14.0 / 34.0,
+				OBI16:       16.0 / 36.0,
+				BestBid:     100,
+				BestAsk:     101,
+				BestBidSize: 10,
+				BestAskSize: 2,
+				Timestamp:   time.Unix(1678886404, 0),
 			},
 		},
 		{
@@ -111,11 +115,13 @@ func TestOrderBook_ApplySnapshotAndCalculateOBI(t *testing.T) {
 			),
 			levels: []int{8, 16},
 			expected: indicator.OBIResult{
-				OBI8:      (10.0 - 5.0) / (10.0 + 5.0),
-				OBI16:     (10.0 - 5.0) / (10.0 + 5.0),
-				BestBid:   100,
-				BestAsk:   101,
-				Timestamp: time.Unix(1678886405, 0),
+				OBI8:        (10.0 - 5.0) / (10.0 + 5.0),
+				OBI16:       (10.0 - 5.0) / (10.0 + 5.0),
+				BestBid:     100,
+				BestAsk:     101,
+				BestBidSize: 10,
+				BestAskSize: 5,
+				Timestamp:   time.Unix(1678886405, 0),
 			},
 		},
 		{
@@ -127,11 +133,13 @@ func TestOrderBook_ApplySnapshotAndCalculateOBI(t *testing.T) {
 			),
 			levels: []int{8, 16},
 			expected: indicator.OBIResult{
-				OBI8:      (10.0 - 5.0) / (10.0 + 5.0),
-				OBI16:     (10.0 - 5.0) / (10.0 + 5.0),
-				BestBid:   100,
-				BestAsk:   101,
-				Timestamp: time.Unix(1678886406, 0),
+				OBI8:        (10.0 - 5.0) / (10.0 + 5.0),
+				OBI16:       (10.0 - 5.0) / (10.0 + 5.0),
+				BestBid:     100,
+				BestAsk:     101,
+				BestBidSize: 10,
+				BestAskSize: 5,
+				Timestamp:   time.Unix(1678886406, 0),
 			},
 		},
 	}
@@ -183,11 +191,13 @@ func TestOrderBook_ApplyUpdate(t *testing.T) {
 	ob.ApplyUpdate(updateData)
 
 	expected := indicator.OBIResult{
-		OBI8:      (20.0 - 15.0) / (20.0 + 15.0),
-		OBI16:     (20.0 - 15.0) / (20.0 + 15.0),
-		BestBid:   200,
-		BestAsk:   201,
-		Timestamp: time.Unix(1678886401, 0),
+		OBI8:        (20.0 - 15.0) / (20.0 + 15.0),
+		OBI16:       (20.0 - 15.0) / (20.0 + 15.0),
+		BestBid:     200,
+		BestAsk:     201,
+		BestBidSize: 20,
+		BestAskSize: 15,
+		Timestamp:   time.Unix(1678886401, 0),
 	}
 	actual, ok := ob.CalculateOBI(8, 16)
 	if !ok {
