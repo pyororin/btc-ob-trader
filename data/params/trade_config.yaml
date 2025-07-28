@@ -87,11 +87,35 @@ short:
 
 # signal: シグナルの精度を高めるためのフィルター設定。
 signal:
+  # composite_threshold: 複合シグナルの閾値。
+  # OBI, OFI, CVD, MicroPriceDiff を統合したスコアがこの値を超えた場合にシグナルが生成されます。
+  composite_threshold: 0.45
   # hold_duration_ms: シグナル確定までの待機時間（ミリ秒）。
   # OBIが閾値を超えても即座にエントリーせず、この時間だけ閾値を超え続けた場合にシグナルが確定します。
   # 値を大きくすると「ダマシ」を避けやすくなりますが、エントリーは遅れます。
   # 値を小さくすると素早く反応できますが、ノイズに弱くなります。
   hold_duration_ms: 500
+
+  # cvd_window_minutes: CVD (Cumulative Volume Delta) を計算するための時間窓（分）。
+  # この時間内の取引量に基づいてCVDが計算されます。
+  cvd_window_minutes: 10
+
+  # --- インジケーターの重み付け ---
+  # 各インジケーターが最終的な取引シグナル（複合スコア）にどれだけ影響を与えるかを決定します。
+  # これらの重みを調整することで、特定の市場の状況に対して戦略を最適化できます。
+  # 例えば、OBIの重みを高くすると、オーダーブックのインバランスをより重視する戦略になります。
+
+  # obi_weight: OBI (Order Book Imbalance) の重み。
+  obi_weight: 1.0
+
+  # ofi_weight: OFI (Order Flow Imbalance) の重み。
+  ofi_weight: 0.5
+
+  # cvd_weight: CVD (Cumulative Volume Delta) の重み。
+  cvd_weight: 0.2
+
+  # micro_price_weight: マイクロプライスの変化の重み。
+  micro_price_weight: 0.1
 
   # slope_filter: OBIの傾き（変化率）を利用したフィルター設定。
   # OBIの値だけでなく、その変化の勢いも考慮に入れることで、トレンドの初動を捉えやすくなります。

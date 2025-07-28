@@ -377,6 +377,11 @@ def objective(trial, study, min_trades_for_pruning: int):
         'twap_exit_ratio': trial.suggest_float('twap_exit_ratio', 0.1, 1.0),
         'risk_max_drawdown_percent': trial.suggest_int('risk_max_drawdown_percent', 15, 25),
         'risk_max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.5, 0.9),
+        'composite_threshold': trial.suggest_float('composite_threshold', 0.1, 2.0),
+        'obi_weight': trial.suggest_float('obi_weight', 0.1, 2.0),
+        'ofi_weight': trial.suggest_float('ofi_weight', 0.0, 2.0),
+        'cvd_weight': trial.suggest_float('cvd_weight', 0.0, 2.0),
+        'micro_price_weight': trial.suggest_float('micro_price_weight', 0.0, 2.0),
     }
 
     summary = run_simulation(params, study.user_attrs.get('current_csv_path'))

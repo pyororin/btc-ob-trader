@@ -207,10 +207,10 @@ func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, 
 // Evaluate evaluates the current market data and returns a TradingSignal if a new signal is confirmed.
 func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *TradingSignal {
 	microPriceDiff := e.microPrice - e.currentMidPrice
-	compositeScore := (obiValue * e.config.OBIWeight) +
-		(e.ofiValue * e.config.OFIWeight) +
-		(e.cvdValue * e.config.CVDWeight) +
-		(microPriceDiff * e.config.MicroPriceWeight)
+	compositeScore := (obiValue * e.config.OBIWeight) + (e.ofiValue * e.config.OFIWeight) + (e.cvdValue * e.config.CVDWeight)
+	if e.config.MicroPriceWeight > 0 {
+		compositeScore += (microPriceDiff * e.config.MicroPriceWeight)
+	}
 
 	// Update score history for slope filter
 	if e.slopeFilterConfig.Enabled {
