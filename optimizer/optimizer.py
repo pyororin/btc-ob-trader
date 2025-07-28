@@ -208,8 +208,9 @@ def run_simulation(params, sim_csv_path):
             template = Template(f.read())
         config_yaml_str = template.render(params)
 
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml', dir=PARAMS_DIR) as tmp:
+        with tempfile.NamedTemporaryFile(mode='w', delete=True, suffix='.yaml', dir=PARAMS_DIR) as tmp:
             tmp.write(config_yaml_str)
+            tmp.flush()
             temp_config_path = tmp.name
 
         # 2. Construct the command to run the Go simulation
