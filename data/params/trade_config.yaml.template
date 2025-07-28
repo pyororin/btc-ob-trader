@@ -101,15 +101,15 @@ signal:
   # 各指標に重みを付け、その合計スコアが `composite_threshold` を超えた場合にシグナルが発生します。
 
   # obi_weight: OBI (Order Book Imbalance) の重み。
-  obi_weight: 0.5
+  obi_weight: {{ obi_weight }}
   # ofi_weight: OFI (Order Flow Imbalance) の重み。
-  ofi_weight: 0.2
+  ofi_weight: {{ ofi_weight }}
   # cvd_weight: CVD (Cumulative Volume Delta) の重み。
-  cvd_weight: 0.2
+  cvd_weight: {{ cvd_weight }}
   # micro_price_weight: MicroPrice の変化の重み。
-  micro_price_weight: 0.1
+  micro_price_weight: {{ micro_price_weight }}
   # composite_threshold: 複合シグナルの発動閾値。
-  composite_threshold: 0.5
+  composite_threshold: {{ composite_threshold }}
 
   # slope_filter: OBIの傾き（変化率）を利用したフィルター設定。
   # OBIの値だけでなく、その変化の勢いも考慮に入れることで、トレンドの初動を捉えやすくなります。
