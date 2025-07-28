@@ -5,7 +5,7 @@
 # パフォーマンスチェックを実行する間隔（秒単位）。
 # 環境変数 'CHECK_INTERVAL_SECONDS' が設定されていればそちらを優先します。
 # 例: 300
-check_interval_seconds: 300
+check_interval_seconds: 900
 
 # パラメータファイルやデータベースが保存されるディレクトリのパス。
 # 環境変数 'PARAMS_DIR' が設定されていればそちらを優先します。
