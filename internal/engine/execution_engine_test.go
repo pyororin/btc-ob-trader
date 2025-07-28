@@ -730,14 +730,24 @@ func TestExecutionEngine_RiskManagement(t *testing.T) {
 		assert.EqualValues(t, 0, atomic.LoadInt32(&newOrderRequestCount), "NewOrder should not have been called")
 	})
 
-	t.Run("stops order on max position breach", func(t *testing.T) {
+	t.Run("stops order on max position breach for buy order", func(t *testing.T) {
 		execEngine := setupEngine()
 		execEngine.SetPositionForTest(t, 0.1, 5000000) // Position value is 500,000 JPY (50% of 1M balance)
 
 		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.001, false)
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "risk check failed: prospective position value")
+		assert.Contains(t, err.Error(), "risk check failed: prospective JPY position value")
+		assert.EqualValues(t, 0, atomic.LoadInt32(&newOrderRequestCount), "NewOrder should not have been called")
+	})
+
+	t.Run("stops order on max position breach for sell order", func(t *testing.T) {
+		execEngine := setupEngine()
+		// Balance is 1.0 BTC, MaxPositionRatio is 0.5, so max sell is 0.5 BTC
+		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "sell", 5000000, 0.6, false)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "risk check failed: sell order amount")
 		assert.EqualValues(t, 0, atomic.LoadInt32(&newOrderRequestCount), "NewOrder should not have been called")
 	})
 
