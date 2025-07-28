@@ -28,7 +28,7 @@ func NewOBICalculator(ob *OrderBook, interval time.Duration) *OBICalculator {
 		orderBook: ob,
 		interval:  interval,
 		done:      make(chan struct{}),
-		output:    make(chan OBIResult, 1), // Buffered channel to avoid blocking
+		output:    make(chan OBIResult, 100), // Buffered channel to avoid blocking
 	}
 }
 
