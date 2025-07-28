@@ -232,9 +232,9 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 	}
 
 	rawSignal := SignalNone
-	if obiValue >= longThreshold {
+	if compositeScore >= e.config.CompositeThreshold {
 		rawSignal = SignalLong
-	} else if obiValue <= shortThreshold {
+	} else if compositeScore <= -e.config.CompositeThreshold {
 		rawSignal = SignalShort
 	}
 
@@ -249,7 +249,8 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 		}
 	}
 
-	logger.Debugf("Evaluating OBI: %.4f, Long Threshold: %.4f, Short Threshold: %.4f", obiValue, longThreshold, shortThreshold)
+	logger.Debugf("Score: %.4f, Thr: %.4f, RawSignal: %s, CurrentSignal: %s, OBI: %.4f, OFI: %.4f, CVD: %.4f, MicroPriceDiff: %.4f",
+		compositeScore, e.config.CompositeThreshold, rawSignal, e.currentSignal, obiValue, e.ofiValue, e.cvdValue, microPriceDiff)
 
 	if rawSignal != e.currentSignal {
 		if e.config.SignalHoldDuration > 0 {

@@ -11,12 +11,14 @@ import (
 func newTestSignalEngine(holdDurationMs int, compositeThreshold float64, weights map[string]float64) *SignalEngine {
 	tradeCfg := &config.TradeConfig{
 		Long: config.StrategyConf{
-			TP: 0.1,
-			SL: -0.1,
+			OBIThreshold: 0.5,
+			TP:           0.1,
+			SL:           -0.1,
 		},
 		Short: config.StrategyConf{
-			TP: 0.1,
-			SL: -0.1,
+			OBIThreshold: -0.5,
+			TP:           0.1,
+			SL:           -0.1,
 		},
 		Signal: config.SignalConfig{
 			HoldDurationMs:     holdDurationMs,
@@ -85,4 +87,5 @@ func TestSignalEngine_Evaluate_CompositeSignal(t *testing.T) {
 	if assert.NotNil(t, signal) {
 		assert.Equal(t, SignalShort, signal.Type)
 	}
+
 }
