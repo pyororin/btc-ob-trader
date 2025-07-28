@@ -214,30 +214,33 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 
 	// Update score history for slope filter
 	if e.slopeFilterConfig.Enabled {
-		e.obiHistory = append(e.obiHistory, compositeScore) // Re-using obiHistory for composite score
+		e.obiHistory = append(e.obiHistory, obiValue)
 		if len(e.obiHistory) > e.slopeFilterConfig.Period {
 			e.obiHistory = e.obiHistory[1:]
 		}
 	}
 
-	threshold := e.config.CompositeThreshold
+	longThreshold := e.currentLongOBIThreshold
+	shortThreshold := e.currentShortOBIThreshold
 	switch e.currentRegime {
 	case RegimeTrending:
-		threshold *= 0.9
+		longThreshold *= 0.9
+		shortThreshold *= 0.9
 	case RegimeMeanReverting:
-		threshold *= 1.1
+		longThreshold *= 1.1
+		shortThreshold *= 1.1
 	}
 
 	rawSignal := SignalNone
-	if compositeScore >= threshold {
+	if obiValue >= longThreshold {
 		rawSignal = SignalLong
-	} else if compositeScore <= -threshold {
+	} else if obiValue <= shortThreshold {
 		rawSignal = SignalShort
 	}
 
-	// Apply slope filter to the composite score
+	// Apply slope filter
 	if e.slopeFilterConfig.Enabled && rawSignal != SignalNone {
-		slope := e.calculateOBISlope() // This now calculates slope of composite score
+		slope := e.calculateOBISlope()
 		if rawSignal == SignalLong && slope < e.slopeFilterConfig.Threshold {
 			rawSignal = SignalNone
 		}
@@ -246,8 +249,7 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 		}
 	}
 
-	logger.Debugf("Score: %.4f, Thr: %.4f, RawSignal: %s, CurrentSignal: %s, OBI: %.4f, OFI: %.4f, CVD: %.4f, MicroPriceDiff: %.4f",
-		compositeScore, threshold, rawSignal, e.currentSignal, obiValue, e.ofiValue, e.cvdValue, microPriceDiff)
+	logger.Debugf("Evaluating OBI: %.4f, Long Threshold: %.4f, Short Threshold: %.4f", obiValue, longThreshold, shortThreshold)
 
 	if rawSignal != e.currentSignal {
 		if e.config.SignalHoldDuration > 0 {
