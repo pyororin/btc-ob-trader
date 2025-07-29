@@ -27,18 +27,10 @@ def run_simulation(params: dict, sim_csv_path: Path) -> dict:
     """
     temp_config_file = None
     try:
-        # Jinja2 renders `True` as `1` and `False` as `0`. The Go YAML parser
-        # expects `true` or `false`. We must explicitly convert boolean
-        # parameters to their string representations.
-        processed_params = {
-            k: str(v).lower() if isinstance(v, bool) else v
-            for k, v in params.items()
-        }
-
         # 1. Create a temporary config file from the template
         with open(config.CONFIG_TEMPLATE_PATH, 'r') as f:
             template = Template(f.read())
-        config_yaml_str = template.render(processed_params)
+        config_yaml_str = template.render(params)
 
         # Use delete=False, so the file is not deleted when the 'with' block exits.
         # This is crucial for the subprocess to be able to access it.
