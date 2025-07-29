@@ -83,6 +83,7 @@ type SignalConfig struct {
 	CVDWeight          float64           `yaml:"cvd_weight"`
 	MicroPriceWeight   float64           `yaml:"micro_price_weight"`
 	CompositeThreshold float64           `yaml:"composite_threshold"`
+	EmaAlpha           float64           `yaml:"ema_alpha"`
 }
 
 // SlopeFilterConfig holds settings for the OBI slope filter.

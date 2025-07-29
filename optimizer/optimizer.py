@@ -389,6 +389,7 @@ def objective(trial, study, min_trades_for_pruning: int):
         'ofi_weight': trial.suggest_float('ofi_weight', 0.0, 2.0),
         'cvd_weight': trial.suggest_float('cvd_weight', 0.0, 2.0),
         'micro_price_weight': trial.suggest_float('micro_price_weight', 0.0, 2.0),
+        'ema_alpha': trial.suggest_float('ema_alpha', 0.0, 0.5),
     }
 
     summary = run_simulation(params, study.user_attrs.get('current_csv_path'))

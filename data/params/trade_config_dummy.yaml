@@ -1,2 +1,15 @@
 pair: btc_jpy
 order_amount: 0.01
+signal:
+  hold_duration_ms: 500
+  cvd_window_minutes: 1
+  obi_weight: 0.4
+  ofi_weight: 0.3
+  cvd_weight: 0.3
+  micro_price_weight: 0.1
+  composite_threshold: 0.7
+  ema_alpha: 0.3
+  slope_filter:
+    enabled: false
+    period: 10
+    threshold: 0.0
