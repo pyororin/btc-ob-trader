@@ -2,6 +2,7 @@ import optuna
 import logging
 import subprocess
 import json
+import datetime
 from pathlib import Path
 from jinja2 import Template
 from typing import Union
@@ -20,7 +21,7 @@ def create_study() -> optuna.Study:
     Returns:
         An optuna.Study object.
     """
-    study_name = f"obi-scalp-optimization-{int(optuna.datetime.datetime.now().timestamp())}"
+    study_name = f"obi-scalp-optimization-{int(datetime.datetime.now().timestamp())}"
     logging.info(f"Creating new Optuna study: {study_name}")
 
     pruner = optuna.pruners.HyperbandPruner(min_resource=5, max_resource=100, reduction_factor=3)
