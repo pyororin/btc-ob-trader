@@ -119,6 +119,26 @@ def _find_mode_kde(param_name: str, param_values: pd.Series) -> Union[float, int
         return median_value
 
 
+class NumpyJSONEncoder(json.JSONEncoder):
+    """
+    Custom JSON encoder for NumPy types.
+
+    This encoder handles the serialization of common NumPy data types (integers,
+    floats, and booleans) by converting them to their native Python equivalents,
+    making them compatible with the standard `json` library.
+    """
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        return super(NumpyJSONEncoder, self).default(obj)
+
+
 def main():
     """
     Main function to run the analysis from the command line.
@@ -137,8 +157,8 @@ def main():
     robust_params = analyze_study(args.study_name, config.STORAGE_URL)
 
     if robust_params:
-        # Output the parameters as JSON to stdout for the calling process
-        print(json.dumps(robust_params))
+        # Use the custom encoder to handle NumPy types
+        print(json.dumps(robust_params, cls=NumpyJSONEncoder))
     else:
         logging.error("Could not determine robust parameters.")
         exit(1)
