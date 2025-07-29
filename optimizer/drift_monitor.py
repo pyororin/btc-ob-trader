@@ -184,7 +184,9 @@ def check_for_drift(metrics_1h: Dict, metrics_15m: Dict, baseline: Dict) -> List
         })
 
     # --- Condition 3: Profit Factor Degradation (Normal) ---
-    if metrics_1h["profit_factor"] < config.PF_DRIFT_THRESHOLD and metrics_1h["profit_factor"] > 0:
+    # Trigger if the profit factor is below the threshold, including cases where it is zero
+    # (which often indicates no trades or an error).
+    if metrics_1h["profit_factor"] < config.PF_DRIFT_THRESHOLD:
         logging.warning(
             f"DRIFT DETECTED (Profit Factor): PF={metrics_1h['profit_factor']:.2f} < {config.PF_DRIFT_THRESHOLD}"
         )
