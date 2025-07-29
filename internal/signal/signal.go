@@ -194,7 +194,7 @@ func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, 
 
 	// Update indicators
 	e.microPrice = indicator.CalculateMicroPrice(bestBid, bestAsk, bestBidSize, bestAskSize)
-	e.cvdValue = e.cvdCalc.Update(trades)
+	e.cvdValue = e.cvdCalc.Update(trades, currentTime)
 
 	decBestBid := decimal.NewFromFloat(bestBid)
 	decBestAsk := decimal.NewFromFloat(bestAsk)

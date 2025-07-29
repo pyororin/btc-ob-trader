@@ -39,7 +39,6 @@ import (
 
 import (
 	"bufio"
-	"strings"
 	"sync"
 )
 
@@ -678,44 +677,79 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal, summaryC
 		logger.Infof("Config File: %s", f.configPath)
 		logger.Infof("Trade Config File: %s", f.tradeConfigPath)
 		logger.Infof("Pair: %s", cfg.Trade.Pair)
-		logger.Infof("Long Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Trade.Long.OBIThreshold, cfg.Trade.Long.TP, cfg.Trade.Long.SL)
-		logger.Infof("Short Strategy: OBI=%.2f, TP=%.f, SL=%.f", cfg.Trade.Short.OBIThreshold, cfg.Trade.Short.TP, cfg.Trade.Short.SL)
 		logger.Info("--------------------")
 	}
 
 	orderBook := indicator.NewOrderBook()
 	replayEngine := engine.NewReplayExecutionEngine(orderBook)
-	var execEngine engine.ExecutionEngine = replayEngine
-	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
-	orderBookHandler, _ := setupHandlers(orderBook, nil, cfg.Trade.Pair)
+	signalEngine, err := tradingsignal.NewSignalEngine(&cfg.Trade)
+	if err != nil {
+		logger.Fatalf("Failed to create signal engine: %v", err)
+	}
 
 	simCtx, cancelSim := context.WithCancel(ctx)
 	defer cancelSim()
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go processSignalsAndExecute(simCtx, obiCalculator, execEngine, nil, nil, &wg, config.GetConfig())
-
 	logger.Infof("Streaming market events from %s", f.csvPath)
-	eventCh, errCh := datastore.StreamMarketEventsFromCSV(ctx, f.csvPath)
+	eventCh, errCh := datastore.StreamMarketEventsFromCSV(simCtx, f.csvPath)
 
-	var snapshotCount int
+	var eventCount int
 	var processingDone bool
+	var accumulatedTrades []cvd.Trade
 
 	for !processingDone {
 		select {
-		case orderBookData, ok := <-eventCh:
+		case marketEvent, ok := <-eventCh:
 			if !ok {
-				logger.Infof("Finished processing all %d snapshots.", snapshotCount)
+				logger.Infof("Finished processing all %d events.", eventCount)
 				processingDone = true
 				continue
 			}
-			orderBookHandler(orderBookData)
-			obiCalculator.Calculate(orderBookData.Time)
-			snapshotCount++
-			if snapshotCount%1000 == 0 && !f.jsonOutput {
-				logger.Infof("Processed snapshot %d at time %s", snapshotCount, orderBookData.Time.Format(time.RFC3339))
+
+			eventCount++
+			if eventCount%10000 == 0 && !f.jsonOutput {
+				logger.Infof("Processed event %d at time %s", eventCount, marketEvent.GetTime().Format(time.RFC3339))
 			}
+
+			switch event := marketEvent.(type) {
+			case datastore.OrderBookEvent:
+				orderBook.ApplyUpdate(event.OrderBookData)
+				obiResult, ok := orderBook.CalculateOBI(indicator.OBILevels...)
+				if !ok || obiResult.BestBid <= 0 || obiResult.BestAsk <= 0 {
+					continue // Skip if OBI calculation fails or book is invalid
+				}
+
+				midPrice := (obiResult.BestAsk + obiResult.BestBid) / 2
+				bestBidSize, bestAskSize := orderBook.GetBestBidAskSize()
+
+				signalEngine.UpdateMarketData(event.GetTime(), midPrice, obiResult.BestBid, obiResult.BestAsk, bestBidSize, bestAskSize, accumulatedTrades)
+				accumulatedTrades = nil // Reset after consumption
+
+				tradingSignal := signalEngine.Evaluate(event.GetTime(), obiResult.OBI8)
+				if tradingSignal != nil {
+					orderType := ""
+					if tradingSignal.Type == tradingsignal.SignalLong {
+						orderType = "buy"
+					} else if tradingSignal.Type == tradingsignal.SignalShort {
+						orderType = "sell"
+					}
+
+					if orderType != "" {
+						// In simulation, we assume the order is placed at the signal's entry price
+						// without slippage for simplicity.
+						_, err := replayEngine.PlaceOrder(ctx, cfg.Trade.Pair, orderType, tradingSignal.EntryPrice, cfg.Trade.OrderAmount, false)
+						if err != nil && !f.jsonOutput {
+							logger.Warnf("Replay engine failed to place order: %v", err)
+						}
+					}
+				}
+
+			case datastore.TradeEvent:
+				accumulatedTrades = append(accumulatedTrades, event.Trade)
+				// Also update the replay engine's PnL calculator with the latest trade price
+				replayEngine.UpdateLastPrice(event.Price)
+			}
+
 		case err := <-errCh:
 			if err != nil {
 				logger.Fatalf("Error while streaming market events: %v", err)
@@ -726,10 +760,6 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal, summaryC
 			processingDone = true
 		}
 	}
-
-	// Cancel the signal processing goroutine and wait for it to finish.
-	cancelSim()
-	wg.Wait()
 
 	if !f.jsonOutput {
 		logger.Info("Simulation finished.")
@@ -745,7 +775,7 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal, summaryC
 func runServerMode(ctx context.Context, f flags, sigs chan<- os.Signal) {
 	logger.Info("--- SERVER MODE ---")
 
-	marketDataCache := make(map[string][]coincheck.OrderBookData)
+	marketDataCache := make(map[string][]datastore.MarketEvent)
 	scanner := bufio.NewScanner(os.Stdin)
 	// Increase the scanner's buffer size to handle potentially large JSON inputs
 	const maxCapacity = 4 * 1024 * 1024 // 4MB
@@ -766,34 +796,9 @@ func runServerMode(ctx context.Context, f flags, sigs chan<- os.Signal) {
 
 		var optRequest OptimizationRequest
 		if err := json.Unmarshal([]byte(line), &optRequest); err != nil {
-			// Fallback for old format for backward compatibility
-			parts := strings.Split(line, ",")
-			if len(parts) != 2 {
-				logger.Warnf("Invalid input format received: %s. Expected JSON or <config_path>,<csv_path>", line)
-				fmt.Println(`{"error": "invalid input format"}`)
-				continue
-			}
-			tempConfigPath := parts[0]
-			csvPath := parts[1]
-
-			// Load the trade configuration for this specific run
-			newCfg, err := config.LoadConfig(f.configPath, tempConfigPath)
-			if err != nil {
-				logger.Warnf("Failed to load config from %s and %s: %v", f.configPath, tempConfigPath, err)
-				fmt.Printf(`{"error": "failed to load trade config from %s"}`, tempConfigPath)
-				continue
-			}
-
-			// Create a request for a single simulation
-			optRequest = OptimizationRequest{
-				CSVPath: csvPath,
-				Simulations: []SimulationRequest{
-					{
-						TrialID:     0, // Trial ID is not available in the old format
-						TradeConfig: &newCfg.Trade,
-					},
-				},
-			}
+			logger.Warnf("Invalid JSON format received: %s. Error: %v", line, err)
+			fmt.Println(`{"error": "invalid json format"}`)
+			continue
 		}
 
 		csvPath := optRequest.CSVPath
@@ -816,9 +821,6 @@ func runServerMode(ctx context.Context, f flags, sigs chan<- os.Signal) {
 		// Run simulations in parallel
 		results := runParallelSimulations(ctx, marketEvents, optRequest.Simulations)
 
-		// The Python script expects a single JSON object for a single simulation run (old format)
-		// or an array for batch runs. We will return an array always, and the Python script
-		// will be updated to handle it.
 		output, err := json.Marshal(results)
 		if err != nil {
 			fmt.Printf(`{"error": "failed to marshal results: %v"}`, err)
@@ -836,7 +838,7 @@ func runServerMode(ctx context.Context, f flags, sigs chan<- os.Signal) {
 }
 
 // runParallelSimulations executes multiple simulations in parallel using goroutines.
-func runParallelSimulations(ctx context.Context, marketEvents []coincheck.OrderBookData, requests []SimulationRequest) []SimulationResult {
+func runParallelSimulations(ctx context.Context, marketEvents []datastore.MarketEvent, requests []SimulationRequest) []SimulationResult {
 	var wg sync.WaitGroup
 	resultsChan := make(chan SimulationResult, len(requests))
 
@@ -857,11 +859,9 @@ func runParallelSimulations(ctx context.Context, marketEvents []coincheck.OrderB
 			defer func() {
 				if r := recover(); r != nil {
 					logger.Errorf("Recovered from panic in simulation goroutine: %v", r)
-					// Also include stack trace for debugging
 					buf := make([]byte, 1024)
 					n := runtime.Stack(buf, false)
 					logger.Errorf("Stack trace: %s", string(buf[:n]))
-
 					resultsChan <- SimulationResult{
 						TrialID: request.TrialID,
 						Error:   fmt.Sprintf("panic recovered: %v", r),
@@ -892,7 +892,7 @@ func runParallelSimulations(ctx context.Context, marketEvents []coincheck.OrderB
 }
 
 // runSingleSimulationInMemory runs a backtest with a given config and pre-loaded market data.
-func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConfig, marketEvents []coincheck.OrderBookData) map[string]interface{} {
+func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConfig, marketEvents []datastore.MarketEvent) map[string]interface{} {
 	rand.Seed(1) // Ensure reproducibility
 
 	simConfig := config.GetConfigCopy()
@@ -900,37 +900,54 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 
 	orderBook := indicator.NewOrderBook()
 	replayEngine := engine.NewReplayExecutionEngine(orderBook)
-	var execEngine engine.ExecutionEngine = replayEngine
-	obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
-
-	simCtx, cancelSim := context.WithCancel(ctx)
-	defer cancelSim()
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go processSignalsAndExecute(simCtx, obiCalculator, execEngine, nil, nil, &wg, simConfig)
-
-	for _, event := range marketEvents {
-		select {
-		case <-simCtx.Done():
-			logger.Warn("Simulation run cancelled.")
-			wg.Wait()
-			return getSimulationSummaryMap(replayEngine)
-		default:
-			orderBookHandler, _ := setupHandlers(orderBook, nil, simConfig.Trade.Pair)
-			orderBookHandler(event)
-			obiCalculator.Calculate(event.Time)
-		}
+	signalEngine, err := tradingsignal.NewSignalEngine(&simConfig.Trade)
+	if err != nil {
+		// This should not happen with a valid config, but handle it gracefully.
+		return map[string]interface{}{"error": fmt.Sprintf("failed to create signal engine: %v", err)}
 	}
 
-	cancelSim()
-	wg.Wait()
+	var accumulatedTrades []cvd.Trade
+
+	for _, marketEvent := range marketEvents {
+		select {
+		case <-ctx.Done():
+			logger.Warn("Simulation run cancelled.")
+			return getSimulationSummaryMap(replayEngine)
+		default:
+			switch event := marketEvent.(type) {
+			case datastore.OrderBookEvent:
+				orderBook.ApplyUpdate(event.OrderBookData)
+				obiResult, ok := orderBook.CalculateOBI(indicator.OBILevels...)
+				if !ok || obiResult.BestBid <= 0 || obiResult.BestAsk <= 0 {
+					continue
+				}
+				midPrice := (obiResult.BestAsk + obiResult.BestBid) / 2
+				bestBidSize, bestAskSize := orderBook.GetBestBidAskSize()
+				signalEngine.UpdateMarketData(event.GetTime(), midPrice, obiResult.BestBid, obiResult.BestAsk, bestBidSize, bestAskSize, accumulatedTrades)
+				accumulatedTrades = nil
+				tradingSignal := signalEngine.Evaluate(event.GetTime(), obiResult.OBI8)
+				if tradingSignal != nil {
+					orderType := ""
+					if tradingSignal.Type == tradingsignal.SignalLong {
+						orderType = "buy"
+					} else if tradingSignal.Type == tradingsignal.SignalShort {
+						orderType = "sell"
+					}
+					if orderType != "" {
+						replayEngine.PlaceOrder(ctx, simConfig.Trade.Pair, orderType, tradingSignal.EntryPrice, simConfig.Trade.OrderAmount, false)
+					}
+				}
+			case datastore.TradeEvent:
+				accumulatedTrades = append(accumulatedTrades, event.Trade)
+				replayEngine.UpdateLastPrice(event.Price)
+			}
+		}
+	}
 
 	summary := getSimulationSummaryMap(replayEngine)
 	if trades, ok := summary["TotalTrades"].(int); ok && trades == 0 {
 		logger.Debug("Simulation finished with 0 trades.")
 	}
-
 	return summary
 }
 
@@ -938,6 +955,10 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 func getSimulationSummaryMap(replayEngine *engine.ReplayExecutionEngine) map[string]interface{} {
 	executedTrades := replayEngine.ExecutedTrades
 	totalProfit := replayEngine.GetTotalRealizedPnL()
+	positionSize, avgEntryPrice := replayEngine.GetPosition().Get()
+	unrealizedPnL := replayEngine.GetPnLCalculator().CalculateUnrealizedPnL(positionSize, avgEntryPrice, replayEngine.GetLastPrice())
+	totalProfit += unrealizedPnL // Add unrealized PnL to the final profit for summary purposes
+
 	totalTrades := len(executedTrades)
 
 	summary := map[string]interface{}{

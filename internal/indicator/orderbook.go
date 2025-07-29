@@ -171,6 +171,41 @@ func (ob *OrderBook) CalculateDepth(side string, priceRangeRatio float64) float6
 	return totalAmount
 }
 
+// GetBestBidAskSize returns the size of the best bid and best ask.
+func (ob *OrderBook) GetBestBidAskSize() (float64, float64) {
+	ob.RLock()
+	defer ob.RUnlock()
+
+	bids := make([]priceLevel, 0, len(ob.Bids))
+	for rate, amount := range ob.Bids {
+		if amount > 0 {
+			bids = append(bids, priceLevel{Rate: rate, Amount: amount})
+		}
+	}
+	sort.Slice(bids, func(i, j int) bool {
+		return bids[i].Rate > bids[j].Rate // Sort descending for bids
+	})
+
+	asks := make([]priceLevel, 0, len(ob.Asks))
+	for rate, amount := range ob.Asks {
+		if amount > 0 {
+			asks = append(asks, priceLevel{Rate: rate, Amount: amount})
+		}
+	}
+	sort.Slice(asks, func(i, j int) bool {
+		return asks[i].Rate < asks[j].Rate // Sort ascending for asks
+	})
+
+	var bestBidSize, bestAskSize float64
+	if len(bids) > 0 {
+		bestBidSize = bids[0].Amount
+	}
+	if len(asks) > 0 {
+		bestAskSize = asks[0].Amount
+	}
+	return bestBidSize, bestAskSize
+}
+
 // CalculateOBI calculates the Order Book Imbalance from the current state of the book.
 func (ob *OrderBook) CalculateOBI(levels ...int) (OBIResult, bool) {
 	ob.RLock()

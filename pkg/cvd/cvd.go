@@ -31,7 +31,7 @@ func NewCVDCalculator(windowSize time.Duration) *CVDCalculator {
 
 // Update adds new trades and recalculates the CVD.
 // It avoids double-counting by checking trade IDs.
-func (c *CVDCalculator) Update(newTrades []Trade) float64 {
+func (c *CVDCalculator) Update(newTrades []Trade, currentTime time.Time) float64 {
 	// Add new trades, avoiding duplicates
 	for _, trade := range newTrades {
 		isNew := true
@@ -47,10 +47,9 @@ func (c *CVDCalculator) Update(newTrades []Trade) float64 {
 	}
 
 	// Remove old trades that are outside the window
-	now := time.Now()
 	firstValidIndex := 0
 	for i, trade := range c.trades {
-		if now.Sub(trade.Timestamp) > c.windowSize {
+		if currentTime.Sub(trade.Timestamp) > c.windowSize {
 			firstValidIndex = i + 1
 		} else {
 			break

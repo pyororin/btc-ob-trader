@@ -469,12 +469,14 @@ func (e *LiveExecutionEngine) adjustRatios() {
 
 // ReplayExecutionEngine simulates order execution for backtesting.
 type ReplayExecutionEngine struct {
-	position      *position.Position
-	pnlCalculator *pnl.Calculator
-	orderBook     pnl.OrderBookProvider
+	position         *position.Position
+	pnlCalculator    *pnl.Calculator
+	orderBook        pnl.OrderBookProvider
+	mutex            sync.RWMutex
+	lastPrice        float64
 	// ExecutedTrades stores the history of simulated trades.
-	ExecutedTrades []dbwriter.Trade
-	tradeCounter  int64 // Counter for generating deterministic trade IDs
+	ExecutedTrades   []dbwriter.Trade
+	tradeCounter     int64 // Counter for generating deterministic trade IDs
 }
 
 // NewReplayExecutionEngine creates a new ReplayExecutionEngine.
@@ -622,4 +624,28 @@ func (e *ReplayExecutionEngine) GetBalance() (*coincheck.BalanceResponse, error)
 		Jpy: "100000000",
 		Btc: "100",
 	}, nil
+}
+
+// UpdateLastPrice updates the last known price for unrealized PnL calculations.
+func (e *ReplayExecutionEngine) UpdateLastPrice(price float64) {
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+	e.lastPrice = price
+}
+
+// GetLastPrice returns the last known price.
+func (e *ReplayExecutionEngine) GetLastPrice() float64 {
+	e.mutex.RLock()
+	defer e.mutex.RUnlock()
+	return e.lastPrice
+}
+
+// GetPosition returns the position object.
+func (e *ReplayExecutionEngine) GetPosition() *position.Position {
+	return e.position
+}
+
+// GetPnLCalculator returns the pnl calculator object.
+func (e *ReplayExecutionEngine) GetPnLCalculator() *pnl.Calculator {
+	return e.pnlCalculator
 }
