@@ -49,10 +49,10 @@ type Config struct {
 
 // AdaptiveSizingConfig holds settings for the adaptive position sizing feature.
 type AdaptiveSizingConfig struct {
-	Enabled       bool    `yaml:"enabled"`
-	NumTrades     int     `yaml:"num_trades"`
-	ReductionStep float64 `yaml:"reduction_step"`
-	MinRatio      float64 `yaml:"min_ratio"`
+	Enabled       FlexBool `yaml:"enabled"`
+	NumTrades     int      `yaml:"num_trades"`
+	ReductionStep float64  `yaml:"reduction_step"`
+	MinRatio      float64  `yaml:"min_ratio"`
 }
 
 // AlertConfig holds alert settings.
@@ -62,9 +62,9 @@ type AlertConfig struct {
 
 // DiscordConfig holds Discord notification settings.
 type DiscordConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	BotToken string `yaml:"bot_token"`
-	UserID   string `yaml:"user_id"`
+	Enabled  FlexBool `yaml:"enabled"`
+	BotToken string   `yaml:"bot_token"`
+	UserID   string   `yaml:"user_id"`
 }
 
 // RiskConfig holds risk management settings.
@@ -87,9 +87,9 @@ type SignalConfig struct {
 
 // SlopeFilterConfig holds settings for the OBI slope filter.
 type SlopeFilterConfig struct {
-	Enabled   bool    `yaml:"enabled"`
-	Period    int     `yaml:"period"`
-	Threshold float64 `yaml:"threshold"`
+	Enabled   FlexBool `yaml:"enabled"`
+	Period    int      `yaml:"period"`
+	Threshold float64  `yaml:"threshold"`
 }
 
 // OrderConfig holds configuration for the execution engine.
@@ -100,12 +100,12 @@ type OrderConfig struct {
 
 // TwapConfig holds configuration for the TWAP execution strategy.
 type TwapConfig struct {
-	Enabled             bool    `yaml:"enabled"`
-	MaxOrderSizeBtc     float64 `yaml:"max_order_size_btc"`
-	IntervalSeconds     int     `yaml:"interval_seconds"`
-	PartialExitEnabled  bool    `yaml:"partial_exit_enabled"`
-	ProfitThreshold     float64 `yaml:"profit_threshold"`
-	ExitRatio           float64 `yaml:"exit_ratio"`
+	Enabled             FlexBool `yaml:"enabled"`
+	MaxOrderSizeBtc     float64  `yaml:"max_order_size_btc"`
+	IntervalSeconds     int      `yaml:"interval_seconds"`
+	PartialExitEnabled  FlexBool `yaml:"partial_exit_enabled"`
+	ProfitThreshold     float64  `yaml:"profit_threshold"`
+	ExitRatio           float64  `yaml:"exit_ratio"`
 }
 
 // ReplayConfig holds configuration for the replay mode.
@@ -132,9 +132,9 @@ type DatabaseConfig struct {
 
 // DBWriterConfig holds configuration for the TimescaleDB writer service.
 type DBWriterConfig struct {
-	BatchSize            int  `yaml:"batch_size"`
-	WriteIntervalSeconds int  `yaml:"write_interval_seconds"`
-	EnableAsync          bool `yaml:"enable_async"`
+	BatchSize            int      `yaml:"batch_size"`
+	WriteIntervalSeconds int      `yaml:"write_interval_seconds"`
+	EnableAsync          FlexBool `yaml:"enable_async"`
 }
 
 // StrategyConf holds configuration for long/short strategies.
@@ -152,8 +152,8 @@ type VolConf struct {
 
 // DynamicOBIConf holds configuration for dynamic OBI threshold adjustments.
 type DynamicOBIConf struct {
-	Enabled          bool    `yaml:"enabled"`
-	VolatilityFactor float64 `yaml:"volatility_factor"`
+	Enabled          FlexBool `yaml:"enabled"`
+	VolatilityFactor float64  `yaml:"volatility_factor"`
 	MinThresholdFactor float64 `yaml:"min_threshold_factor"`
 	MaxThresholdFactor float64 `yaml:"max_threshold_factor"`
 }
