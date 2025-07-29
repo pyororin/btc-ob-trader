@@ -163,7 +163,7 @@ force_optimize: ## Force a new optimization run by removing any existing job fil
 # GO BUILDS & TESTS
 # ==============================================================================
 # Define a helper to run commands inside a temporary Go builder container
-DOCKER_RUN_GO = sudo -E docker compose run --rm --service-ports --entrypoint "" builder
+DOCKER_RUN_GO = docker compose run --rm --service-ports --entrypoint "" builder
 
 test: ## Run standard Go tests (excluding DB-dependent tests).
 	@echo "Running standard Go tests..."
