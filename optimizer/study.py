@@ -226,9 +226,14 @@ def _get_oos_fail_reason(oos_summary: dict) -> str:
 def _save_best_parameters(params: dict):
     """Renders and saves the final trade configuration file."""
     try:
+        # Ensure boolean parameters are correctly formatted as strings for the final config.
+        processed_params = {
+            k: str(v).lower() if isinstance(v, bool) else v
+            for k, v in params.items()
+        }
         with open(config.CONFIG_TEMPLATE_PATH, 'r') as f:
             template = Template(f.read())
-        config_str = template.render(params)
+        config_str = template.render(processed_params)
         with open(config.BEST_CONFIG_OUTPUT_PATH, 'w') as f:
             f.write(config_str)
         logging.info(f"Successfully updated trade config: {config.BEST_CONFIG_OUTPUT_PATH}")
