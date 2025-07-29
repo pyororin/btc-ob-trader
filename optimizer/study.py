@@ -162,7 +162,14 @@ def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> bool:
             break
 
         logging.info(f"--- Running OOS Validation attempt #{i+1} (source: {candidate['source']}) ---")
-        oos_summary = run_simulation(candidate['params'], oos_csv_path)
+
+        # Ensure boolean parameters are converted to strings ('true'/'false') for Jinja2 rendering.
+        # This handles params from both Optuna (bool) and the analyzer (which are loaded from JSON).
+        processed_params = {
+            k: str(v).lower() if isinstance(v, bool) else v
+            for k, v in candidate['params'].items()
+        }
+        oos_summary = run_simulation(processed_params, oos_csv_path)
 
         if not isinstance(oos_summary, dict) or not oos_summary:
             logging.warning("OOS simulation failed or returned empty results.")
