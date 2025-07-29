@@ -3,6 +3,7 @@ import logging
 import subprocess
 import json
 import datetime
+import functools
 from pathlib import Path
 from jinja2 import Template
 from typing import Union
@@ -50,28 +51,31 @@ def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int):
 
     logging.info(f"Starting In-Sample optimization with {is_csv_path} for {n_trials} trials.")
 
+    # Use functools.partial to pass n_trials to the callback
+    callback_with_n_trials = functools.partial(progress_callback, n_trials=n_trials)
+
     study.optimize(
         objective_func,
         n_trials=n_trials,
         n_jobs=-1,  # Use all available CPU cores
         show_progress_bar=False, # Logging callback is used instead
         catch=(Exception,), # Catch all exceptions to prevent optimizer crash
-        callbacks=[progress_callback]
+        callbacks=[callback_with_n_trials]
     )
 
-def progress_callback(study: optuna.Study, trial: optuna.Trial):
+def progress_callback(study: optuna.Study, trial: optuna.Trial, n_trials: int):
     """Callback function to report progress periodically."""
     if trial.number > 0 and trial.number % 100 == 0:
         try:
             best_trial = study.best_trial
             logging.info(
-                f"Trial {trial.number}/{study.n_trials}: Best trial so far is #{best_trial.number} "
+                f"Trial {trial.number}/{n_trials}: Best trial so far is #{best_trial.number} "
                 f"with SR: {best_trial.value:.2f}, "
                 f"PF: {best_trial.user_attrs.get('profit_factor', 0.0):.2f}, "
                 f"Trades: {best_trial.user_attrs.get('trades', 0)}"
             )
         except ValueError:
-            logging.info(f"Trial {trial.number}/{study.n_trials}: No completed trials yet.")
+            logging.info(f"Trial {trial.number}/{n_trials}: No completed trials yet.")
 
 def analyze_and_validate(study: optuna.Study, oos_csv_path: Path) -> bool:
     """
