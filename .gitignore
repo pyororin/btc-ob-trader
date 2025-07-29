@@ -26,4 +26,12 @@ data/params/optimization_job.json
 # Go deps
 vendor/
 
+# Go build artifacts
+bot
+export
+report
+cmd/bot/bot
+cmd/export/export
+cmd/report/report
+
 optimizer/__pycache__/optimizer.cpython-312.pyc
