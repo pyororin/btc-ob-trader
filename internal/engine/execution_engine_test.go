@@ -41,13 +41,13 @@ func setupTest(t *testing.T) (*httptest.Server, *config.Config) {
 				MaxPositionRatio:   0.5,
 			},
 			AdaptivePositionSizing: config.AdaptiveSizingConfig{
-				Enabled:       false,
+				Enabled:       config.FlexBool(false),
 				NumTrades:     5,
 				ReductionStep: 0.8,
 				MinRatio:      0.5,
 			},
 			Twap: config.TwapConfig{
-				PartialExitEnabled: false,
+				PartialExitEnabled: config.FlexBool(false),
 			},
 		},
 		EnableTrade: true,
@@ -496,7 +496,7 @@ func TestExecutionEngine_AdaptivePositionSizing(t *testing.T) {
 	cfg.Trade.OrderRatio = 0.2
 	cfg.Trade.LotMaxRatio = 0.2
 	cfg.Trade.AdaptivePositionSizing = config.AdaptiveSizingConfig{
-		Enabled:       true,
+		Enabled:       config.FlexBool(true),
 		NumTrades:     5,
 		ReductionStep: 0.8,
 		MinRatio:      0.5,
@@ -608,7 +608,7 @@ func TestLiveExecutionEngine_CheckAndTriggerPartialExit(t *testing.T) {
 	mockServer, cfg := setupTest(t)
 	defer mockServer.Close()
 	cfg.Trade.Twap = config.TwapConfig{
-		PartialExitEnabled: true,
+		PartialExitEnabled: config.FlexBool(true),
 		ProfitThreshold:    1.0, // 1%
 		ExitRatio:          0.5, // 50%
 	}
@@ -659,7 +659,7 @@ func TestLiveExecutionEngine_CheckAndTriggerPartialExit(t *testing.T) {
 
 	t.Run("Disabled in config", func(t *testing.T) {
 		originalValue := cfg.Trade.Twap.PartialExitEnabled
-		cfg.Trade.Twap.PartialExitEnabled = false
+		cfg.Trade.Twap.PartialExitEnabled = config.FlexBool(false)
 		defer func() { cfg.Trade.Twap.PartialExitEnabled = originalValue }()
 
 		engine := NewLiveExecutionEngine(nil, nil, nil)

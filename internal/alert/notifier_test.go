@@ -42,7 +42,7 @@ func (m *MockDiscordSession) Close() error {
 func TestNewDiscordNotifier_Unit(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		cfg := config.DiscordConfig{
-			Enabled:  true,
+			Enabled:  config.FlexBool(true),
 			BotToken: "fake-token",
 			UserID:   "fake-user-id",
 		}
@@ -58,7 +58,7 @@ func TestNewDiscordNotifier_Unit(t *testing.T) {
 
 	t.Run("disabled", func(t *testing.T) {
 		cfg := config.DiscordConfig{
-			Enabled:  false,
+			Enabled:  config.FlexBool(false),
 			BotToken: "fake-token",
 			UserID:   "fake-user-id",
 		}
@@ -68,7 +68,7 @@ func TestNewDiscordNotifier_Unit(t *testing.T) {
 	})
 
 	t.Run("missing bot token", func(t *testing.T) {
-		cfg := config.DiscordConfig{Enabled: true, UserID: "fake-user-id"}
+		cfg := config.DiscordConfig{Enabled: config.FlexBool(true), UserID: "fake-user-id"}
 		notifier, err := NewDiscordNotifier(cfg)
 		assert.Error(t, err)
 		assert.Nil(t, notifier)
@@ -76,7 +76,7 @@ func TestNewDiscordNotifier_Unit(t *testing.T) {
 	})
 
 	t.Run("missing user id", func(t *testing.T) {
-		cfg := config.DiscordConfig{Enabled: true, BotToken: "fake-token"}
+		cfg := config.DiscordConfig{Enabled: config.FlexBool(true), BotToken: "fake-token"}
 		notifier, err := NewDiscordNotifier(cfg)
 		assert.Error(t, err)
 		assert.Nil(t, notifier)

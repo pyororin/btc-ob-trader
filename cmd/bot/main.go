@@ -514,7 +514,7 @@ func processSignalsAndExecute(ctx context.Context, obiCalculator *indicator.OBIC
 						// Only proceed if the order amount is above the minimum
 						if orderAmount >= 0.001 {
 							logger.Debugf("Executing trade for signal: %s. %s", tradingSignal.Type.String(), orderLogMsg)
-							if currentCfg.Trade.Twap.Enabled && orderAmount > currentCfg.Trade.Twap.MaxOrderSizeBtc {
+							if bool(currentCfg.Trade.Twap.Enabled) && orderAmount > currentCfg.Trade.Twap.MaxOrderSizeBtc {
 								logger.Debugf("Order amount %.8f exceeds max size %.8f. Executing with TWAP.", orderAmount, currentCfg.Trade.Twap.MaxOrderSizeBtc)
 								go executeTwapOrder(ctx, execEngine, currentCfg.Trade.Pair, orderType, finalPrice, orderAmount)
 							} else {
@@ -1357,7 +1357,7 @@ func orderMonitor(ctx context.Context, execEngine engine.ExecutionEngine, client
 // positionMonitor periodically checks the current position for potential partial profit taking.
 func positionMonitor(ctx context.Context, execEngine engine.ExecutionEngine, orderBook *indicator.OrderBook) {
 	cfg := config.GetConfig()
-	if !cfg.Trade.Twap.PartialExitEnabled {
+	if !bool(cfg.Trade.Twap.PartialExitEnabled) {
 		logger.Info("Position monitor (partial exit) is disabled.")
 		return
 	}
