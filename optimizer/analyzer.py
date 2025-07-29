@@ -75,6 +75,8 @@ def analyze_study(study_name, storage_url):
         return best_trial_params
 
     logging.info(f"Analyzing the top {len(top_trials_df)} trials (quantile > {1 - TOP_TRIALS_QUANTILE:.2f}).")
+    logging.debug(f"Top trials dataframe columns: {top_trials_df.columns.tolist()}")
+    logging.debug(f"Top trials dataframe head:\n{top_trials_df.head()}")
 
     # --- 2. Find the mode for each parameter using KDE ---
     robust_params = {}
@@ -82,20 +84,31 @@ def analyze_study(study_name, storage_url):
 
     for param_col in param_columns:
         param_name = param_col.replace('params_', '')
-        param_values = top_trials_df[param_col]
+        param_values = top_trials_df[param_col].dropna()
+
+        if param_values.empty:
+            logging.warning(f"Parameter '{param_name}' has no valid values. Skipping.")
+            continue
 
         # Handle categorical vs. numerical parameters
         if pd.api.types.is_numeric_dtype(param_values):
+            logging.info(f"Analyzing numerical parameter: {param_name}")
+            logging.debug(f"Values for {param_name}:\n{param_values.describe()}")
+
             # Use KDE for numerical parameters
             # Add a check for standard deviation to avoid errors with KDE
             if param_values.nunique() > 1 and param_values.std() > 1e-6:
                 try:
-                    kde = gaussian_kde(param_values)
+                    # Drop NaNs just in case they slipped through
+                    param_values_clean = param_values.dropna()
+                    if len(param_values_clean) < 2:
+                         raise ValueError("Not enough data points to create a KDE.")
+                    kde = gaussian_kde(param_values_clean)
                     # Evaluate KDE on a grid of points
-                    grid = np.linspace(param_values.min(), param_values.max(), 500)
-                except np.linalg.LinAlgError:
+                    grid = np.linspace(param_values_clean.min(), param_values_clean.max(), 500)
+                except (np.linalg.LinAlgError, ValueError) as e:
                     # If KDE fails (e.g., singular matrix), fall back to mean or mode
-                    logging.warning(f"KDE failed for {param_name}. Falling back to median.")
+                    logging.warning(f"KDE failed for {param_name} with error: {e}. Falling back to median.")
                     robust_params[param_name] = param_values.median()
                     if pd.api.types.is_integer_dtype(param_values.dropna()):
                         robust_params[param_name] = int(round(robust_params[param_name]))
