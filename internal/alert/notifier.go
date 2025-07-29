@@ -29,7 +29,7 @@ type DiscordNotifier struct {
 // NewDiscordNotifier creates a new DiscordNotifier.
 // It requires a valid bot token and a user ID to send messages to.
 func NewDiscordNotifier(cfg config.DiscordConfig) (*DiscordNotifier, error) {
-	if !cfg.Enabled {
+	if !bool(cfg.Enabled) {
 		return nil, nil
 	}
 

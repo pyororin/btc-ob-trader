@@ -177,7 +177,7 @@ func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, 
 	}
 
 	// Update Volatility and dynamic OBI thresholds
-	if e.config.DynamicOBIConf.Enabled {
+	if bool(e.config.DynamicOBIConf.Enabled) {
 		_, stdDev := e.volatilityCalc.Update(e.currentMidPrice)
 		longAdjustment := e.config.DynamicOBIConf.VolatilityFactor * stdDev
 		adjustedLongThreshold := e.config.LongOBIBaseThreshold * (1 + longAdjustment)
@@ -213,7 +213,7 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 	}
 
 	// Update score history for slope filter
-	if e.slopeFilterConfig.Enabled {
+	if bool(e.slopeFilterConfig.Enabled) {
 		e.obiHistory = append(e.obiHistory, obiValue)
 		if len(e.obiHistory) > e.slopeFilterConfig.Period {
 			e.obiHistory = e.obiHistory[1:]
@@ -239,7 +239,7 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 	}
 
 	// Apply slope filter
-	if e.slopeFilterConfig.Enabled && rawSignal != SignalNone {
+	if bool(e.slopeFilterConfig.Enabled) && rawSignal != SignalNone {
 		slope := e.calculateOBISlope()
 		if rawSignal == SignalLong && slope < e.slopeFilterConfig.Threshold {
 			rawSignal = SignalNone

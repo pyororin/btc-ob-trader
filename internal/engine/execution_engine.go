@@ -389,7 +389,7 @@ func (e *LiveExecutionEngine) CheckAndTriggerPartialExit(currentMidPrice float64
 
 	cfg := config.GetConfig()
 
-	if e.isExitingPartially || !cfg.Trade.Twap.PartialExitEnabled {
+	if e.isExitingPartially || !bool(cfg.Trade.Twap.PartialExitEnabled) {
 		return nil
 	}
 
