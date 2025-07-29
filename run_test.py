@@ -2,7 +2,7 @@ import json
 import time
 import os
 from pathlib import Path
-from optimizer.optimizer import main as optimizer_main
+from optimizer.main import main_loop as optimizer_main
 
 # --- Configuration ---
 APP_ROOT = Path('/app')
@@ -26,16 +26,16 @@ def create_job_file():
 
 def ensure_dummy_trade_config():
     """Creates a dummy trade config from the template if it doesn't exist."""
-    from optimizer.optimizer import CONFIG_TEMPLATE_PATH, BEST_CONFIG_OUTPUT_PATH
+    from optimizer import config as optimizer_config
     from jinja2 import Template
 
-    if not BEST_CONFIG_OUTPUT_PATH.exists():
-        print(f"Creating dummy trade config at {BEST_CONFIG_OUTPUT_PATH}")
-        if not CONFIG_TEMPLATE_PATH.exists():
-            print(f"ERROR: Config template not found at {CONFIG_TEMPLATE_PATH}")
+    if not optimizer_config.BEST_CONFIG_OUTPUT_PATH.exists():
+        print(f"Creating dummy trade config at {optimizer_config.BEST_CONFIG_OUTPUT_PATH}")
+        if not optimizer_config.CONFIG_TEMPLATE_PATH.exists():
+            print(f"ERROR: Config template not found at {optimizer_config.CONFIG_TEMPLATE_PATH}")
             return
 
-        with open(CONFIG_TEMPLATE_PATH, 'r') as f:
+        with open(optimizer_config.CONFIG_TEMPLATE_PATH, 'r') as f:
             template = Template(f.read())
 
         # Use some default dummy params
@@ -52,10 +52,12 @@ def ensure_dummy_trade_config():
             'twap_enabled': False, 'twap_max_order_size_btc': 0.05,
             'twap_interval_seconds': 5, 'twap_partial_exit_enabled': False,
             'twap_profit_threshold': 1.0, 'twap_exit_ratio': 0.5,
-            'risk_max_drawdown_percent': 20, 'risk_max_position_ratio': 0.7
+            'risk_max_drawdown_percent': 20, 'risk_max_position_ratio': 0.7,
+            'composite_threshold': 1.0, 'obi_weight': 1.0, 'ofi_weight': 1.0,
+            'cvd_weight': 1.0, 'micro_price_weight': 1.0,
         }
         config_str = template.render(dummy_params)
-        with open(BEST_CONFIG_OUTPUT_PATH, 'w') as f:
+        with open(optimizer_config.BEST_CONFIG_OUTPUT_PATH, 'w') as f:
             f.write(config_str)
 
 def run():

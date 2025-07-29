@@ -4,90 +4,33 @@ import psycopg2
 import psycopg2.extras
 import logging
 import json
-import yaml
-from pathlib import Path
+from typing import Dict, Any, Optional, List
+
+# Import the centralized config module
+from . import config
 
 # --- Logging Setup ---
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# --- Config Loading ---
-def load_config():
-    """YAML設定ファイルを読み込む"""
-    try:
-        # スクリプト自身の場所を基準にconfigファイルを探す
-        script_dir = Path(__file__).parent
-        config_path = script_dir.parent / 'config' / 'optimizer_config.yaml'
-        with open(config_path, 'r') as f:
-            return yaml.safe_load(f)
-    except FileNotFoundError:
-        logging.warning("optimizer_config.yaml not found. Using default values.")
-        return {}
-    except yaml.YAMLError as e:
-        logging.error(f"Error parsing YAML file: {e}")
-        return {}
+# Type alias for database connection
+DbConnection = Any
 
-config = load_config()
-
-# --- Environment Variables & Config ---
-# --- 環境変数と設定ファイル ---
-# データベース接続情報 (環境変数からのみ取得)
-DB_USER = os.getenv('DB_USER')
-DB_PASSWORD = os.getenv('DB_PASSWORD')
-DB_NAME = os.getenv('DB_NAME')
-DB_HOST = os.getenv('DB_HOST', 'timescaledb')
-DB_PORT = os.getenv('DB_PORT', '5432')
-
-# スクリプトの動作設定 (環境変数を優先し、なければ設定ファイルから取得)
-CHECK_INTERVAL_SECONDS = int(
-    os.getenv('CHECK_INTERVAL_SECONDS') or
-    config.get('check_interval_seconds', 300)
-)
-PARAMS_DIR = Path(
-    os.getenv('PARAMS_DIR') or
-    config.get('params_dir', '/data/params')
-)
-
-
-# --- Trigger Thresholds (can be moved to a config file) ---
-# --- 最適化をトリガーする閾値 ---
-# これらの値は、パフォーマンスの悪化を検知し、パラメータ最適化をいつ開始するかを決定するために使用されます。
-# 設定ファイルに切り出すことも可能です。
-
-# シャープレシオのZスコアがこの閾値を下回った場合に「軽微なドリフト」と判断します。
-# Zスコアは、現在のシャープレシオが過去の平均からどれだけ標準偏差分離れているかを示す指標です。
-# (現在値 - 平均) / 標準偏差 で計算されます。
-SHARPE_DRIFT_THRESHOLD_SD = -0.5
-
-# プロフィットファクター（総利益 / 総損失）がこの閾値を下回った場合に「ドリフト」と判断します。
-# 1.0を下回ると損失が出ている状態を示します。
-PF_DRIFT_THRESHOLD = 0.9
-
-# シャープレシオのZスコアがこの閾値を下回った場合に「緊急事態」と判断し、
-# より迅速な対応（短い学習期間での最適化）を行います。
-SHARPE_EMERGENCY_THRESHOLD_SD = -1.0
-
-
-def get_db_connection():
+def get_db_connection() -> Optional[DbConnection]:
     """
-    TimescaleDBデータベースへの接続を確立します。
+    Establishes and returns a connection to the TimescaleDB database.
 
-    環境変数から読み取った接続情報（ユーザー、パスワード、ホストなど）を使用して、
-    PostgreSQLデータベース（TimescaleDB）への接続を試みます。
-    接続に成功した場合は接続オブジェクトを返し、失敗した場合はNoneを返します。
+    Uses credentials and connection details from the central config module.
 
     Returns:
-        psycopg2.connection or None: 接続成功時は接続オブジェクト、失敗時はNone。
+        A psycopg2 connection object if successful, otherwise None.
     """
     try:
         conn = psycopg2.connect(
-            dbname=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            host=DB_HOST,
-            port=DB_PORT
+            dbname=config.DB_NAME,
+            user=config.DB_USER,
+            password=config.DB_PASSWORD,
+            host=config.DB_HOST,
+            port=config.DB_PORT
         )
         logging.info("Successfully connected to the database.")
         return conn
@@ -96,290 +39,203 @@ def get_db_connection():
         return None
 
 
-def get_performance_metrics(conn, hours):
+def get_performance_metrics(conn: DbConnection, hours: float) -> Dict[str, float]:
     """
-    指定された時間枠のパフォーマンス指標（シャープレシオ、プロフィットファクター、最大ドローダウン）をデータベースから取得します。
-
-    pnl_reportsテーブルから、現在時刻から指定された時間（hours）前までの最新のパフォーマンス指標を取得します。
-    データベースクエリが失敗した場合や、該当期間のデータが存在しない場合には、
-    フォールバックとしてハードコードされた模擬データを返します。
+    Fetches the latest performance metrics from the pnl_reports table.
 
     Args:
-        conn (psycopg2.connection): データベース接続オブジェクト。
-        hours (float or int): パフォーマンス指標を取得する期間（時間単位）。
+        conn: The database connection object.
+        hours: The time window in hours to look back for the latest report.
 
     Returns:
-        dict: パフォーマンス指標（sharpe_ratio, profit_factor, max_drawdown）を含む辞書。
-              データ取得に失敗した場合は、模擬データが返されます。
+        A dictionary with performance metrics. Returns a dict with zero-values
+        as a fallback if the query fails or returns no data.
     """
-    logging.info(
-        f"Calculating performance metrics for the last {hours} hours..."
-    )
-    # 時間（hours）を分に変換
     minutes = int(hours * 60)
-    logging.info(
-        f"Calculating performance metrics for the last {minutes} minutes..."
-    )
-
     query = """
-        SELECT
-            sharpe_ratio,
-            profit_factor,
-            max_drawdown
+        SELECT sharpe_ratio, profit_factor, max_drawdown
         FROM pnl_reports
         WHERE time >= NOW() - INTERVAL '1 minute' * %s
         ORDER BY time DESC
         LIMIT 1;
     """
+    fallback_metrics = {"sharpe_ratio": 0.0, "profit_factor": 0.0, "max_drawdown": 0.0}
+
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(query, (minutes,))
             result = cur.fetchone()
             if result:
-                log_msg = (
-                    f"Metrics for last {hours}h: "
-                    f"Sharpe={result['sharpe_ratio']:.2f}, "
-                    f"PF={result['profit_factor']:.2f}, "
-                    f"MDD={result['max_drawdown']:.2f}"
+                logging.info(
+                    f"Metrics for last {hours}h: Sharpe={result['sharpe_ratio']:.2f}, "
+                    f"PF={result['profit_factor']:.2f}, MDD={result['max_drawdown']:.2f}"
                 )
-                logging.info(log_msg)
-                return {
-                    "sharpe_ratio": result["sharpe_ratio"],
-                    "profit_factor": result["profit_factor"],
-                    "max_drawdown": result["max_drawdown"]
-                }
+                return dict(result)
     except psycopg2.Error as e:
         logging.error(f"Database error in get_performance_metrics: {e}")
-        conn.rollback()  # Rollback on error
+        conn.rollback()
 
-    # Fallback to zero-values if query fails or returns no data
-    logging.warning(
-        f"Could not get metrics for last {hours}h. Returning zero values."
-    )
-    return {
-        "sharpe_ratio": 0.0,
-        "profit_factor": 0.0,
-        "max_drawdown": 0.0
-    }
+    logging.warning(f"Could not get metrics for last {hours}h. Returning zero values.")
+    return fallback_metrics
 
 
-def get_moving_averages(conn):
+def get_baseline_statistics(conn: DbConnection) -> Dict[str, float]:
     """
-    過去7日間のシャープレシオの移動平均（mu）と標準偏差（sigma）を計算します。
-
-    これらの統計量は、現在のパフォーマンスが過去のトレンドからどれだけ逸脱しているか（Zスコア）
-    を判断するためのベースラインとして使用されます。
-    データベースクエリが失敗した場合や、データが存在しない場合、あるいは標準偏差が0になるような
-    場合には、フォールバックとしてハードコードされた模擬データを返します。
+    Calculates the moving average (mu) and standard deviation (sigma) of the
+    Sharpe ratio over the last 7 days to use as a performance baseline.
 
     Args:
-        conn (psycopg2.connection): データベース接続オブジェクト。
+        conn: The database connection object.
 
     Returns:
-        dict: シャープレシオの平均（sharpe_ratio_mu）と標準偏差（sharpe_ratio_sigma）を含む辞書。
-              データ取得に失敗した場合は、模擬データが返されます。
+        A dictionary with the mean and std dev of the Sharpe ratio. Returns
+        a fallback with a non-zero sigma if the query fails or data is insufficient.
     """
-    logging.info("Calculating moving averages for the last 7 days...")
     query = """
-        SELECT
-            AVG(sharpe_ratio) AS sharpe_ratio_mu,
-            STDDEV(sharpe_ratio) AS sharpe_ratio_sigma
+        SELECT AVG(sharpe_ratio) AS sharpe_mu, STDDEV(sharpe_ratio) AS sharpe_sigma
         FROM pnl_reports
         WHERE time >= NOW() - INTERVAL '7 days';
     """
+    # Use a small non-zero sigma as a fallback to avoid division by zero errors
+    fallback_stats = {"sharpe_mu": 0.0, "sharpe_sigma": 0.1}
+
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(query)
             result = cur.fetchone()
-            # Handle case where result might be None or contain None values
-            if result and result['sharpe_ratio_mu'] is not None and \
-               result['sharpe_ratio_sigma'] is not None:
-                log_msg = (
-                    "Moving Averages: "
-                    f"Sharpe Mu={result['sharpe_ratio_mu']:.2f}, "
-                    f"Sigma={result['sharpe_ratio_sigma']:.2f}"
-                )
-                logging.info(log_msg)
-                return {
-                    "sharpe_ratio_mu": result["sharpe_ratio_mu"],
-                    "sharpe_ratio_sigma": result["sharpe_ratio_sigma"]
-                }
-            # If sigma is 0 or null, return a small default value
-            elif result and result['sharpe_ratio_mu'] is not None:
-                logging.warning("Sharpe ratio sigma is zero/null. Using 0.1.")
-                return {
-                    "sharpe_ratio_mu": result["sharpe_ratio_mu"],
-                    "sharpe_ratio_sigma": 0.1
-                }
-
+            if result and result['sharpe_mu'] is not None:
+                mu = result['sharpe_mu']
+                # Ensure sigma is a non-zero float
+                sigma = result['sharpe_sigma'] if result['sharpe_sigma'] is not None and result['sharpe_sigma'] > 0 else 0.1
+                logging.info(f"Baseline stats (7d): Sharpe Mu={mu:.2f}, Sigma={sigma:.2f}")
+                return {"sharpe_mu": mu, "sharpe_sigma": sigma}
     except psycopg2.Error as e:
-        logging.error(f"Database error in get_moving_averages: {e}")
+        logging.error(f"Database error in get_baseline_statistics: {e}")
         conn.rollback()
 
-    # Fallback to zero-values if query fails or returns no data
-    logging.warning("Could not retrieve moving averages. Returning zero values.")
-    return {
-        "sharpe_ratio_mu": 0.0,
-        "sharpe_ratio_sigma": 0.1  # Use a small non-zero sigma to avoid division by zero
-    }
+    logging.warning("Could not retrieve baseline statistics. Returning fallback values.")
+    return fallback_stats
 
 
-def trigger_optimization(trigger_type, severity, window_is, window_oos):
+def trigger_optimization(drift_details: Dict[str, Any]):
     """
-    別のプロセス（オプティマイザ）に最適化の実行を指示するジョブファイルを作成します。
+    Creates a job file to signal the optimizer process to start.
 
-    このモニタリングスクリプトは直接最適化を実行しません。代わりに、
-    この関数を呼び出して、指定されたパラメータを含むJSONファイル（ジョブファイル）を
-    `PARAMS_DIR`に作成します。
-    別のオプティマイザプロセスがこのファイルを監視し、ファイルが作成されると
-    最適化タスクを開始する仕組みです。
+    This monitoring script does not run the optimization directly. Instead, it
+    communicates with the optimizer by creating a JSON file that the optimizer
+is watching for.
 
     Args:
-        trigger_type (str): 最適化がトリガーされた理由を示す文字列（例: "sharpe_drift_short_term"）。
-        severity (str): ドリフトの深刻度 ("minor", "major", "normal")。
-        window_is (float or int): 最適化のインサンプル期間（学習データ期間）の時間数。
-        window_oos (float or int): 最適化のアウトオブサンプル期間（評価データ期間）の時間数。
+        drift_details: A dictionary containing the trigger type, severity, and
+                       suggested time windows for the optimization.
     """
     job = {
-        "trigger_type": trigger_type,
-        "severity": severity,
-        "window_is_hours": window_is,
-        "window_oos_hours": window_oos,
+        "trigger_type": drift_details["trigger_type"],
+        "severity": drift_details["severity"],
+        "window_is_hours": drift_details["window_is"],
+        "window_oos_hours": drift_details["window_oos"],
         "timestamp": time.time()
     }
-    PARAMS_DIR.mkdir(parents=True, exist_ok=True)
-    job_file = PARAMS_DIR / 'optimization_job.json'
-    with open(job_file, 'w') as f:
-        json.dump(job, f)
-    logging.info(f"Optimization triggered by creating a job file: {job}")
+    try:
+        config.PARAMS_DIR.mkdir(parents=True, exist_ok=True)
+        with open(config.JOB_FILE, 'w') as f:
+            json.dump(job, f)
+        logging.critical(f"Optimization triggered by creating job file: {job}")
+    except IOError as e:
+        logging.error(f"Failed to create optimization job file: {e}")
+
+
+def check_for_drift(metrics_1h: Dict, metrics_15m: Dict, baseline: Dict) -> List[Dict]:
+    """
+    Checks for performance drift by comparing current metrics against the baseline.
+
+    Args:
+        metrics_1h: Performance metrics over the last hour.
+        metrics_15m: Performance metrics over the last 15 minutes.
+        baseline: The 7-day baseline statistics (mu and sigma).
+
+    Returns:
+        A list of dictionaries, where each dictionary represents a detected
+        drift event. Returns an empty list if no drift is detected.
+    """
+    detected_drifts = []
+    sharpe_mu, sharpe_sigma = baseline["sharpe_mu"], baseline["sharpe_sigma"]
+
+    # --- Condition 1: Short-term Sharpe Ratio Drift (Minor) ---
+    z_score_15m = (metrics_15m["sharpe_ratio"] - sharpe_mu) / sharpe_sigma
+    if z_score_15m < config.SHARPE_DRIFT_THRESHOLD_SD:
+        logging.warning(
+            f"DRIFT DETECTED (Short-term Sharpe): Z-score={z_score_15m:.2f} < {config.SHARPE_DRIFT_THRESHOLD_SD}"
+        )
+        detected_drifts.append({
+            "trigger_type": "sharpe_drift_short_term", "severity": "minor",
+            "window_is": 2, "window_oos": 0.5
+        })
+
+    # --- Condition 2: Emergency Sharpe Ratio Drop (Major) ---
+    z_score_1h = (metrics_1h["sharpe_ratio"] - sharpe_mu) / sharpe_sigma
+    if z_score_1h < config.SHARPE_EMERGENCY_THRESHOLD_SD or z_score_15m < config.SHARPE_EMERGENCY_THRESHOLD_SD:
+        logging.critical(
+            f"EMERGENCY TRIGGER (Sharpe Drop): 1h Z={z_score_1h:.2f}, 15m Z={z_score_15m:.2f}"
+        )
+        detected_drifts.append({
+            "trigger_type": "sharpe_emergency_drop", "severity": "major",
+            "window_is": 1, "window_oos": 10/60
+        })
+
+    # --- Condition 3: Profit Factor Degradation (Normal) ---
+    if metrics_1h["profit_factor"] < config.PF_DRIFT_THRESHOLD and metrics_1h["profit_factor"] > 0:
+        logging.warning(
+            f"DRIFT DETECTED (Profit Factor): PF={metrics_1h['profit_factor']:.2f} < {config.PF_DRIFT_THRESHOLD}"
+        )
+        detected_drifts.append({
+            "trigger_type": "profit_factor_drift", "severity": "normal",
+            "window_is": 4, "window_oos": 1
+        })
+
+    return detected_drifts
 
 
 def main():
     """
-    ドリフトモニタのメインループ。
+    The main loop of the drift monitor.
 
-    無限ループ内で以下の処理を定期的に（CHECK_INTERVAL_SECONDSごとに）実行します。
-    1. データベースへの接続を試みます。接続できない場合は終了します。
-    2. 短期（15分）および中期（1時間）のパフォーマンス指標を取得します。
-    3. 長期（7日間）のパフォーマンス統計（移動平均、標準偏差）を取得します。
-    4. パフォーマンスのドリフト（悪化）を検知するための複数の条件をチェックします。
-    5. ドリフトが検知された場合、問題の深刻度に応じたパラメータで最適化をトリガーします。
-    6. 一定時間待機し、次のチェックサイクルへ移ります。
+    It periodically connects to the database, fetches performance metrics,
+    checks for drift, and triggers re-optimization if necessary.
     """
     logging.info("Drift monitor started.")
-    conn = None  # 接続オブジェクトを初期化
+    conn = None
     try:
-        # --- データベース接続 ---
         conn = get_db_connection()
         if not conn:
             logging.error("Failed to get DB connection. Exiting.")
             return
 
-        # --- メインループ ---
         while True:
             logging.info("--- Running Drift Check ---")
-            detected_drifts = []
 
-            # 1. 現在のパフォーマンス指標を取得
-            # 中期的なパフォーマンス（1時間）
+            # 1. Get current performance and historical baseline
             metrics_1h = get_performance_metrics(conn, 1)
-            # 短期的なパフォーマンス（15分）
             metrics_15m = get_performance_metrics(conn, 0.25)
+            baseline_stats = get_baseline_statistics(conn)
 
-            # 2. 過去のパフォーマンス統計（ベースライン）を取得
-            # 過去7日間の平均と標準偏差
-            stats = get_moving_averages(conn)
+            # 2. Check for drift conditions
+            detected_drifts = check_for_drift(metrics_1h, metrics_15m, baseline_stats)
 
-            # 3. ドリフト（市場状況の変化によるパフォーマンス悪化）の条件をチェック
-            # 標準偏差が0より大きいことを確認（ゼロ除算を避けるため）
-            if stats and stats["sharpe_ratio_sigma"] > 0:
-                # --- 条件1: 短期的なシャープレシオの悪化（軽微なドリフト）---
-                # 直近15分のシャープレシオからZスコアを計算
-                z_score = (
-                    (metrics_15m["sharpe_ratio"] - stats["sharpe_ratio_mu"]) /
-                    stats["sharpe_ratio_sigma"]
-                )
-                # Zスコアが軽微なドリフトの閾値を下回ったか？
-                if z_score < SHARPE_DRIFT_THRESHOLD_SD:
-                    log_msg = (
-                        "DRIFT DETECTED (Short-term Sharpe): "
-                        f"Z-score={z_score:.2f} < {SHARPE_DRIFT_THRESHOLD_SD}"
-                    )
-                    logging.warning(log_msg)
-                    detected_drifts.append({
-                        "trigger_type": "sharpe_drift_short_term",
-                        "severity": "minor",
-                        "window_is": 2,
-                        "window_oos": 0.5
-                    })
-
-                # --- 条件2: 緊急レベルのシャープレシオ低下（深刻なドリフト）---
-                # 1時間と15分の両方のZスコアを計算
-                z_1h = (
-                    (metrics_1h["sharpe_ratio"] - stats["sharpe_ratio_mu"]) /
-                    stats["sharpe_ratio_sigma"]
-                )
-                z_15m = (
-                    (metrics_15m["sharpe_ratio"] - stats["sharpe_ratio_mu"]) /
-                    stats["sharpe_ratio_sigma"]
-                )
-                # どちらかのZスコアが緊急閾値を下回ったか？
-                if z_1h < SHARPE_EMERGENCY_THRESHOLD_SD or \
-                   z_15m < SHARPE_EMERGENCY_THRESHOLD_SD:
-                    log_msg = (
-                        "EMERGENCY TRIGGER (Sharpe Drop): "
-                        f"1h Z={z_1h:.2f}, 15m Z={z_15m:.2f}"
-                    )
-                    logging.critical(log_msg)
-                    detected_drifts.append({
-                        "trigger_type": "sharpe_emergency_drop",
-                        "severity": "major",
-                        "window_is": 1,
-                        "window_oos": 10/60
-                    })
-
-            # --- 条件3: プロフィットファクターの悪化（安定性の低下）---
-            # 直近1時間のプロフィットファクターが閾値を下回ったか？
-            if metrics_1h["profit_factor"] < PF_DRIFT_THRESHOLD:
-                log_msg = (
-                    "DRIFT DETECTED (Profit Factor): "
-                    f"PF={metrics_1h['profit_factor']:.2f} < "
-                    f"{PF_DRIFT_THRESHOLD}"
-                )
-                logging.warning(log_msg)
-                detected_drifts.append({
-                    "trigger_type": "profit_factor_drift",
-                    "severity": "normal",
-                    "window_is": 4,
-                    "window_oos": 1
-                })
-
-            # 4. 最も優先度の高いドリフトに基づいて最適化をトリガー
+            # 3. If drift is detected, trigger optimization with the highest priority
             if detected_drifts:
-                # "major", "normal", "minor" の順で優先度を決定
+                # Prioritize by severity: major > normal > minor
                 severity_order = {"major": 0, "normal": 1, "minor": 2}
-                best_drift = min(
-                    detected_drifts,
-                    key=lambda x: severity_order[x['severity']]
-                )
-                trigger_optimization(
-                    best_drift["trigger_type"],
-                    best_drift["severity"],
-                    best_drift["window_is"],
-                    best_drift["window_oos"]
-                )
+                best_drift = min(detected_drifts, key=lambda x: severity_order[x['severity']])
+                trigger_optimization(best_drift)
 
-            # --- 次のチェックまで待機 ---
-            logging.info(
-                "Drift check complete. Waiting for "
-                f"{CHECK_INTERVAL_SECONDS} seconds."
-            )
-            time.sleep(CHECK_INTERVAL_SECONDS)
+            logging.info(f"Drift check complete. Waiting for {config.CHECK_INTERVAL_SECONDS} seconds.")
+            time.sleep(config.CHECK_INTERVAL_SECONDS)
 
     except KeyboardInterrupt:
         logging.info("Drift monitor stopped by user.")
     except Exception as e:
-        logging.error(f"An unexpected error occurred: {e}", exc_info=True)
+        logging.error(f"An unexpected error occurred in the main loop: {e}", exc_info=True)
     finally:
         if conn:
             conn.close()
