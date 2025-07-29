@@ -51,11 +51,11 @@ def get_performance_metrics(conn: DbConnection, hours: float) -> Dict[str, float
         A dictionary with performance metrics. Returns a dict with zero-values
         as a fallback if the query fails or returns no data.
     """
-    minutes = int(hours * 60)
+    hours_numeric = hours
     query = """
         SELECT sharpe_ratio, profit_factor, max_drawdown
         FROM pnl_reports
-        WHERE time >= NOW() - INTERVAL '1 minute' * %s
+        WHERE time >= NOW() - INTERVAL '1 hour' * %s
         ORDER BY time DESC
         LIMIT 1;
     """
@@ -63,7 +63,7 @@ def get_performance_metrics(conn: DbConnection, hours: float) -> Dict[str, float
 
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-            cur.execute(query, (minutes,))
+            cur.execute(query, (hours_numeric,))
             result = cur.fetchone()
             if result:
                 logging.info(
