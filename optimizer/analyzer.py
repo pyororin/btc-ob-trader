@@ -55,14 +55,14 @@ def analyze_study(study_name: str, storage_url: str) -> Union[Dict, None]:
     quantile_threshold = df['value'].quantile(1 - config.TOP_TRIALS_QUANTILE)
     top_trials_df = df[df['value'] >= quantile_threshold]
 
-    # Safeguard: If not enough top trials, fall back to the single best trial
+    # Safeguard: If not enough top trials, robust analysis is not possible.
     if len(top_trials_df) < config.MIN_TRIALS_FOR_ANALYSIS:
         logging.warning(
             f"Number of top trials ({len(top_trials_df)}) is below the minimum "
             f"required for robust analysis ({config.MIN_TRIALS_FOR_ANALYSIS}). "
-            "Falling back to the best trial's parameters."
+            "Cannot determine robust parameters."
         )
-        return study.best_trial.params
+        return None
 
     logging.info(f"Analyzing the top {len(top_trials_df)} trials (quantile > {1 - config.TOP_TRIALS_QUANTILE:.2f}).")
 
@@ -134,13 +134,21 @@ def main():
     )
     args = parser.parse_args()
 
-    robust_params = analyze_study(args.study_name, config.STORAGE_URL)
+    try:
+        robust_params = analyze_study(args.study_name, config.STORAGE_URL)
 
-    if robust_params:
-        # Output the parameters as JSON to stdout for the calling process
-        print(json.dumps(robust_params))
-    else:
-        logging.error("Could not determine robust parameters.")
+        if robust_params:
+            # Output the parameters as JSON to stdout for the calling process
+            print(json.dumps(robust_params))
+        else:
+            # Output None (as a string, to be handled by the caller) or empty JSON
+            print(json.dumps(None))
+            logging.warning("Could not determine robust parameters, returning null.")
+
+    except Exception as e:
+        logging.error("An unexpected error occurred in analyzer.py", exc_info=True)
+        # Still print None to allow the calling process to continue gracefully
+        print(json.dumps(None))
         exit(1)
 
 
