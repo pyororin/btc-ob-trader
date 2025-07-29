@@ -58,6 +58,17 @@ def analyze_study(study_name, storage_url):
     quantile_threshold = df['value'].quantile(1 - TOP_TRIALS_QUANTILE)
     top_trials_df = df[df['value'] >= quantile_threshold]
 
+    # Add a safeguard to ensure there are enough trials for analysis
+    MIN_TRIALS_FOR_ANALYSIS = 10  # Set a reasonable minimum
+    if len(top_trials_df) < MIN_TRIALS_FOR_ANALYSIS:
+        logging.warning(
+            f"Number of top trials ({len(top_trials_df)}) is below the minimum required for robust analysis ({MIN_TRIALS_FOR_ANALYSIS}). "
+            "Falling back to the best trial's parameters."
+        )
+        best_trial_params = study.best_trial.params
+        return best_trial_params
+
+
     if top_trials_df.empty:
         logging.warning(f"No trials found above the {1-TOP_TRIALS_QUANTILE:.0%} quantile. Using the best trial instead.")
         best_trial_params = study.best_trial.params
@@ -76,10 +87,20 @@ def analyze_study(study_name, storage_url):
         # Handle categorical vs. numerical parameters
         if pd.api.types.is_numeric_dtype(param_values):
             # Use KDE for numerical parameters
-            if param_values.nunique() > 1:
-                kde = gaussian_kde(param_values)
-                # Evaluate KDE on a grid of points
-                grid = np.linspace(param_values.min(), param_values.max(), 500)
+            # Add a check for standard deviation to avoid errors with KDE
+            if param_values.nunique() > 1 and param_values.std() > 1e-6:
+                try:
+                    kde = gaussian_kde(param_values)
+                    # Evaluate KDE on a grid of points
+                    grid = np.linspace(param_values.min(), param_values.max(), 500)
+                except np.linalg.LinAlgError:
+                    # If KDE fails (e.g., singular matrix), fall back to mean or mode
+                    logging.warning(f"KDE failed for {param_name}. Falling back to median.")
+                    robust_params[param_name] = param_values.median()
+                    if pd.api.types.is_integer_dtype(param_values.dropna()):
+                        robust_params[param_name] = int(round(robust_params[param_name]))
+                    continue
+
                 kde_values = kde.evaluate(grid)
                 # Find the value with the highest density
                 mode_value = grid[np.argmax(kde_values)]

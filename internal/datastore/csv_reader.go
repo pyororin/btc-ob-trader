@@ -10,16 +10,42 @@ import (
 	"time"
 
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
+	"github.com/your-org/obi-scalp-bot/pkg/cvd"
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
 )
 
-// StreamMarketEventsFromCSV reads order book data from a CSV file and streams it as coincheck.OrderBookData
-// instances through a channel. It groups updates by timestamp to form snapshots.
+// MarketEvent is an interface for any event read from the simulation CSV.
+type MarketEvent interface {
+	GetTime() time.Time
+}
+
+// OrderBookEvent wraps OrderBookData to implement MarketEvent.
+type OrderBookEvent struct {
+	coincheck.OrderBookData
+}
+
+// GetTime returns the timestamp of the order book event.
+func (e OrderBookEvent) GetTime() time.Time {
+	return e.Time
+}
+
+// TradeEvent wraps a single trade to implement MarketEvent.
+type TradeEvent struct {
+	cvd.Trade
+}
+
+// GetTime returns the timestamp of the trade event.
+func (e TradeEvent) GetTime() time.Time {
+	return e.Timestamp
+}
+
+// StreamMarketEventsFromCSV reads market data from a CSV file and streams it as MarketEvent
+// instances through a channel. It groups order book updates by timestamp to form snapshots.
 // The function returns a channel for events and a channel for errors.
 // The CSV file is expected to have a header and the following columns:
-// time, pair, side, price, size, is_snapshot
-func StreamMarketEventsFromCSV(ctx context.Context, filePath string) (<-chan coincheck.OrderBookData, <-chan error) {
-	eventCh := make(chan coincheck.OrderBookData)
+// time, event_type, pair, side, price, size, is_snapshot, trade_id
+func StreamMarketEventsFromCSV(ctx context.Context, filePath string) (<-chan MarketEvent, <-chan error) {
+	eventCh := make(chan MarketEvent)
 	errCh := make(chan error, 1)
 
 	go func() {
@@ -34,39 +60,30 @@ func StreamMarketEventsFromCSV(ctx context.Context, filePath string) (<-chan coi
 		defer file.Close()
 
 		reader := csv.NewReader(file)
-		// Read the header row
-		if _, err := reader.Read(); err != nil {
+		header, err := reader.Read()
+		if err != nil {
 			if err != io.EOF {
 				errCh <- fmt.Errorf("failed to read csv header: %w", err)
 			}
-			return // Empty file is not an error
+			return
+		}
+		headerMap := make(map[string]int)
+		for i, h := range header {
+			headerMap[h] = i
 		}
 
-		var currentUpdates []coincheck.OrderBookLevel
-		var currentTime time.Time
-		var currentPair string
-		var totalSnapshots int
+		var currentBookUpdates []coincheck.OrderBookLevel
+		var currentBookTime time.Time
+		var currentBookPair string
+		var totalEvents int
 
-		const timeLayout = "2006-01-02 15:04:05.999999-07"
-		flushSnapshot := func() {
-			if len(currentUpdates) == 0 {
+		flushBookSnapshot := func() {
+			if len(currentBookUpdates) == 0 {
 				return
 			}
-
-			bidCount := 0
-			askCount := 0
-			for _, u := range currentUpdates {
-				if u.Side == "bid" {
-					bidCount++
-				} else {
-					askCount++
-				}
-			}
-
-			bids := make([][]string, 0, bidCount)
-			asks := make([][]string, 0, askCount)
-
-			for _, u := range currentUpdates {
+			bids := make([][]string, 0)
+			asks := make([][]string, 0)
+			for _, u := range currentBookUpdates {
 				level := []string{
 					strconv.FormatFloat(u.Price, 'f', -1, 64),
 					strconv.FormatFloat(u.Size, 'f', -1, 64),
@@ -77,18 +94,20 @@ func StreamMarketEventsFromCSV(ctx context.Context, filePath string) (<-chan coi
 					asks = append(asks, level)
 				}
 			}
-
 			select {
-			case eventCh <- coincheck.OrderBookData{
-				PairStr: currentPair,
-				Bids:    bids,
-				Asks:    asks,
-				Time:    currentTime,
+			case eventCh <- OrderBookEvent{
+				OrderBookData: coincheck.OrderBookData{
+					PairStr: currentBookPair,
+					Bids:    bids,
+					Asks:    asks,
+					Time:    currentBookTime,
+				},
 			}:
-				totalSnapshots++
+				totalEvents++
 			case <-ctx.Done():
 				return
 			}
+			currentBookUpdates = nil
 		}
 
 		for {
@@ -99,50 +118,56 @@ func StreamMarketEventsFromCSV(ctx context.Context, filePath string) (<-chan coi
 			default:
 				record, err := reader.Read()
 				if err == io.EOF {
-					flushSnapshot()
-					logger.Infof("Successfully streamed %d order book snapshots from %s", totalSnapshots, filePath)
-					return // End of file, successful completion
+					flushBookSnapshot()
+					logger.Infof("Successfully streamed %d market events from %s", totalEvents, filePath)
+					return
 				}
 				if err != nil {
 					errCh <- fmt.Errorf("failed to read csv record: %w", err)
 					return
 				}
 
-				if len(record) != 6 {
-					logger.Warnf("Skipping record due to invalid number of columns: expected 6, got %d", len(record))
-					continue
-				}
-
-				eventTime, err := parseTime(record[0])
+				eventType := record[headerMap["event_type"]]
+				eventTime, err := parseTime(record[headerMap["time"]])
 				if err != nil {
 					logger.Warnf("Skipping record due to time parse error: %v", err)
 					continue
 				}
 
-				if !currentTime.IsZero() && eventTime != currentTime {
-					flushSnapshot()
-					currentUpdates = nil
+				if eventType == "book" {
+					if !currentBookTime.IsZero() && eventTime != currentBookTime {
+						flushBookSnapshot()
+					}
+					currentBookTime = eventTime
+					currentBookPair = record[headerMap["pair"]]
+					side := record[headerMap["side"]]
+					price, _ := strconv.ParseFloat(record[headerMap["price"]], 64)
+					size, _ := strconv.ParseFloat(record[headerMap["size"]], 64)
+					currentBookUpdates = append(currentBookUpdates, coincheck.OrderBookLevel{
+						Side:  side,
+						Price: price,
+						Size:  size,
+					})
+				} else if eventType == "trade" {
+					flushBookSnapshot() // Flush any pending book updates before the trade
+					price, _ := strconv.ParseFloat(record[headerMap["price"]], 64)
+					size, _ := strconv.ParseFloat(record[headerMap["size"]], 64)
+					trade := TradeEvent{
+						Trade: cvd.Trade{
+							ID:        record[headerMap["trade_id"]],
+							Side:      record[headerMap["side"]],
+							Price:     price,
+							Size:      size,
+							Timestamp: eventTime,
+						},
+					}
+					select {
+					case eventCh <- trade:
+						totalEvents++
+					case <-ctx.Done():
+						return
+					}
 				}
-
-				currentTime = eventTime
-				currentPair = record[1]
-				side := record[2]
-				price, err := strconv.ParseFloat(record[3], 64)
-				if err != nil {
-					logger.Warnf("Skipping record due to price parse error: %v", err)
-					continue
-				}
-				size, err := strconv.ParseFloat(record[4], 64)
-				if err != nil {
-					logger.Warnf("Skipping record due to size parse error: %v", err)
-					continue
-				}
-
-				currentUpdates = append(currentUpdates, coincheck.OrderBookLevel{
-					Side:  side,
-					Price: price,
-					Size:  size,
-				})
 			}
 		}
 	}()
@@ -151,12 +176,9 @@ func StreamMarketEventsFromCSV(ctx context.Context, filePath string) (<-chan coi
 }
 
 func parseTime(timeStr string) (time.Time, error) {
-	// The format is assumed to be consistent based on export logic.
-	// e.g., "2025-07-14 04:11:13.484971+00"
 	const layout = "2006-01-02 15:04:05.999999-07"
 	t, err := time.Parse(layout, timeStr)
 	if err != nil {
-		// Fallback for safety, though it shouldn't be hit if data is consistent.
 		t, err = time.Parse(time.RFC3339, timeStr)
 		if err != nil {
 			return time.Time{}, fmt.Errorf("could not parse time '%s' with any known format", timeStr)
@@ -165,8 +187,8 @@ func parseTime(timeStr string) (time.Time, error) {
 	return t, nil
 }
 
-// LoadMarketEventsFromCSV reads an entire CSV file into memory and returns it as a slice of OrderBookData.
-func LoadMarketEventsFromCSV(filePath string) ([]coincheck.OrderBookData, error) {
+// LoadMarketEventsFromCSV reads an entire CSV file into memory and returns it as a slice of MarketEvent.
+func LoadMarketEventsFromCSV(filePath string) ([]MarketEvent, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open csv file: %w", err)
@@ -174,103 +196,91 @@ func LoadMarketEventsFromCSV(filePath string) ([]coincheck.OrderBookData, error)
 	defer file.Close()
 
 	reader := csv.NewReader(file)
-	// Read the header row
-	if _, err := reader.Read(); err != nil {
+	header, err := reader.Read()
+	if err != nil {
 		if err == io.EOF {
-			return []coincheck.OrderBookData{}, nil // Empty file is okay
+			return []MarketEvent{}, nil
 		}
 		return nil, fmt.Errorf("failed to read csv header: %w", err)
 	}
+	headerMap := make(map[string]int)
+	for i, h := range header {
+		headerMap[h] = i
+	}
 
-	var events []coincheck.OrderBookData
-	var currentUpdates []coincheck.OrderBookLevel
-	var currentTime time.Time
-	var currentPair string
+	var events []MarketEvent
+	var currentBookUpdates []coincheck.OrderBookLevel
+	var currentBookTime time.Time
+	var currentBookPair string
 
-	flushSnapshot := func() {
-		if len(currentUpdates) == 0 {
+	flushBookSnapshot := func() {
+		if len(currentBookUpdates) == 0 {
 			return
 		}
-
-		bidCount := 0
-		askCount := 0
-		for _, u := range currentUpdates {
-			if u.Side == "bid" {
-				bidCount++
-			} else {
-				askCount++
-			}
-		}
-
-		bids := make([][]string, 0, bidCount)
-		asks := make([][]string, 0, askCount)
-
-		for _, u := range currentUpdates {
-			level := []string{
-				strconv.FormatFloat(u.Price, 'f', -1, 64),
-				strconv.FormatFloat(u.Size, 'f', -1, 64),
-			}
+		bids := make([][]string, 0)
+		asks := make([][]string, 0)
+		for _, u := range currentBookUpdates {
+			level := []string{strconv.FormatFloat(u.Price, 'f', -1, 64), strconv.FormatFloat(u.Size, 'f', -1, 64)}
 			if u.Side == "bid" {
 				bids = append(bids, level)
 			} else {
 				asks = append(asks, level)
 			}
 		}
-
-		events = append(events, coincheck.OrderBookData{
-			PairStr: currentPair,
-			Bids:    bids,
-			Asks:    asks,
-			Time:    currentTime,
+		events = append(events, OrderBookEvent{
+			OrderBookData: coincheck.OrderBookData{
+				PairStr: currentBookPair,
+				Bids:    bids,
+				Asks:    asks,
+				Time:    currentBookTime,
+			},
 		})
+		currentBookUpdates = nil
 	}
 
 	for {
 		record, err := reader.Read()
 		if err == io.EOF {
-			flushSnapshot()
+			flushBookSnapshot()
 			break
 		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to read csv record: %w", err)
 		}
 
-		if len(record) != 6 {
-			logger.Warnf("Skipping record due to invalid number of columns: expected 6, got %d", len(record))
-			continue
-		}
-
-		eventTime, err := parseTime(record[0])
+		eventType := record[headerMap["event_type"]]
+		eventTime, err := parseTime(record[headerMap["time"]])
 		if err != nil {
 			logger.Warnf("Skipping record due to time parse error: %v", err)
 			continue
 		}
 
-		if !currentTime.IsZero() && eventTime != currentTime {
-			flushSnapshot()
-			currentUpdates = nil
+		if eventType == "book" {
+			if !currentBookTime.IsZero() && eventTime != currentBookTime {
+				flushBookSnapshot()
+			}
+			currentBookTime = eventTime
+			currentBookPair = record[headerMap["pair"]]
+			side := record[headerMap["side"]]
+			price, _ := strconv.ParseFloat(record[headerMap["price"]], 64)
+			size, _ := strconv.ParseFloat(record[headerMap["size"]], 64)
+			currentBookUpdates = append(currentBookUpdates, coincheck.OrderBookLevel{
+				Side: side, Price: price, Size: size,
+			})
+		} else if eventType == "trade" {
+			flushBookSnapshot()
+			price, _ := strconv.ParseFloat(record[headerMap["price"]], 64)
+			size, _ := strconv.ParseFloat(record[headerMap["size"]], 64)
+			events = append(events, TradeEvent{
+				Trade: cvd.Trade{
+					ID:        record[headerMap["trade_id"]],
+					Side:      record[headerMap["side"]],
+					Price:     price,
+					Size:      size,
+					Timestamp: eventTime,
+				},
+			})
 		}
-
-		currentTime = eventTime
-		currentPair = record[1]
-		side := record[2]
-		price, err := strconv.ParseFloat(record[3], 64)
-		if err != nil {
-			logger.Warnf("Skipping record due to price parse error: %v", err)
-			continue
-		}
-		size, err := strconv.ParseFloat(record[4], 64)
-		if err != nil {
-			logger.Warnf("Skipping record due to size parse error: %v", err)
-			continue
-		}
-
-		currentUpdates = append(currentUpdates, coincheck.OrderBookLevel{
-			Side:  side,
-			Price: price,
-			Size:  size,
-		})
 	}
-
 	return events, nil
 }

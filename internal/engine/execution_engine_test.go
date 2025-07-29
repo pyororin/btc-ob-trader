@@ -95,7 +95,7 @@ func mockCoincheckServer(
 		mux.HandleFunc("/api/exchange/orders/opens", openOrdersHandler)
 	}
 	if transactionsHandler != nil {
-		mux.HandleFunc("/api/exchange/orders/transactions", transactionsHandler)
+		mux.HandleFunc("/api/exchange/orders/transactions_pagination", transactionsHandler)
 	}
 
 	mux.HandleFunc("/api/exchange/orders", func(w http.ResponseWriter, r *http.Request) {
@@ -148,10 +148,13 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 		case "/api/exchange/orders/opens":
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}})
-		case "/api/exchange/orders/transactions":
-			resp := coincheck.TransactionsResponse{
+		case "/api/exchange/orders/transactions_pagination":
+			resp := struct {
+				Success bool `json:"success"`
+				Data    []coincheck.Transaction `json:"data"`
+			}{
 				Success: true,
-				Transactions: []coincheck.Transaction{
+				Data: []coincheck.Transaction{
 					{ID: 98765, OrderID: orderID, Pair: "btc_jpy", Rate: "5000000.0", Side: "buy", CreatedAt: time.Now().UTC().Format(time.RFC3339)},
 				},
 			}
@@ -182,6 +185,75 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 	assert.Equal(t, "post_only", respPostOnly.TimeInForce)
 }
 
+func TestExecutionEngine_PlaceOrder_SuccessAfterMultiplePolls(t *testing.T) {
+	var orderID int64 = 54321
+	var pollCount int32
+	mockServer, _ := setupTest(t)
+	defer mockServer.Close()
+
+	// This handler will return an empty transaction list for the first 2 polls,
+	// then return the transaction on the 3rd poll.
+	mockServer.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/exchange/orders":
+			resp := coincheck.OrderResponse{Success: true, ID: orderID, Amount: "0.01"}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		case "/api/accounts/balance":
+			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		case "/api/exchange/orders/transactions_pagination":
+			currentPollCount := atomic.AddInt32(&pollCount, 1)
+			var transactions []coincheck.Transaction
+			if currentPollCount >= 3 {
+				transactions = []coincheck.Transaction{
+					{ID: 98765, OrderID: orderID, Pair: "btc_jpy", Rate: "5100000.0", Side: "buy", CreatedAt: time.Now().UTC().Format(time.RFC3339)},
+				}
+			}
+			// The actual response is nested under a "data" key
+			resp := struct {
+				Success bool                    `json:"success"`
+				Data    []coincheck.Transaction `json:"data"`
+			}{
+				Success: true,
+				Data:    transactions,
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
+	originalBaseURL := coincheck.GetBaseURL()
+	coincheck.SetBaseURL(mockServer.URL)
+	defer coincheck.SetBaseURL(originalBaseURL)
+
+	// Use a mock DB writer to verify data is being saved
+	mockWriter := &mockDBWriter{
+		saveTradeCalled: make(chan bool, 1),
+	}
+	execEngine := NewLiveExecutionEngine(ccClient, mockWriter, nil)
+
+	resp, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5100000, 0.01, false)
+	require.NoError(t, err)
+	require.True(t, resp.Success)
+	assert.Equal(t, orderID, resp.ID)
+	assert.True(t, atomic.LoadInt32(&pollCount) >= 3, "Expected at least 3 polls to GetTransactions")
+
+	// Verify that the trade was saved to the DB
+	select {
+	case <-mockWriter.saveTradeCalled:
+		assert.Equal(t, int64(98765), mockWriter.savedTrade.TransactionID)
+		assert.False(t, mockWriter.savedTrade.IsCancelled)
+		assert.True(t, mockWriter.savedTrade.IsMyTrade)
+	case <-time.After(2 * time.Second):
+		t.Fatal("SaveTrade was not called within the timeout")
+	}
+}
+
 func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 	var requestedAmount float64
 	var orderID int64
@@ -207,10 +279,13 @@ func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		case "/api/exchange/orders/transactions":
-			resp := coincheck.TransactionsResponse{
+		case "/api/exchange/orders/transactions_pagination":
+			resp := struct {
+				Success bool `json:"success"`
+				Data    []coincheck.Transaction `json:"data"`
+			}{
 				Success: true,
-				Transactions: []coincheck.Transaction{
+				Data: []coincheck.Transaction{
 					{ID: 98766, OrderID: orderID, Pair: "btc_jpy", Rate: "5000000.0", Side: "buy", CreatedAt: time.Now().UTC().Format(time.RFC3339)},
 				},
 			}
@@ -325,8 +400,14 @@ func TestExecutionEngine_PlaceOrder_Timeout(t *testing.T) {
 			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		case r.URL.Path == "/api/exchange/orders/transactions":
-			resp := coincheck.TransactionsResponse{Success: true, Transactions: []coincheck.Transaction{}}
+		case r.URL.Path == "/api/exchange/orders/transactions_pagination":
+			resp := struct {
+				Success bool `json:"success"`
+				Data    []coincheck.Transaction `json:"data"`
+			}{
+				Success: true,
+				Data:    []coincheck.Transaction{},
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
 		default:
@@ -351,8 +432,6 @@ func TestExecutionEngine_PlaceOrder_Timeout(t *testing.T) {
 
 // mockDBWriter is a mock implementation of the dbwriter.DBWriter for testing.
 type mockDBWriter struct {
-	saveLatencyCalled   chan bool
-	savedLatency        dbwriter.Latency
 	saveTradeCalled     chan bool
 	savedTrade          dbwriter.Trade
 	savePnlSummaryCalled chan bool
@@ -361,12 +440,6 @@ type mockDBWriter struct {
 	savedTradePnl       dbwriter.TradePnL
 }
 
-func (m *mockDBWriter) SaveLatency(latency dbwriter.Latency) {
-	m.savedLatency = latency
-	if m.saveLatencyCalled != nil {
-		m.saveLatencyCalled <- true
-	}
-}
 
 func (m *mockDBWriter) SaveTrade(trade dbwriter.Trade) {
 	m.savedTrade = trade
@@ -444,11 +517,14 @@ func TestExecutionEngine_AdaptivePositionSizing(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
-		case "/api/exchange/orders/transactions":
+		case "/api/exchange/orders/transactions_pagination":
 			currentOrderID := atomic.LoadInt64(&orderIDCounter)
-			resp := coincheck.TransactionsResponse{
+			resp := struct {
+				Success bool `json:"success"`
+				Data    []coincheck.Transaction `json:"data"`
+			}{
 				Success: true,
-				Transactions: []coincheck.Transaction{{ID: currentOrderID + 5000, OrderID: currentOrderID}},
+				Data:    []coincheck.Transaction{{ID: currentOrderID + 5000, OrderID: currentOrderID}},
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
@@ -654,14 +730,24 @@ func TestExecutionEngine_RiskManagement(t *testing.T) {
 		assert.EqualValues(t, 0, atomic.LoadInt32(&newOrderRequestCount), "NewOrder should not have been called")
 	})
 
-	t.Run("stops order on max position breach", func(t *testing.T) {
+	t.Run("stops order on max position breach for buy order", func(t *testing.T) {
 		execEngine := setupEngine()
 		execEngine.SetPositionForTest(t, 0.1, 5000000) // Position value is 500,000 JPY (50% of 1M balance)
 
 		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.001, false)
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "risk check failed: prospective position value")
+		assert.Contains(t, err.Error(), "risk check failed: prospective JPY position value")
+		assert.EqualValues(t, 0, atomic.LoadInt32(&newOrderRequestCount), "NewOrder should not have been called")
+	})
+
+	t.Run("stops order on max position breach for sell order", func(t *testing.T) {
+		execEngine := setupEngine()
+		// Balance is 1.0 BTC, MaxPositionRatio is 0.5, so max sell is 0.5 BTC
+		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "sell", 5000000, 0.6, false)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "risk check failed: sell order amount")
 		assert.EqualValues(t, 0, atomic.LoadInt32(&newOrderRequestCount), "NewOrder should not have been called")
 	})
 
@@ -683,72 +769,3 @@ func TestExecutionEngine_RiskManagement(t *testing.T) {
 	})
 }
 
-/*
-func TestExecutionEngine_PlaceOrder_Latency_Recording(t *testing.T) {
-	orderID := int64(999)
-	var orderSentTime time.Time
-	var txCreatedAt time.Time
-	var mu sync.Mutex
-
-	mockServer := mockCoincheckServer(
-		func(w http.ResponseWriter, r *http.Request) { // NewOrder Handler
-			resp := coincheck.OrderResponse{Success: true, ID: orderID}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
-		},
-		nil, // No cancel
-		func(w http.ResponseWriter, r *http.Request) { // Balance Handler
-			resp := coincheck.BalanceResponse{Success: true, Jpy: "1000000", Btc: "1.0"}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // OpenOrders Handler
-			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
-		},
-		func(w http.ResponseWriter, r *http.Request) { // Transactions Handler
-			mu.Lock()
-			txCreatedAt = time.Now().UTC().Add(50 * time.Millisecond)
-			mu.Unlock()
-			resp := coincheck.TransactionsResponse{
-				Success: true,
-				Transactions: []coincheck.Transaction{
-					{ID: 1, OrderID: orderID, CreatedAt: txCreatedAt.Format(time.RFC3339), Rate: "5000000", Side: "buy"},
-				},
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
-		},
-	)
-	defer mockServer.Close()
-
-	ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
-	originalBaseURL := coincheck.GetBaseURL()
-	coincheck.SetBaseURL(mockServer.URL)
-	defer coincheck.SetBaseURL(originalBaseURL)
-
-	tradeCfg := &config.TradeConfig{OrderRatio: 0.1}
-	orderCfg := &config.OrderConfig{PollIntervalMs: 10, TimeoutSeconds: 2}
-	riskCfg := &config.RiskConfig{}
-
-	mockWriter := &mockDBWriter{
-		saveLatencyCalled: make(chan bool, 1),
-	}
-	execEngine := NewLiveExecutionEngine(ccClient, tradeCfg, orderCfg, riskCfg, mockWriter)
-
-	_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, false)
-	require.NoError(t, err)
-
-	select {
-	case <-mockWriter.saveLatencyCalled:
-		assert.Equal(t, orderID, mockWriter.savedLatency.OrderID)
-		assert.True(t, mockWriter.savedLatency.LatencyMs >= 0, "Latency should be non-negative")
-		mu.Lock()
-		assert.WithinDuration(t, txCreatedAt, mockWriter.savedLatency.Time, 150*time.Millisecond, "Latency timestamp should be close to transaction time")
-		mu.Unlock()
-	case <-time.After(2 * time.Second):
-		t.Fatal("SaveLatency was not called within the timeout")
-	}
-}
-*/

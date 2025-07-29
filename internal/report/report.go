@@ -55,6 +55,7 @@ type Report struct {
 	AverageLosingHoldingPeriodSeconds  float64       `json:"average_losing_holding_period_seconds"`
 	BuyAndHoldReturn                 decimal.Decimal `json:"buy_and_hold_return"`
 	ReturnVsBuyAndHold               decimal.Decimal `json:"return_vs_buy_and_hold"`
+	LastTradeID                      int64           `json:"last_trade_id"`
 }
 
 // Service handles report generation.
@@ -73,9 +74,20 @@ func (s *Service) AnalyzeTrades(trades []Trade) (Report, error) {
 		return Report{}, fmt.Errorf("no trades to analyze")
 	}
 
+	var myTrades []Trade
+	for _, t := range trades {
+		if t.IsMyTrade {
+			myTrades = append(myTrades, t)
+		}
+	}
+
+	if len(myTrades) == 0 {
+		return Report{}, fmt.Errorf("no trades to analyze")
+	}
+
 	var executedTrades []Trade
 	cancelledCount := 0
-	for _, t := range trades {
+	for _, t := range myTrades {
 		if t.IsCancelled {
 			cancelledCount++
 		} else {
@@ -320,6 +332,11 @@ func (s *Service) AnalyzeTrades(trades []Trade) (Report, error) {
 
 	returnVsBuyAndHold := totalPnL.Sub(buyAndHoldReturn)
 
+	lastTradeID := int64(0)
+	if len(executedTrades) > 0 {
+		lastTradeID = executedTrades[len(executedTrades)-1].TransactionID
+	}
+
 	return Report{
 		StartDate:                        startDate,
 		EndDate:                          endDate,
@@ -352,6 +369,7 @@ func (s *Service) AnalyzeTrades(trades []Trade) (Report, error) {
 		AverageLosingHoldingPeriodSeconds:  avgLosingHoldingPeriod,
 		BuyAndHoldReturn:                 buyAndHoldReturn,
 		ReturnVsBuyAndHold:               returnVsBuyAndHold,
+		LastTradeID:                      lastTradeID,
 	}, nil
 }
 
@@ -367,10 +385,11 @@ func (s *Service) SavePnlReport(ctx context.Context, report Report) error {
             profit_factor, max_drawdown, recovery_factor, sharpe_ratio,
             sortino_ratio, calmar_ratio, max_consecutive_wins, max_consecutive_losses,
             average_holding_period_seconds, average_winning_holding_period_seconds,
-            average_losing_holding_period_seconds, buy_and_hold_return, return_vs_buy_and_hold
+            average_losing_holding_period_seconds, buy_and_hold_return, return_vs_buy_and_hold,
+            last_trade_id
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
-            $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32
+            $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33
         );
     `
 	_, err := s.db.Exec(ctx, query,
@@ -383,6 +402,7 @@ func (s *Service) SavePnlReport(ctx context.Context, report Report) error {
 		report.SortinoRatio, report.CalmarRatio, report.MaxConsecutiveWins, report.MaxConsecutiveLosses,
 		report.AverageHoldingPeriodSeconds, report.AverageWinningHoldingPeriodSeconds,
 		report.AverageLosingHoldingPeriodSeconds, report.BuyAndHoldReturn, report.ReturnVsBuyAndHold,
+		report.LastTradeID,
 	)
 	return err
 }

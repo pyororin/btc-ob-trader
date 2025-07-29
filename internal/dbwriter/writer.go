@@ -59,12 +59,6 @@ type PnLSummary struct {
 	AvgEntryPrice   float64   `db:"avg_entry_price"`
 }
 
-// Latency は約定レイテンシの情報を格納する構造体です。
-type Latency struct {
-	Time       time.Time `db:"time"`
-	OrderID    int64     `db:"order_id"`
-	LatencyMs  int64     `db:"latency_ms"`
-}
 
 // BenchmarkValue はデータベースに保存するベンチマーク情報の構造体です。
 type BenchmarkValue struct {
@@ -80,7 +74,6 @@ type Writer struct {
 	orderBookBuffer  []OrderBookUpdate
 	tradeBuffer      []Trade
 	benchmarkBuffer  []BenchmarkValue
-	latencyBuffer    []Latency
 	bufferMutex      sync.Mutex
 	flushTicker      *time.Ticker
 	shutdownChan     chan struct{}
@@ -127,7 +120,6 @@ func NewWriter(ctx context.Context, dbConfig config.DatabaseConfig, writerConfig
 		orderBookBuffer: make([]OrderBookUpdate, 0, writerConfig.BatchSize),
 		tradeBuffer:     make([]Trade, 0, writerConfig.BatchSize),
 		benchmarkBuffer: make([]BenchmarkValue, 0, writerConfig.BatchSize),
-		latencyBuffer:   make([]Latency, 0, writerConfig.BatchSize),
 		shutdownChan:    make(chan struct{}),
 	}
 
@@ -240,10 +232,6 @@ func (w *Writer) flushBuffers() {
 		w.benchmarkBuffer = w.benchmarkBuffer[:0]
 	}
 
-	if len(w.latencyBuffer) > 0 {
-		w.batchInsertLatencies(context.Background(), w.latencyBuffer)
-		w.latencyBuffer = w.latencyBuffer[:0]
-	}
 }
 
 func (w *Writer) batchInsertOrderBookUpdates(ctx context.Context, updates []OrderBookUpdate) {
@@ -279,37 +267,6 @@ func (w *Writer) batchInsertTrades(ctx context.Context, trades []Trade) {
 	}
 }
 
-// SaveLatency は約定レイテンシをバッファに追加します。
-func (w *Writer) SaveLatency(latency Latency) {
-	if w.pool == nil {
-		return
-	}
-
-	w.bufferMutex.Lock()
-	w.latencyBuffer = append(w.latencyBuffer, latency)
-	shouldFlush := len(w.latencyBuffer) >= w.config.BatchSize
-	w.bufferMutex.Unlock()
-
-	if shouldFlush {
-		w.flushBuffers()
-	}
-}
-
-func (w *Writer) batchInsertLatencies(ctx context.Context, latencies []Latency) {
-	if w.pool == nil || len(latencies) == 0 {
-		return
-	}
-	w.logger.Debug("Flushing latencies", zap.Int("count", len(latencies)))
-	_, err := w.pool.CopyFrom(
-		ctx,
-		pgx.Identifier{"latencies"},
-		[]string{"time", "order_id", "latency_ms"},
-		pgx.CopyFromRows(toLatencyInterfaces(latencies)),
-	)
-	if err != nil {
-		w.logger.Error("Failed to batch insert latencies", zap.Error(err))
-	}
-}
 
 // SaveBenchmarkValue はベンチマーク値をバッファに追加します。
 func (w *Writer) SaveBenchmarkValue(ctx context.Context, value BenchmarkValue) {
@@ -351,13 +308,6 @@ func toOrderBookInterfaces(updates []OrderBookUpdate) [][]interface{} {
 	return rows
 }
 
-func toLatencyInterfaces(latencies []Latency) [][]interface{} {
-	rows := make([][]interface{}, len(latencies))
-	for i, l := range latencies {
-		rows[i] = []interface{}{l.Time, l.OrderID, l.LatencyMs}
-	}
-	return rows
-}
 
 func toBenchmarkInterfaces(values []BenchmarkValue) [][]interface{} {
 	rows := make([][]interface{}, len(values))
@@ -378,7 +328,7 @@ func toTradeInterfaces(trades []Trade) [][]interface{} {
 // SavePnLSummary は単一のPnLサマリーをデータベースに保存します。
 func (w *Writer) SavePnLSummary(ctx context.Context, pnl PnLSummary) error {
 	if w.pool == nil {
-		w.logger.Info("Skipping PnL summary save for dummy writer", zap.Any("pnl", pnl))
+		w.logger.Debug("Skipping PnL summary save for dummy writer", zap.Any("pnl", pnl))
 		return nil
 	}
 
@@ -393,13 +343,14 @@ func (w *Writer) SavePnLSummary(ctx context.Context, pnl PnLSummary) error {
 		w.logger.Error("Failed to insert PnL summary", zap.Error(err), zap.Any("pnl", pnl))
 		return fmt.Errorf("failed to insert PnL summary: %w", err)
 	}
+	w.logger.Debug("[Live] Saved PnL summary to DB.")
 	return nil
 }
 
 // SaveTradePnL は個別の取引のPnLをデータベースに保存します。
 func (w *Writer) SaveTradePnL(ctx context.Context, tradePnl TradePnL) error {
 	if w.pool == nil {
-		w.logger.Info("Skipping trade PnL save for dummy writer", zap.Any("tradePnl", tradePnl))
+		w.logger.Debug("Skipping trade PnL save for dummy writer", zap.Any("tradePnl", tradePnl))
 		return nil
 	}
 
@@ -425,5 +376,6 @@ func (w *Writer) SaveTradePnL(ctx context.Context, tradePnl TradePnL) error {
 		w.logger.Error("Failed to insert trade PnL", zap.Error(err), zap.Any("tradePnl", tradePnl))
 		return fmt.Errorf("failed to insert trade PnL: %w", err)
 	}
+	w.logger.Debug("[Live] Saved trade PnL to DB.")
 	return nil
 }

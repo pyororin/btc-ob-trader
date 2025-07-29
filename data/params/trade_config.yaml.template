@@ -93,6 +93,24 @@ signal:
   # 値を小さくすると素早く反応できますが、ノイズに弱くなります。
   hold_duration_ms: {{ hold_duration_ms }}
 
+  # cvd_window_minutes: CVD (Cumulative Volume Delta) を計算する際の期間（分）。
+  cvd_window_minutes: 1
+
+  # --- 複合シグナル設定 (Composite Signal Settings) ---
+  # 以下のパラメータは、複数の指標を組み合わせて取引シグナルを生成するために使用されます。
+  # 各指標に重みを付け、その合計スコアが `composite_threshold` を超えた場合にシグナルが発生します。
+
+  # obi_weight: OBI (Order Book Imbalance) の重み。
+  obi_weight: {{ obi_weight }}
+  # ofi_weight: OFI (Order Flow Imbalance) の重み。
+  ofi_weight: {{ ofi_weight }}
+  # cvd_weight: CVD (Cumulative Volume Delta) の重み。
+  cvd_weight: {{ cvd_weight }}
+  # micro_price_weight: MicroPrice の変化の重み。
+  micro_price_weight: {{ micro_price_weight }}
+  # composite_threshold: 複合シグナルの発動閾値。
+  composite_threshold: {{ composite_threshold }}
+
   # slope_filter: OBIの傾き（変化率）を利用したフィルター設定。
   # OBIの値だけでなく、その変化の勢いも考慮に入れることで、トレンドの初動を捉えやすくなります。
   slope_filter:

@@ -3,6 +3,7 @@ package indicator
 
 import (
 	"context"
+	"github.com/your-org/obi-scalp-bot/pkg/logger"
 	"sync"
 	"time"
 )
@@ -27,7 +28,7 @@ func NewOBICalculator(ob *OrderBook, interval time.Duration) *OBICalculator {
 		orderBook: ob,
 		interval:  interval,
 		done:      make(chan struct{}),
-		output:    make(chan OBIResult, 1), // Buffered channel to avoid blocking
+		output:    make(chan OBIResult, 100), // Buffered channel to avoid blocking
 	}
 }
 
@@ -35,18 +36,36 @@ func NewOBICalculator(ob *OrderBook, interval time.Duration) *OBICalculator {
 func (c *OBICalculator) Calculate(timestamp time.Time) {
 	c.orderBook.RLock()
 	isBookReady := !c.orderBook.Time.IsZero()
+	bestBid := c.orderBook.BestBid()
+	bestAsk := c.orderBook.BestAsk()
 	c.orderBook.RUnlock()
 
+	logger.Debugf("OBICalculator.Calculate called. isBookReady: %v, BestBid: %.2f, BestAsk: %.2f", isBookReady, bestBid, bestAsk)
+
 	if isBookReady {
-		if obiResult, ok := c.orderBook.CalculateOBI(OBILevels...); ok {
-			// Override the timestamp with the one provided, crucial for simulations
-			obiResult.Timestamp = timestamp
-			select {
-			case c.output <- obiResult:
-			default:
-				// Channel is full, indicating that the consumer is not keeping up.
-				// In a simulation, this might be fine, but in live trading, it could be an issue.
-			}
+		// Only proceed if the order book has a valid spread.
+		if bestBid <= 0 || bestAsk <= 0 {
+			logger.Debug("Skipping OBI calculation due to invalid best bid/ask.")
+			return
+		}
+
+		obiResult, ok := c.orderBook.CalculateOBI(OBILevels...)
+		if !ok {
+			logger.Debug("c.orderBook.CalculateOBI returned ok=false, creating a partial result.")
+			// This part is crucial: ensure BestBid and BestAsk are populated even if OBI fails.
+			obiResult.BestBid = bestBid
+			obiResult.BestAsk = bestAsk
+		}
+
+		logger.Debugf("OBI calculated. OBI8: %.4f, ok: %v", obiResult.OBI8, ok)
+		// Override the timestamp with the one provided, crucial for simulations
+		obiResult.Timestamp = timestamp
+		select {
+		case c.output <- obiResult:
+		default:
+			// Channel is full, indicating that the consumer is not keeping up.
+			// In a simulation, this might be fine, but in live trading, it could be an issue.
+			logger.Warn("OBICalculator output channel is full, skipping send.")
 		}
 	}
 }

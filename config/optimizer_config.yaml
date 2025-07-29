@@ -5,7 +5,7 @@
 # パフォーマンスチェックを実行する間隔（秒単位）。
 # 環境変数 'CHECK_INTERVAL_SECONDS' が設定されていればそちらを優先します。
 # 例: 300
-check_interval_seconds: 300
+check_interval_seconds: 900
 
 # パラメータファイルやデータベースが保存されるディレクトリのパス。
 # 環境変数 'PARAMS_DIR' が設定されていればそちらを優先します。
@@ -15,7 +15,7 @@ params_dir: 'data/params'
 # --- 最適化設定 ---
 # Optunaが試行する回数。
 # 例: 100
-n_trials: 1000
+n_trials: 2000
 
 # --- 合格/不合格基準 ---
 # OOS(Out-of-Sample)評価での合格基準となるプロフィットファクターの最小値。
@@ -66,7 +66,7 @@ min_order_book_snapshots: 100000
 # IS最適化中に、ここで設定した取引回数に満たない試行を枝刈り（pruning）します。
 # jobファイルで 'min_trades' が指定されている場合はそちらを優先します。
 # 例: 30
-min_trades_for_pruning: 30
+min_trades_for_pruning: 10
 
 # --- Analyzer Settings ---
 analyzer:
@@ -82,3 +82,4 @@ objective_weights:
   profit_factor: 1.0
   max_drawdown: 1.0 # Note: The objective function inverts this, so higher is better.
   sqn: 0.5
+  trades: 0.5

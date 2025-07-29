@@ -2,7 +2,7 @@ import json
 import time
 import os
 from pathlib import Path
-from optimizer.optimizer import main as optimizer_main, stop_go_sim_server
+from optimizer.optimizer import main as optimizer_main
 
 # --- Configuration ---
 APP_ROOT = Path('/app')
@@ -64,15 +64,37 @@ def run():
     os.environ['DB_HOST'] = 'localhost'
     print("Set DB_HOST to localhost for testing.")
 
-    # Ensure .env file exists
-    if not (APP_ROOT / '.env').exists():
+    # Ensure .env file exists and load it
+    env_path = APP_ROOT / '.env'
+    if not env_path.exists():
         if (APP_ROOT / '.env.sample').exists():
             import shutil
-            shutil.copy(APP_ROOT / '.env.sample', APP_ROOT / '.env')
+            shutil.copy(APP_ROOT / '.env.sample', env_path)
             print("Copied .env.sample to .env")
         else:
             print("Error: .env.sample not found.")
             return
+
+    # Load .env to set DATABASE_URL for the Go binary
+    with open(env_path, 'r') as f:
+        for line in f:
+            if '=' in line and not line.strip().startswith('#'):
+                key, value = line.strip().split('=', 1)
+                os.environ[key] = value
+
+    # Construct DATABASE_URL, overriding DB_HOST to localhost
+    db_user = os.getenv('DB_USER')
+    db_password = os.getenv('DB_PASSWORD')
+    db_name = os.getenv('DB_NAME')
+    db_host = 'localhost' # Force localhost for test script
+    db_port = os.getenv('DB_PORT')
+    if all([db_user, db_password, db_name, db_host, db_port]):
+        os.environ['DATABASE_URL'] = f"postgres://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}?sslmode=disable"
+        print(f"Set DATABASE_URL with DB_HOST={db_host}.")
+    else:
+        print("Error: Could not construct DATABASE_URL. Missing DB variables in .env")
+        return
+
 
     ensure_dummy_trade_config()
     create_job_file()
@@ -86,8 +108,6 @@ def run():
     except Exception as e:
         print(f"An error occurred during optimization: {e}")
     finally:
-        print("Stopping Go server from test script...")
-        stop_go_sim_server()
         if JOB_FILE.exists():
             os.remove(JOB_FILE)
             print("Cleaned up job file.")

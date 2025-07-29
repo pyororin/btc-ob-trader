@@ -127,7 +127,8 @@ CREATE TABLE IF NOT EXISTS pnl_reports (
     max_consecutive_wins INT,
     max_consecutive_losses INT,
     buy_and_hold_return DECIMAL,
-    return_vs_buy_and_hold DECIMAL
+    return_vs_buy_and_hold DECIMAL,
+    last_trade_id BIGINT
 );
 
 -- pnl_reports テーブルをHypertableに変換

@@ -31,15 +31,15 @@ type Trade struct {
 	IsMyTrade       bool            `json:"is_my_trade"`
 }
 
-// FetchAllTradesForReport はデータベースから自分自身のトレードのみを取得します。
-func (r *Repository) FetchAllTradesForReport(ctx context.Context) ([]Trade, error) {
+// FetchTradesForReportSince は指定された trade_id 以降の自分自身のトレードのみを取得します。
+func (r *Repository) FetchTradesForReportSince(ctx context.Context, lastTradeID int64) ([]Trade, error) {
 	query := `
-        SELECT time, pair, side, price, size, transaction_id, is_cancelled, is_my_trade
-        FROM trades
-        WHERE is_my_trade = TRUE
-        ORDER BY time ASC;
-    `
-	rows, err := r.db.Query(ctx, query)
+		SELECT time, pair, side, price, size, transaction_id, is_cancelled, is_my_trade
+		FROM trades
+		WHERE is_my_trade = TRUE AND transaction_id > $1
+		ORDER BY time ASC;
+	`
+	rows, err := r.db.Query(ctx, query, lastTradeID)
 	if err != nil {
 		return nil, err
 	}
@@ -55,6 +55,22 @@ func (r *Repository) FetchAllTradesForReport(ctx context.Context) ([]Trade, erro
 	}
 
 	return trades, rows.Err()
+}
+
+// FetchLatestPnlReportTradeID は pnl_reports テーブルから最新の last_trade_id を取得します。
+func (r *Repository) FetchLatestPnlReportTradeID(ctx context.Context) (int64, error) {
+	query := `
+		SELECT last_trade_id
+		FROM pnl_reports
+		ORDER BY time DESC
+		LIMIT 1;
+	`
+	var lastTradeID int64
+	err := r.db.QueryRow(ctx, query).Scan(&lastTradeID)
+	if err != nil {
+		return 0, err
+	}
+	return lastTradeID, nil
 }
 
 // DeleteOldPnlReports は指定した期間より古いPnLレポートを削除します。

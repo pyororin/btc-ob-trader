@@ -63,8 +63,14 @@ func main() {
 
 	// --- Database Connection ---
 	ctx := context.Background()
-	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		cfg.App.Database.User, cfg.App.Database.Password, cfg.App.Database.Host, cfg.App.Database.Port, cfg.App.Database.Name, cfg.App.Database.SSLMode)
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		logger.Info("DATABASE_URL not set, constructing from config.")
+		dbURL = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+			cfg.App.Database.User, cfg.App.Database.Password, cfg.App.Database.Host, cfg.App.Database.Port, cfg.App.Database.Name, cfg.App.Database.SSLMode)
+	} else {
+		logger.Info("Using DATABASE_URL from environment.")
+	}
 	dbpool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		logger.Fatalf("Unable to connect to database: %v", err)
@@ -92,41 +98,54 @@ func main() {
 	defer writer.Flush()
 
 	// --- Write Data to CSV ---
-	header := []string{"time", "pair", "side", "price", "size", "is_snapshot"}
+	header := []string{"time", "event_type", "pair", "side", "price", "size", "is_snapshot", "trade_id"}
 	if err := writer.Write(header); err != nil {
 		logger.Fatalf("Failed to write CSV header: %v", err)
 	}
 
 	query := `
-        SELECT time, pair, side, price, size, is_snapshot
-        FROM order_book_updates
-        WHERE time >= $1 AND time < $2
-        ORDER BY time ASC;
+		SELECT time, 'book' as event_type, pair, side, price, size, is_snapshot, NULL as trade_id
+		FROM order_book_updates
+		WHERE time >= $1 AND time < $2
+		UNION ALL
+		SELECT time, 'trade' as event_type, pair, side, price, size, FALSE as is_snapshot, transaction_id::TEXT as trade_id
+		FROM trades
+		WHERE time >= $1 AND time < $2
+		ORDER BY time ASC;
     `
 	rows, err := dbpool.Query(ctx, query, startTime, endTime)
 	if err != nil {
-		logger.Fatalf("Failed to query order book updates: %v", err)
+		logger.Fatalf("Failed to query market data: %v", err)
 	}
 	defer rows.Close()
 
 	var rowCount int
 	for rows.Next() {
 		var t time.Time
-		var pair, side string
+		var eventType, pair, side, tradeIDStr string
 		var price, size float64
 		var isSnapshot bool
+		var tradeID *string // Use a pointer to handle NULL
 
-		if err := rows.Scan(&t, &pair, &side, &price, &size, &isSnapshot); err != nil {
+		if err := rows.Scan(&t, &eventType, &pair, &side, &price, &size, &isSnapshot, &tradeID); err != nil {
 			logger.Fatalf("Failed to scan row: %v", err)
+		}
+
+		if tradeID != nil {
+			tradeIDStr = *tradeID
+		} else {
+			tradeIDStr = ""
 		}
 
 		record := []string{
 			t.Format("2006-01-02 15:04:05.999999-07"),
+			eventType,
 			pair,
 			side,
 			fmt.Sprintf("%f", price),
 			fmt.Sprintf("%f", size),
 			fmt.Sprintf("%t", isSnapshot),
+			tradeIDStr,
 		}
 
 		if err := writer.Write(record); err != nil {

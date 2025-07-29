@@ -63,19 +63,26 @@ func main() {
 func runReportGeneration(repo *datastore.Repository, reportService *report.Service, l logger.Logger) {
 	ctx := context.Background()
 
-	// 1. Fetch all trades
-	trades, err := repo.FetchAllTradesForReport(ctx)
+	// 1. Fetch the last processed trade ID
+	lastTradeID, err := repo.FetchLatestPnlReportTradeID(ctx)
+	if err != nil {
+		// If no previous report exists, start from the beginning (trade_id = 0)
+		l.Warnf("Could not fetch last trade ID, starting from beginning: %v", err)
+		lastTradeID = 0
+	}
+
+	// 2. Fetch new trades since the last one
+	trades, err := repo.FetchTradesForReportSince(ctx, lastTradeID)
 	if err != nil {
 		l.Errorf("Failed to fetch trades for report: %v", err)
 		return
 	}
 	if len(trades) == 0 {
-		l.Info("No trades to generate a report.")
+		l.Info("No new trades to generate a report.")
 		return
 	}
 
-	// 2. Analyze trades
-	// We need to convert datastore.Trade to report.Trade
+	// 3. Analyze trades
 	reportTrades := make([]report.Trade, len(trades))
 	for i, t := range trades {
 		reportTrades[i] = report.Trade{
@@ -96,7 +103,7 @@ func runReportGeneration(repo *datastore.Repository, reportService *report.Servi
 		return
 	}
 
-	// 3. Save the report
+	// 4. Save the report
 	if err := reportService.SavePnlReport(ctx, analysisReport); err != nil {
 		l.Errorf("Failed to save PnL report: %v", err)
 		return
