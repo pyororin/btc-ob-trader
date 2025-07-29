@@ -61,6 +61,8 @@ type EngineConfig struct {
 	CVDWeight             float64
 	MicroPriceWeight      float64
 	CompositeThreshold    float64
+	NormalizationEnabled  bool
+	NormalizationWindow   int
 }
 
 // Regime represents the market regime.
@@ -106,6 +108,11 @@ type SignalEngine struct {
 	currentRegime            Regime
 	hurstExponent            float64
 	lastHurstCalculationTime time.Time
+
+	// Fields for normalization
+	obiHistoryForNorm []float64
+	ofiHistoryForNorm []float64
+	cvdHistoryForNorm []float64
 }
 
 // NewSignalEngine creates a new SignalEngine.
@@ -124,6 +131,8 @@ func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
 		CVDWeight:             tradeCfg.Signal.CVDWeight,
 		MicroPriceWeight:      tradeCfg.Signal.MicroPriceWeight,
 		CompositeThreshold:    tradeCfg.Signal.CompositeThreshold,
+		NormalizationEnabled:  tradeCfg.Signal.NormalizationEnabled,
+		NormalizationWindow:   tradeCfg.Signal.NormalizationWindow,
 	}
 
 	return &SignalEngine{
@@ -146,6 +155,9 @@ func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
 		currentRegime:            RegimeUnknown,
 		hurstExponent:            0.0,
 		lastHurstCalculationTime: time.Time{},
+		obiHistoryForNorm:        make([]float64, 0, tradeCfg.Signal.NormalizationWindow),
+		ofiHistoryForNorm:        make([]float64, 0, tradeCfg.Signal.NormalizationWindow),
+		cvdHistoryForNorm:        make([]float64, 0, tradeCfg.Signal.NormalizationWindow),
 	}, nil
 }
 
@@ -204,13 +216,74 @@ func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, 
 	e.ofiValue, _ = ofiDecimal.Float64()
 }
 
+// normalize maps a value from a given range to a -1 to 1 scale.
+func normalize(value, min, max float64) float64 {
+	if max == min {
+		return 0 // Avoid division by zero; centered
+	}
+	// Scale to 0-1, then shift to -1 to 1
+	normalized := 2*((value-min)/(max-min)) - 1
+	logger.Infof("normalize: value=%.4f, min=%.4f, max=%.4f, normalized=%.4f", value, min, max, normalized)
+	return normalized
+}
+
+// getMinMax finds the min and max values in a slice.
+func getMinMax(history []float64) (float64, float64) {
+	if len(history) == 0 {
+		return 0, 0
+	}
+	minVal, maxVal := history[0], history[0]
+	for _, v := range history[1:] {
+		if v < minVal {
+			minVal = v
+		}
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+	return minVal, maxVal
+}
+
 // Evaluate evaluates the current market data and returns a TradingSignal if a new signal is confirmed.
 func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *TradingSignal {
+	// Update history for normalization
+	if e.config.NormalizationEnabled {
+		e.obiHistoryForNorm = append(e.obiHistoryForNorm, obiValue)
+		if len(e.obiHistoryForNorm) > e.config.NormalizationWindow {
+			e.obiHistoryForNorm = e.obiHistoryForNorm[1:]
+		}
+		e.ofiHistoryForNorm = append(e.ofiHistoryForNorm, e.ofiValue)
+		if len(e.ofiHistoryForNorm) > e.config.NormalizationWindow {
+			e.ofiHistoryForNorm = e.ofiHistoryForNorm[1:]
+		}
+		e.cvdHistoryForNorm = append(e.cvdHistoryForNorm, e.cvdValue)
+		if len(e.cvdHistoryForNorm) > e.config.NormalizationWindow {
+			e.cvdHistoryForNorm = e.cvdHistoryForNorm[1:]
+		}
+	}
+
+	obiToUse := obiValue
+	ofiToUse := e.ofiValue
+	cvdToUse := e.cvdValue
+
+	if e.config.NormalizationEnabled && len(e.obiHistoryForNorm) >= e.config.NormalizationWindow {
+		obiMin, obiMax := getMinMax(e.obiHistoryForNorm)
+		ofiMin, ofiMax := getMinMax(e.ofiHistoryForNorm)
+		cvdMin, cvdMax := getMinMax(e.cvdHistoryForNorm)
+
+		obiToUse = normalize(obiValue, obiMin, obiMax)
+		ofiToUse = normalize(e.ofiValue, ofiMin, ofiMax)
+		cvdToUse = normalize(e.cvdValue, cvdMin, cvdMax)
+	}
+
 	microPriceDiff := e.microPrice - e.currentMidPrice
-	compositeScore := (obiValue * e.config.OBIWeight) + (e.ofiValue * e.config.OFIWeight) + (e.cvdValue * e.config.CVDWeight)
+	compositeScore := (obiToUse * e.config.OBIWeight) + (ofiToUse * e.config.OFIWeight) + (cvdToUse * e.config.CVDWeight)
 	if e.config.MicroPriceWeight > 0 {
+		// Microprice diff is already a relative measure, so we may not want to normalize it,
+		// or normalize it differently. For now, add it without normalization.
 		compositeScore += (microPriceDiff * e.config.MicroPriceWeight)
 	}
+	logger.Debugf("obiToUse: %.4f, ofiToUse: %.4f, cvdToUse: %.4f, compositeScore: %.4f", obiToUse, ofiToUse, cvdToUse, compositeScore)
 
 	// Update score history for slope filter
 	if e.slopeFilterConfig.Enabled {
@@ -387,19 +460,8 @@ func (e *SignalEngine) calculateOBISlope() float64 {
 // This correction will be applied in the actual diff generation.
 // The current diff uses `NewFromString(indicator.Float64ToString(floatVal))`.
 // I will fix this in the actual application of the change.
-// The `replace_with_git_merge_diff` tool will receive the corrected version.
 // The `indicator.Float64ToString` helper does not exist, so it must be `decimal.NewFromFloat`.
 // The provided diff has this structure:
-// decBestBid, _ := decimal.NewFromString(indicator.Float64ToString(bestBid))
-// This needs to be changed to:
-// decBestBid := decimal.NewFromFloat(bestBid)
-// (and similarly for other decimal conversions for OFI).
-// The `shopspring/decimal` package should be imported.
-// The provided diff already imports `shopspring/decimal`.
-// The tool will apply the diff as is for now, and if there's a compile error due to `indicator.Float64ToString`
-// I will fix it in the next step. For now, I'll assume it's a placeholder that was intended to be `decimal.NewFromFloat`.
-
-// The provided diff is:
 // +	"github.com/shopspring/decimal"
 // ...
 // +	decBestBid, _ := decimal.NewFromString(indicator.Float64ToString(bestBid))
@@ -416,7 +478,7 @@ func (e *SignalEngine) calculateOBISlope() float64 {
 // Corrected version for the diff:
 // Replace:
 // +	decBestBid, _ := decimal.NewFromString(indicator.Float64ToString(bestBid))
-// +	decBestAsk, _ := decimal.NewFromString(indicator.Float64ToString(bestAsk))
+// +	decBestAsk, _ := decimal.NewFromString(indicator.Float64ToString(ask))
 // +	decBestBidSize, _ := decimal.NewFromString(indicator.Float64ToString(bestBidSize))
 // +	decBestAskSize, _ := decimal.NewFromString(indicator.Float64ToString(bestAskSize))
 // With:
