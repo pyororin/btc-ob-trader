@@ -16,55 +16,69 @@ type Trade struct {
 
 // CVDCalculator calculates Cumulative Volume Delta over a rolling window.
 type CVDCalculator struct {
-	trades      []Trade
-	windowSize  time.Duration
-	currentCVD  float64
-	lastTradeID string
+	trades          *RingBuffer
+	windowSize      time.Duration
+	currentCVD      float64
+	processedTrades map[string]time.Time // Store trade ID and its timestamp
 }
 
 // NewCVDCalculator creates a new CVDCalculator.
 func NewCVDCalculator(windowSize time.Duration) *CVDCalculator {
+	estimatedTrades := int(10 * windowSize.Seconds() * 1.2)
+	if estimatedTrades < 100 {
+		estimatedTrades = 100
+	}
 	return &CVDCalculator{
-		windowSize: windowSize,
+		windowSize:      windowSize,
+		trades:          NewRingBuffer(estimatedTrades),
+		processedTrades: make(map[string]time.Time),
 	}
 }
 
 // Update adds new trades and recalculates the CVD.
-// It avoids double-counting by checking trade IDs.
 func (c *CVDCalculator) Update(newTrades []Trade, currentTime time.Time) float64 {
 	// Add new trades, avoiding duplicates
 	for _, trade := range newTrades {
-		isNew := true
-		for _, existingTrade := range c.trades {
-			if trade.ID == existingTrade.ID {
-				isNew = false
-				break
+		if _, exists := c.processedTrades[trade.ID]; !exists {
+			c.trades.Add(trade)
+			c.processedTrades[trade.ID] = trade.Timestamp
+		}
+	}
+
+	// Recalculate CVD from trades within the window
+	c.currentCVD = 0
+	windowStart := currentTime.Add(-c.windowSize)
+
+	validTrades := make([]Trade, 0, c.trades.Size())
+	c.trades.Do(func(t interface{}) {
+		if trade, ok := t.(Trade); ok {
+			if !trade.Timestamp.Before(windowStart) {
+				validTrades = append(validTrades, trade)
+				side := strings.ToLower(trade.Side)
+				if side == "buy" {
+					c.currentCVD += trade.Size
+				} else if side == "sell" {
+					c.currentCVD -= trade.Size
+				}
 			}
 		}
-		if isNew {
-			c.trades = append(c.trades, trade)
-		}
-	}
+	})
 
-	// Remove old trades that are outside the window
-	firstValidIndex := 0
-	for i, trade := range c.trades {
-		if currentTime.Sub(trade.Timestamp) > c.windowSize {
-			firstValidIndex = i + 1
-		} else {
-			break
-		}
+	// Rebuild the ring buffer with only the valid trades
+	newRingBuffer := NewRingBuffer(c.trades.Capacity())
+	for _, trade := range validTrades {
+		newRingBuffer.Add(trade)
 	}
-	c.trades = c.trades[firstValidIndex:]
+	c.trades = newRingBuffer
 
-	// Recalculate CVD from the trades within the window
-	c.currentCVD = 0
-	for _, trade := range c.trades {
-		side := strings.ToLower(trade.Side)
-		if side == "buy" {
-			c.currentCVD += trade.Size
-		} else if side == "sell" {
-			c.currentCVD -= trade.Size
+	// Cleanup old trade IDs from the processedTrades map
+	// We keep IDs for 10x the window size to prevent reprocessing of old, duplicate events
+	cleanupCutoff := currentTime.Add(-c.windowSize * 10)
+	if len(c.processedTrades) > c.trades.Capacity()*2 { // Trigger cleanup only if map is getting large
+		for id, ts := range c.processedTrades {
+			if ts.Before(cleanupCutoff) {
+				delete(c.processedTrades, id)
+			}
 		}
 	}
 

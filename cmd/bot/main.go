@@ -714,17 +714,19 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal, summaryC
 			switch event := marketEvent.(type) {
 			case datastore.OrderBookEvent:
 				orderBook.ApplyUpdate(event.OrderBookData)
+
+				// OBI is calculated upon order book update, which is a natural trigger for evaluation.
 				obiResult, ok := orderBook.CalculateOBI(indicator.OBILevels...)
 				if !ok || obiResult.BestBid <= 0 || obiResult.BestAsk <= 0 {
 					continue // Skip if OBI calculation fails or book is invalid
 				}
-
 				midPrice := (obiResult.BestAsk + obiResult.BestBid) / 2
 				bestBidSize, bestAskSize := orderBook.GetBestBidAskSize()
 
-				signalEngine.UpdateMarketData(event.GetTime(), midPrice, obiResult.BestBid, obiResult.BestAsk, bestBidSize, bestAskSize, accumulatedTrades)
-				accumulatedTrades = nil // Reset after consumption
+				// Update market data, but pass an empty slice for trades as they are handled separately.
+				signalEngine.UpdateMarketData(event.GetTime(), midPrice, obiResult.BestBid, obiResult.BestAsk, bestBidSize, bestAskSize, []cvd.Trade{})
 
+				// Evaluate signal based on the new order book state.
 				tradingSignal := signalEngine.Evaluate(event.GetTime(), obiResult.OBI8)
 				if tradingSignal != nil {
 					orderType := ""
@@ -733,10 +735,7 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal, summaryC
 					} else if tradingSignal.Type == tradingsignal.SignalShort {
 						orderType = "sell"
 					}
-
 					if orderType != "" {
-						// In simulation, we assume the order is placed at the signal's entry price
-						// without slippage for simplicity.
 						_, err := replayEngine.PlaceOrder(ctx, cfg.Trade.Pair, orderType, tradingSignal.EntryPrice, cfg.Trade.OrderAmount, false)
 						if err != nil && !f.jsonOutput {
 							logger.Warnf("Replay engine failed to place order: %v", err)
@@ -745,8 +744,12 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal, summaryC
 				}
 
 			case datastore.TradeEvent:
-				accumulatedTrades = append(accumulatedTrades, event.Trade)
-				// Also update the replay engine's PnL calculator with the latest trade price
+				// A trade event only updates indicators that depend on trades, like CVD.
+				// It does not trigger a full signal evaluation.
+				midPrice := (orderBook.BestBid() + orderBook.BestAsk()) / 2
+				bestBidSize, bestAskSize := orderBook.GetBestBidAskSize()
+				signalEngine.UpdateMarketData(event.GetTime(), midPrice, orderBook.BestBid(), orderBook.BestAsk(), bestBidSize, bestAskSize, []cvd.Trade{event.Trade})
+
 				replayEngine.UpdateLastPrice(event.Price)
 			}
 
@@ -917,14 +920,19 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 			switch event := marketEvent.(type) {
 			case datastore.OrderBookEvent:
 				orderBook.ApplyUpdate(event.OrderBookData)
+
+				// OBI is calculated upon order book update, which is a natural trigger for evaluation.
 				obiResult, ok := orderBook.CalculateOBI(indicator.OBILevels...)
 				if !ok || obiResult.BestBid <= 0 || obiResult.BestAsk <= 0 {
-					continue
+					continue // Skip if OBI calculation fails or book is invalid
 				}
 				midPrice := (obiResult.BestAsk + obiResult.BestBid) / 2
 				bestBidSize, bestAskSize := orderBook.GetBestBidAskSize()
-				signalEngine.UpdateMarketData(event.GetTime(), midPrice, obiResult.BestBid, obiResult.BestAsk, bestBidSize, bestAskSize, accumulatedTrades)
-				accumulatedTrades = nil
+
+				// Update market data, but pass an empty slice for trades as they are handled separately.
+				signalEngine.UpdateMarketData(event.GetTime(), midPrice, obiResult.BestBid, obiResult.BestAsk, bestBidSize, bestAskSize, []cvd.Trade{})
+
+				// Evaluate signal based on the new order book state.
 				tradingSignal := signalEngine.Evaluate(event.GetTime(), obiResult.OBI8)
 				if tradingSignal != nil {
 					orderType := ""
@@ -937,8 +945,14 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 						replayEngine.PlaceOrder(ctx, simConfig.Trade.Pair, orderType, tradingSignal.EntryPrice, simConfig.Trade.OrderAmount, false)
 					}
 				}
+
 			case datastore.TradeEvent:
-				accumulatedTrades = append(accumulatedTrades, event.Trade)
+				// A trade event only updates indicators that depend on trades, like CVD.
+				// It does not trigger a full signal evaluation.
+				midPrice := (orderBook.BestBid() + orderBook.BestAsk()) / 2
+				bestBidSize, bestAskSize := orderBook.GetBestBidAskSize()
+				signalEngine.UpdateMarketData(event.GetTime(), midPrice, orderBook.BestBid(), orderBook.BestAsk(), bestBidSize, bestAskSize, []cvd.Trade{event.Trade})
+
 				replayEngine.UpdateLastPrice(event.Price)
 			}
 		}
