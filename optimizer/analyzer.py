@@ -5,6 +5,7 @@ from scipy.stats import gaussian_kde
 import logging
 import json
 import argparse
+from typing import Union, Dict
 
 # Import the centralized config module
 from . import config
@@ -13,7 +14,7 @@ from . import config
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-def analyze_study(study_name: str, storage_url: str) -> dict | None:
+def analyze_study(study_name: str, storage_url: str) -> Union[Dict, None]:
     """
     Analyzes an Optuna study to find the most robust parameter set.
 
