@@ -695,7 +695,11 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal, summaryC
 
 	var eventCount int
 	var processingDone bool
-	var accumulatedTrades []cvd.Trade
+
+	// Hold the state of the last book update
+	var lastMidPrice, lastBestBid, lastBestAsk, lastBestBidSize, lastBestAskSize float64
+	var lastBookTime time.Time
+	var lastObiResult indicator.OBIResult
 
 	for !processingDone {
 		select {
@@ -716,16 +720,18 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal, summaryC
 				orderBook.ApplyUpdate(event.OrderBookData)
 				obiResult, ok := orderBook.CalculateOBI(indicator.OBILevels...)
 				if !ok || obiResult.BestBid <= 0 || obiResult.BestAsk <= 0 {
-					continue // Skip if OBI calculation fails or book is invalid
+					continue // Skip if book is invalid
 				}
+				// Update last known book state
+				lastBookTime = event.GetTime()
+				lastMidPrice = (obiResult.BestAsk + obiResult.BestBid) / 2
+				lastBestBid, lastBestAsk = obiResult.BestBid, obiResult.BestAsk
+				lastBestBidSize, lastBestAskSize = orderBook.GetBestBidAskSize()
+				lastObiResult = obiResult
 
-				midPrice := (obiResult.BestAsk + obiResult.BestBid) / 2
-				bestBidSize, bestAskSize := orderBook.GetBestBidAskSize()
-
-				signalEngine.UpdateMarketData(event.GetTime(), midPrice, obiResult.BestBid, obiResult.BestAsk, bestBidSize, bestAskSize, accumulatedTrades)
-				accumulatedTrades = nil // Reset after consumption
-
-				tradingSignal := signalEngine.Evaluate(event.GetTime(), obiResult.OBI8)
+				// Evaluate signal on book update
+				signalEngine.UpdateMarketData(lastBookTime, lastMidPrice, lastBestBid, lastBestAsk, lastBestBidSize, lastBestAskSize, nil)
+				tradingSignal := signalEngine.Evaluate(lastBookTime, lastObiResult.OBI8)
 				if tradingSignal != nil {
 					orderType := ""
 					if tradingSignal.Type == tradingsignal.SignalLong {
@@ -733,10 +739,7 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal, summaryC
 					} else if tradingSignal.Type == tradingsignal.SignalShort {
 						orderType = "sell"
 					}
-
 					if orderType != "" {
-						// In simulation, we assume the order is placed at the signal's entry price
-						// without slippage for simplicity.
 						_, err := replayEngine.PlaceOrder(ctx, cfg.Trade.Pair, orderType, tradingSignal.EntryPrice, cfg.Trade.OrderAmount, false)
 						if err != nil && !f.jsonOutput {
 							logger.Warnf("Replay engine failed to place order: %v", err)
@@ -745,9 +748,27 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal, summaryC
 				}
 
 			case datastore.TradeEvent:
-				accumulatedTrades = append(accumulatedTrades, event.Trade)
-				// Also update the replay engine's PnL calculator with the latest trade price
+				if lastBookTime.IsZero() {
+					continue // No book data yet
+				}
 				replayEngine.UpdateLastPrice(event.Price)
+				signalEngine.UpdateMarketData(event.GetTime(), lastMidPrice, lastBestBid, lastBestAsk, lastBestBidSize, lastBestAskSize, []cvd.Trade{event.Trade})
+
+				tradingSignal := signalEngine.Evaluate(event.GetTime(), lastObiResult.OBI8)
+				if tradingSignal != nil {
+					orderType := ""
+					if tradingSignal.Type == tradingsignal.SignalLong {
+						orderType = "buy"
+					} else if tradingSignal.Type == tradingsignal.SignalShort {
+						orderType = "sell"
+					}
+					if orderType != "" {
+						_, err := replayEngine.PlaceOrder(ctx, cfg.Trade.Pair, orderType, tradingSignal.EntryPrice, cfg.Trade.OrderAmount, false)
+						if err != nil && !f.jsonOutput {
+							logger.Warnf("Replay engine failed to place order: %v", err)
+						}
+					}
+				}
 			}
 
 		case err := <-errCh:
@@ -902,11 +923,13 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 	replayEngine := engine.NewReplayExecutionEngine(orderBook)
 	signalEngine, err := tradingsignal.NewSignalEngine(&simConfig.Trade)
 	if err != nil {
-		// This should not happen with a valid config, but handle it gracefully.
 		return map[string]interface{}{"error": fmt.Sprintf("failed to create signal engine: %v", err)}
 	}
 
-	var accumulatedTrades []cvd.Trade
+	// Hold the state of the last book update
+	var lastMidPrice, lastBestBid, lastBestAsk, lastBestBidSize, lastBestAskSize float64
+	var lastBookTime time.Time
+	var lastObiResult indicator.OBIResult
 
 	for _, marketEvent := range marketEvents {
 		select {
@@ -919,13 +942,18 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 				orderBook.ApplyUpdate(event.OrderBookData)
 				obiResult, ok := orderBook.CalculateOBI(indicator.OBILevels...)
 				if !ok || obiResult.BestBid <= 0 || obiResult.BestAsk <= 0 {
-					continue
+					continue // Skip if book is invalid
 				}
-				midPrice := (obiResult.BestAsk + obiResult.BestBid) / 2
-				bestBidSize, bestAskSize := orderBook.GetBestBidAskSize()
-				signalEngine.UpdateMarketData(event.GetTime(), midPrice, obiResult.BestBid, obiResult.BestAsk, bestBidSize, bestAskSize, accumulatedTrades)
-				accumulatedTrades = nil
-				tradingSignal := signalEngine.Evaluate(event.GetTime(), obiResult.OBI8)
+				// Update last known book state
+				lastBookTime = event.GetTime()
+				lastMidPrice = (obiResult.BestAsk + obiResult.BestBid) / 2
+				lastBestBid, lastBestAsk = obiResult.BestBid, obiResult.BestAsk
+				lastBestBidSize, lastBestAskSize = orderBook.GetBestBidAskSize()
+				lastObiResult = obiResult
+
+				// Evaluate signal on book update
+				signalEngine.UpdateMarketData(lastBookTime, lastMidPrice, lastBestBid, lastBestAsk, lastBestBidSize, lastBestAskSize, nil) // No trades to process here
+				tradingSignal := signalEngine.Evaluate(lastBookTime, lastObiResult.OBI8)
 				if tradingSignal != nil {
 					orderType := ""
 					if tradingSignal.Type == tradingsignal.SignalLong {
@@ -937,9 +965,30 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 						replayEngine.PlaceOrder(ctx, simConfig.Trade.Pair, orderType, tradingSignal.EntryPrice, simConfig.Trade.OrderAmount, false)
 					}
 				}
+
 			case datastore.TradeEvent:
-				accumulatedTrades = append(accumulatedTrades, event.Trade)
+				// A trade happened. We need to update CVD and re-evaluate the signal
+				// using the last known book state.
+				if lastBookTime.IsZero() {
+					continue // No book data yet
+				}
 				replayEngine.UpdateLastPrice(event.Price)
+				// Update signal engine with the new trade data
+				signalEngine.UpdateMarketData(event.GetTime(), lastMidPrice, lastBestBid, lastBestAsk, lastBestBidSize, lastBestAskSize, []cvd.Trade{event.Trade})
+
+				// Re-evaluate the signal
+				tradingSignal := signalEngine.Evaluate(event.GetTime(), lastObiResult.OBI8)
+				if tradingSignal != nil {
+					orderType := ""
+					if tradingSignal.Type == tradingsignal.SignalLong {
+						orderType = "buy"
+					} else if tradingSignal.Type == tradingsignal.SignalShort {
+						orderType = "sell"
+					}
+					if orderType != "" {
+						replayEngine.PlaceOrder(ctx, simConfig.Trade.Pair, orderType, tradingSignal.EntryPrice, simConfig.Trade.OrderAmount, false)
+					}
+				}
 			}
 		}
 	}

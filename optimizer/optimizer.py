@@ -354,7 +354,7 @@ class ObjectiveMetrics:
 def objective(trial, study, min_trades_for_pruning: int):
     """Optuna objective function."""
     params = {
-        'spread_limit': trial.suggest_int('spread_limit', 10, 150),
+        'spread_limit': trial.suggest_int('spread_limit', 20, 80),
         'lot_max_ratio': trial.suggest_float('lot_max_ratio', 0.01, 0.2),
         'order_ratio': trial.suggest_float('order_ratio', 0.05, 0.25),
         'adaptive_position_sizing_enabled': trial.suggest_categorical('adaptive_position_sizing_enabled', [True, False]),
@@ -362,12 +362,12 @@ def objective(trial, study, min_trades_for_pruning: int):
         'adaptive_reduction_step': trial.suggest_float('adaptive_reduction_step', 0.5, 1.0),
         'adaptive_min_ratio': trial.suggest_float('adaptive_min_ratio', 0.1, 0.8),
         'long_obi_threshold': trial.suggest_float('long_obi_threshold', 0.1, 2.0),
-        'long_tp': trial.suggest_int('long_tp', 10, 500),
-        'long_sl': trial.suggest_int('long_sl', -500, -10),
+        'long_tp': trial.suggest_int('long_tp', 50, 200),
+        'long_sl': trial.suggest_int('long_sl', -200, -50),
         'short_obi_threshold': trial.suggest_float('short_obi_threshold', -2.0, -0.1),
-        'short_tp': trial.suggest_int('short_tp', 10, 500),
-        'short_sl': trial.suggest_int('short_sl', -500, -10),
-        'hold_duration_ms': trial.suggest_int('hold_duration_ms', 100, 2000),
+        'short_tp': trial.suggest_int('short_tp', 50, 200),
+        'short_sl': trial.suggest_int('short_sl', -200, -50),
+        'hold_duration_ms': trial.suggest_int('hold_duration_ms', 200, 1000),
         'slope_filter_enabled': trial.suggest_categorical('slope_filter_enabled', [True, False]),
         'slope_period': trial.suggest_int('slope_period', 3, 50),
         'slope_threshold': trial.suggest_float('slope_threshold', 0.0, 0.5),
