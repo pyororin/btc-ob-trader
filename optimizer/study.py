@@ -127,10 +127,15 @@ def _get_oos_candidates(study: optuna.Study, scored_trials: list) -> list[dict]:
         analyzer_command = ['python3', str(config.APP_ROOT / 'optimizer' / 'analyzer.py'), '--study-name', study.study_name]
         result = subprocess.run(analyzer_command, capture_output=True, text=True, check=True, cwd=config.APP_ROOT)
         robust_params = json.loads(result.stdout)
-        candidates.append({'params': robust_params, 'source': 'analyzer'})
-        logging.info("Analyzer recommended robust parameters as first candidate.")
-    except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
-        logging.warning(f"Parameter analyzer failed: {e}. Proceeding with top IS trials only.")
+        if robust_params:
+            candidates.append({'params': robust_params, 'source': 'analyzer'})
+            logging.info("Analyzer recommended robust parameters as first candidate.")
+        else:
+            logging.warning("Analyzer returned no parameters. Proceeding with top IS trials only.")
+    except subprocess.CalledProcessError as e:
+        logging.warning(f"Parameter analyzer failed with exit code {e.returncode}. Stderr: {e.stderr.strip()}. Proceeding with top IS trials only.")
+    except json.JSONDecodeError as e:
+        logging.warning(f"Failed to decode JSON from analyzer: {e}. Proceeding with top IS trials only.")
 
     # Subsequent candidates: top N trials from IS optimization
     for rank, (trial, score) in enumerate(scored_trials):
