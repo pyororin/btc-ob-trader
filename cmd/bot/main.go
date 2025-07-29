@@ -695,7 +695,6 @@ func runSimulation(ctx context.Context, f flags, sigs chan<- os.Signal, summaryC
 
 	var eventCount int
 	var processingDone bool
-	var accumulatedTrades []cvd.Trade
 
 	for !processingDone {
 		select {
@@ -908,8 +907,6 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 		// This should not happen with a valid config, but handle it gracefully.
 		return map[string]interface{}{"error": fmt.Sprintf("failed to create signal engine: %v", err)}
 	}
-
-	var accumulatedTrades []cvd.Trade
 
 	for _, marketEvent := range marketEvents {
 		select {
