@@ -157,7 +157,7 @@ services:
     depends_on:
       timescaledb:
         condition: service_healthy
-    command: python optimizer/optimizer.py
+    command: python -m optimizer.main
     healthcheck:
       test: ["CMD-SHELL", "test -f /data/params/trade_config.yaml"]
       interval: 10s
@@ -185,7 +185,7 @@ services:
     depends_on:
       timescaledb:
         condition: service_healthy
-    command: python optimizer/drift_monitor.py
+    command: python -m optimizer.drift_monitor
 
 networks:
   bot_network:
