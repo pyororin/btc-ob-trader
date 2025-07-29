@@ -36,18 +36,25 @@ func NewOBICalculator(ob *OrderBook, interval time.Duration) *OBICalculator {
 func (c *OBICalculator) Calculate(timestamp time.Time) {
 	c.orderBook.RLock()
 	isBookReady := !c.orderBook.Time.IsZero()
+	bestBid := c.orderBook.BestBid()
+	bestAsk := c.orderBook.BestAsk()
 	c.orderBook.RUnlock()
 
-	logger.Debugf("OBICalculator.Calculate called. isBookReady: %v", isBookReady)
+	logger.Debugf("OBICalculator.Calculate called. isBookReady: %v, BestBid: %.2f, BestAsk: %.2f", isBookReady, bestBid, bestAsk)
 
 	if isBookReady {
+		// Only proceed if the order book has a valid spread.
+		if bestBid <= 0 || bestAsk <= 0 {
+			logger.Debug("Skipping OBI calculation due to invalid best bid/ask.")
+			return
+		}
+
 		obiResult, ok := c.orderBook.CalculateOBI(OBILevels...)
 		if !ok {
 			logger.Debug("c.orderBook.CalculateOBI returned ok=false, creating a partial result.")
-			// Even if OBI calculation fails (e.g., empty book side), we should still send a heartbeat
-			// with the best bid/ask we have, so the signal engine can use it for other indicators.
-			obiResult.BestBid = c.orderBook.BestBid()
-			obiResult.BestAsk = c.orderBook.BestAsk()
+			// This part is crucial: ensure BestBid and BestAsk are populated even if OBI fails.
+			obiResult.BestBid = bestBid
+			obiResult.BestAsk = bestAsk
 		}
 
 		logger.Debugf("OBI calculated. OBI8: %.4f, ok: %v", obiResult.OBI8, ok)
