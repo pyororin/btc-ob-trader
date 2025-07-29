@@ -132,23 +132,32 @@ def _split_data_by_timestamp(full_dataset_path: Path, total_hours: float, oos_ho
 def _parse_timestamp(ts_str: str) -> datetime:
     """
     Parses a timestamp string into a timezone-aware datetime object.
-    Handles multiple common timestamp formats.
+    Handles multiple common timestamp formats, including ISO 8601 variants.
     """
-    # Format: '2025-07-24 03:06:51.769817+00' -> remove colon from timezone for %z
-    if '+' in ts_str and ts_str[-3] == ':':
-        ts_str = ts_str[:-3] + ts_str[-2:]
+    # Pre-process for common non-standard formats
+    if ts_str.endswith('+00'):
+        # Handles '...-01-01 12:34:56.123+00' -> '...-01-01 12:34:56.123+00:00'
+        # which is required by fromisoformat
+        ts_str = ts_str + ':00'
+    elif ts_str.endswith('Z'):
+        ts_str = ts_str[:-1] + '+00:00'
 
-    # Format: '2023-10-27T01:23:45.123Z' (Zulu time)
-    if ts_str.endswith('Z'):
-        ts_str = ts_str[:-1] + '+0000'
+    # Replace space with T for ISO 8601 compatibility
+    if ' ' in ts_str and 'T' not in ts_str:
+        ts_str = ts_str.replace(' ', 'T', 1)
 
-    for fmt in (
-        '%Y-%m-%d %H:%M:%S.%f%z',
-        '%Y-%m-%d %H:%M:%S%z',
-        '%Y-%m-%dT%H:%M:%S.%f%z',
-    ):
-        try:
-            return datetime.strptime(ts_str, fmt)
-        except ValueError:
-            continue
+    try:
+        # datetime.fromisoformat is more robust for ISO 8601 formats
+        return datetime.fromisoformat(ts_str)
+    except ValueError:
+        # Fallback to strptime for other formats if fromisoformat fails
+        for fmt in (
+            '%Y-%m-%dT%H:%M:%S.%f%z',
+            '%Y-%m-%dT%H:%M:%S%z',
+        ):
+            try:
+                return datetime.strptime(ts_str, fmt)
+            except ValueError:
+                continue
+
     raise ValueError(f"Could not parse timestamp: '{ts_str}' with any known format.")
