@@ -58,6 +58,17 @@ def analyze_study(study_name, storage_url):
     quantile_threshold = df['value'].quantile(1 - TOP_TRIALS_QUANTILE)
     top_trials_df = df[df['value'] >= quantile_threshold]
 
+    # Add a safeguard to ensure there are enough trials for analysis
+    MIN_TRIALS_FOR_ANALYSIS = 10  # Set a reasonable minimum
+    if len(top_trials_df) < MIN_TRIALS_FOR_ANALYSIS:
+        logging.warning(
+            f"Number of top trials ({len(top_trials_df)}) is below the minimum required for robust analysis ({MIN_TRIALS_FOR_ANALYSIS}). "
+            "Falling back to the best trial's parameters."
+        )
+        best_trial_params = study.best_trial.params
+        return best_trial_params
+
+
     if top_trials_df.empty:
         logging.warning(f"No trials found above the {1-TOP_TRIALS_QUANTILE:.0%} quantile. Using the best trial instead.")
         best_trial_params = study.best_trial.params
