@@ -147,3 +147,86 @@ func TestSignalEngine_CVDAndTimeWindow(t *testing.T) {
 	assert.Equal(t, SignalNone, engine.currentSignal, "Current signal should revert to None")
 	assert.Equal(t, 0.0, engine.cvdValue, "CVD should decay to zero after window passes")
 }
+
+func TestSignalHoldDuration(t *testing.T) {
+	weights := map[string]float64{"obi": 1.0, "ofi": 0.0, "cvd": 0.0, "microprice": 0.0}
+	holdDurationMs := 500
+	baseTime := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// --- Scenario A: Signal holds long enough and is confirmed ---
+	t.Run("Scenario A: Signal Confirmed", func(t *testing.T) {
+		// Reset engine state
+		engine := newTestSignalEngine(holdDurationMs, 0.5, weights)
+
+		// 1. Signal appears
+		currentTime := baseTime
+		signal := engine.Evaluate(currentTime, 0.6)
+		assert.Nil(t, signal, "A_1: Signal should not be confirmed immediately")
+		assert.Equal(t, SignalLong, engine.currentSignal, "A_1: Raw signal should be LONG")
+		assert.Equal(t, currentTime, engine.currentSignalSince, "A_1: Signal since time should be set")
+
+		// 2. Time advances, but not enough to confirm
+		currentTime = baseTime.Add(300 * time.Millisecond)
+		signal = engine.Evaluate(currentTime, 0.6)
+		assert.Nil(t, signal, "A_2: Signal should not be confirmed after 300ms")
+		assert.Equal(t, SignalLong, engine.currentSignal, "A_2: Raw signal should still be LONG")
+
+		// 3. Time advances past the hold duration
+		currentTime = baseTime.Add(501 * time.Millisecond)
+		signal = engine.Evaluate(currentTime, 0.6)
+		if assert.NotNil(t, signal, "A_3: Signal should be confirmed after 501ms") {
+			assert.Equal(t, SignalLong, signal.Type)
+		}
+
+		// 4. Signal should not be re-triggered immediately after confirmation
+		currentTime = baseTime.Add(502 * time.Millisecond)
+		signal = engine.Evaluate(currentTime, 0.6)
+		assert.Nil(t, signal, "A_4: Signal should not be re-triggered")
+	})
+
+	// --- Scenario B: Signal disappears before hold duration is met ---
+	t.Run("Scenario B: Signal Disappears", func(t *testing.T) {
+		// Reset engine state
+		engine := newTestSignalEngine(holdDurationMs, 0.5, weights)
+
+		// 1. Signal appears
+		currentTime := baseTime
+		signal := engine.Evaluate(currentTime, 0.6)
+		assert.Nil(t, signal, "B_1: Signal should not be confirmed immediately")
+		assert.Equal(t, SignalLong, engine.currentSignal, "B_1: Raw signal should be LONG")
+
+		// 2. Time advances, but signal disappears (OBI drops)
+		currentTime = baseTime.Add(300 * time.Millisecond)
+		signal = engine.Evaluate(currentTime, 0.4) // OBI drops below threshold
+		assert.Nil(t, signal, "B_2: Signal should be nil as it disappeared")
+		assert.Equal(t, SignalNone, engine.currentSignal, "B_2: Raw signal should revert to NONE")
+
+		// 3. Time advances past where the original signal would have been confirmed
+		currentTime = baseTime.Add(501 * time.Millisecond)
+		signal = engine.Evaluate(currentTime, 0.4)
+		assert.Nil(t, signal, "B_3: Signal should remain nil")
+	})
+
+	// --- Scenario C: Coarse Timestamps ---
+	// Simulate events having the same timestamp, which might happen with CSV data.
+	t.Run("Scenario C: Coarse Timestamps", func(t *testing.T) {
+		// Reset engine state
+		engine := newTestSignalEngine(holdDurationMs, 0.5, weights)
+
+		// 1. Signal appears
+		currentTime := baseTime
+		signal := engine.Evaluate(currentTime, 0.6)
+		assert.Nil(t, signal, "C_1: Signal should not be confirmed immediately")
+
+		// 2. Multiple events happen at the same time, signal is maintained
+		signal = engine.Evaluate(currentTime, 0.6)
+		assert.Nil(t, signal, "C_2: Signal should not be confirmed at same timestamp")
+
+		// 3. Time advances past hold duration, but with a coarse jump
+		currentTime = baseTime.Add(600 * time.Millisecond)
+		signal = engine.Evaluate(currentTime, 0.6)
+		if assert.NotNil(t, signal, "C_3: Signal should be confirmed after coarse time jump") {
+			assert.Equal(t, SignalLong, signal.Type)
+		}
+	})
+}

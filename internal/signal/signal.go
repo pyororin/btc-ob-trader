@@ -61,6 +61,7 @@ type EngineConfig struct {
 	CVDWeight             float64
 	MicroPriceWeight      float64
 	CompositeThreshold    float64
+	EmaAlpha              float64
 }
 
 // Regime represents the market regime.
@@ -106,6 +107,11 @@ type SignalEngine struct {
 	currentRegime            Regime
 	hurstExponent            float64
 	lastHurstCalculationTime time.Time
+
+	// Fields for EMA smoothing
+	emaAlpha         float64
+	smoothedScore    float64
+	isEmaInitialized bool
 }
 
 // NewSignalEngine creates a new SignalEngine.
@@ -124,6 +130,7 @@ func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
 		CVDWeight:             tradeCfg.Signal.CVDWeight,
 		MicroPriceWeight:      tradeCfg.Signal.MicroPriceWeight,
 		CompositeThreshold:    tradeCfg.Signal.CompositeThreshold,
+		EmaAlpha:              tradeCfg.Signal.EmaAlpha,
 	}
 
 	return &SignalEngine{
@@ -146,6 +153,8 @@ func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
 		currentRegime:            RegimeUnknown,
 		hurstExponent:            0.0,
 		lastHurstCalculationTime: time.Time{},
+		emaAlpha:                 engineCfg.EmaAlpha,
+		isEmaInitialized:         false,
 	}, nil
 }
 
@@ -210,6 +219,17 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 	compositeScore := (obiValue * e.config.OBIWeight) + (e.ofiValue * e.config.OFIWeight) + (e.cvdValue * e.config.CVDWeight)
 	if e.config.MicroPriceWeight > 0 {
 		compositeScore += (microPriceDiff * e.config.MicroPriceWeight)
+	}
+
+	// Apply EMA smoothing to the composite score
+	if e.emaAlpha > 0 {
+		if !e.isEmaInitialized {
+			e.smoothedScore = compositeScore
+			e.isEmaInitialized = true
+		} else {
+			e.smoothedScore = e.emaAlpha*compositeScore + (1-e.emaAlpha)*e.smoothedScore
+		}
+		compositeScore = e.smoothedScore
 	}
 
 	// Update score history for slope filter

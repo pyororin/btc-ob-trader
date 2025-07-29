@@ -111,6 +111,9 @@ signal:
   # composite_threshold: 複合シグナルの発動閾値。
   composite_threshold: {{ composite_threshold }}
 
+  # ema_alpha: (オプション) 複合スコアのEMA平滑化のためのアルファ値。0で無効。推奨: 0.2-0.5
+  ema_alpha: {{ ema_alpha }}
+
   # slope_filter: OBIの傾き（変化率）を利用したフィルター設定。
   # OBIの値だけでなく、その変化の勢いも考慮に入れることで、トレンドの初動を捉えやすくなります。
   slope_filter:
