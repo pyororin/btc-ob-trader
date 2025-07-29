@@ -4,10 +4,11 @@ import shutil
 import os
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from typing import Union, Tuple
 
 from . import config
 
-def export_and_split_data(total_hours: float, oos_hours: float) -> tuple[Path | None, Path | None]:
+def export_and_split_data(total_hours: float, oos_hours: float) -> Tuple[Union[Path, None], Union[Path, None]]:
     """
     Exports data from the database and splits it into In-Sample (IS) and Out-of-Sample (OOS).
 
@@ -61,7 +62,7 @@ def _cleanup_simulation_directory():
         shutil.rmtree(config.SIMULATION_DIR)
     config.SIMULATION_DIR.mkdir(parents=True)
 
-def _find_latest_csv(directory: Path) -> Path | None:
+def _find_latest_csv(directory: Path) -> Union[Path, None]:
     """Finds the most recently modified CSV file in a directory."""
     exported_files = list(directory.glob("*.csv"))
     if not exported_files:

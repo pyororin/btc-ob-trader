@@ -4,6 +4,7 @@ import subprocess
 import json
 from pathlib import Path
 from jinja2 import Template
+from typing import Union
 
 from . import config
 from .objective import Objective, MetricsCalculator
