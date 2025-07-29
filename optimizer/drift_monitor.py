@@ -193,6 +193,18 @@ def check_for_drift(metrics_1h: Dict, metrics_15m: Dict, baseline: Dict) -> List
             "window_is": 4, "window_oos": 1
         })
 
+    # --- Condition 4: Zero Metrics Fallback (Major) ---
+    # If profit factor is zero, it's a strong indicator that we are not receiving
+    # any performance data, which should be treated as a major issue.
+    if metrics_1h["profit_factor"] == 0:
+        logging.critical(
+            "EMERGENCY TRIGGER (Zero Metrics): Profit factor is 0, indicating a potential data feed issue."
+        )
+        detected_drifts.append({
+            "trigger_type": "zero_metrics_fallback", "severity": "major",
+            "window_is": 1, "window_oos": 10/60
+        })
+
     return detected_drifts
 
 
