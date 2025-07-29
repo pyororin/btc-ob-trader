@@ -55,14 +55,14 @@ def analyze_study(study_name: str, storage_url: str) -> Union[Dict, None]:
     quantile_threshold = df['value'].quantile(1 - config.TOP_TRIALS_QUANTILE)
     top_trials_df = df[df['value'] >= quantile_threshold]
 
-    # Safeguard: If not enough top trials, robust analysis is not possible.
+    # Safeguard: If not enough top trials, fall back to the single best trial
     if len(top_trials_df) < config.MIN_TRIALS_FOR_ANALYSIS:
         logging.warning(
             f"Number of top trials ({len(top_trials_df)}) is below the minimum "
             f"required for robust analysis ({config.MIN_TRIALS_FOR_ANALYSIS}). "
-            "Cannot determine robust parameters."
+            "Falling back to the best trial's parameters."
         )
-        return None
+        return study.best_trial.params
 
     logging.info(f"Analyzing the top {len(top_trials_df)} trials (quantile > {1 - config.TOP_TRIALS_QUANTILE:.2f}).")
 
@@ -89,7 +89,7 @@ def analyze_study(study_name: str, storage_url: str) -> Union[Dict, None]:
     return robust_params
 
 
-def _find_mode_kde(param_name: str, param_values: pd.Series) -> float | int:
+def _find_mode_kde(param_name: str, param_values: pd.Series) -> Union[float, int]:
     """
     Finds the mode of a numerical parameter series using Gaussian KDE.
     Falls back to median if KDE fails.
@@ -134,21 +134,13 @@ def main():
     )
     args = parser.parse_args()
 
-    try:
-        robust_params = analyze_study(args.study_name, config.STORAGE_URL)
+    robust_params = analyze_study(args.study_name, config.STORAGE_URL)
 
-        if robust_params:
-            # Output the parameters as JSON to stdout for the calling process
-            print(json.dumps(robust_params))
-        else:
-            # Output None (as a string, to be handled by the caller) or empty JSON
-            print(json.dumps(None))
-            logging.warning("Could not determine robust parameters, returning null.")
-
-    except Exception as e:
-        logging.error("An unexpected error occurred in analyzer.py", exc_info=True)
-        # Still print None to allow the calling process to continue gracefully
-        print(json.dumps(None))
+    if robust_params:
+        # Output the parameters as JSON to stdout for the calling process
+        print(json.dumps(robust_params))
+    else:
+        logging.error("Could not determine robust parameters.")
         exit(1)
 
 

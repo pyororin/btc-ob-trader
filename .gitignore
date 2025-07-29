@@ -30,4 +30,4 @@ cmd/bot/bot
 cmd/export/export
 cmd/report/report
 
-optimizer/__pycache__/*.pyc
+optimizer/__pycache__/optimizer.cpython-312.pyc
