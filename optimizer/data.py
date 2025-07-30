@@ -137,27 +137,24 @@ def _parse_timestamp(ts_str: str) -> datetime:
     """
     original_ts = ts_str.strip()
     logging.debug(f"Attempting to parse timestamp: '{original_ts}'")
-
+    
+    import re
+    
     # This regex handles timestamps with an optional timezone that may be missing a colon.
-    # Example: "2025-07-30 10:44:44.09986+00" -> "2025-07-30 10:44:44.09986+00:00"
-    # It looks for a +/- followed by exactly four digits at the end of the string.
-    if len(original_ts) > 5 and original_ts[-5] in ('+', '-'):
-        if original_ts[-3] != ':':
-            corrected_ts = original_ts[:-2] + ':' + original_ts[-2:]
-            iso_compatible_str = corrected_ts.replace(' ', 'T', 1)
-            try:
-                # Use the highly efficient fromisoformat for parsing.
-                logging.debug(f"Attempting to parse with fromisoformat: '{iso_compatible_str}'")
-                parsed_dt = datetime.fromisoformat(iso_compatible_str)
-                if parsed_dt.tzinfo is None:
-                    parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
-                return parsed_dt
-            except ValueError as e:
-                logging.debug(f"fromisoformat failed: {e}. Falling back to strptime.")
+    # Example: "2025-07-30 10:44:44.09986+00" -> "2025-07-30T10:44:44.09986+00:00"
+    # It looks for a +/- followed by exactly two digits at the end of the string.
+    pattern = re.compile(r"^(.*)([+-]\d{2})$")
+    match = pattern.match(original_ts)
+    
+    corrected_ts = original_ts
+    if match:
+        main_part, tz_part = match.groups()
+        corrected_ts = f"{main_part}{tz_part}:00"
+        logging.debug(f"Corrected timezone format: '{original_ts}' -> '{corrected_ts}'")
 
     # Replace the first space with 'T' to conform to the ISO 8601 standard format.
     # This makes the timestamp compatible with datetime.fromisoformat().
-    iso_compatible_str = original_ts.replace(' ', 'T', 1)
+    iso_compatible_str = corrected_ts.replace(' ', 'T', 1)
 
     try:
         # Use the highly efficient fromisoformat for parsing.
@@ -181,7 +178,7 @@ def _parse_timestamp(ts_str: str) -> datetime:
         '%Y-%m-%dT%H:%M:%S.%f',
         '%Y-%m-%dT%H:%M:%S',
     ]
-
+    
     for fmt in formats_to_try:
         try:
             logging.debug(f"Trying strptime with format: '{fmt}'")
