@@ -1160,12 +1160,9 @@ func getSimulationSummaryMap(replayEngine *engine.ReplayExecutionEngine) map[str
 	if totalLossAmount != 0 {
 		profitFactor = math.Abs(totalWinAmount / totalLossAmount)
 	} else if totalWinAmount > 0 {
-		profitFactor = totalWinAmount // Use total profit as a fallback, will be capped later
-	}
-	// PFが極端に大きい場合（損失がゼロに近い場合）に値を丸める
-	const maxProfitFactor = 1000.0
-	if profitFactor > maxProfitFactor {
-		profitFactor = maxProfitFactor
+		// If there are profits but no losses, this can skew optimization.
+		// Setting PF to 0.0 effectively penalizes such scenarios.
+		profitFactor = 0.0
 	}
 	summary["ProfitFactor"] = profitFactor
 
