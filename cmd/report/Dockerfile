@@ -20,10 +20,10 @@ RUN CGO_ENABLED=0 go build -o /app/report-generator ./cmd/report
 # --- Final Stage ---
 FROM alpine:3.19
 
-WORKDIR /app
+WORKDIR /
 
 # Copy the binary from the builder stage
-COPY --from=builder /app/report-generator .
+COPY --from=builder /app/report-generator /app/report-generator
 
 # Command to run the application
-CMD ["./report-generator"]
+CMD ["/app/report-generator"]
