@@ -130,41 +130,24 @@ def _split_data_by_timestamp(full_dataset_path: Path, total_hours: float, oos_ho
 
 
 def _parse_timestamp(ts_str: str) -> datetime:
-    """
-    Parses a timestamp string into a timezone-aware datetime object.
-    This function is designed to be robust and handle multiple timestamp formats,
-    including standard ISO 8601, and non-standard variations from other services.
-    """
     original_ts = ts_str.strip()
-    
-    # This regex handles timestamps with an optional timezone that may be missing a colon.
-    # Example: "2025-07-30 10:44:44.09986+00" -> "2025-07-30T10:44:44.09986+00:00"
-    # It looks for a +/- followed by exactly two digits at the end of the string.
-    import re
-    pattern = re.compile(r"^(.*?)([+-]\d{2})(\d{2})?$")
-    match = pattern.match(original_ts)
-    
-    corrected_ts = original_ts
-    if match:
-        main_part, tz_hour, tz_minute = match.groups()
-        if tz_minute:
-            corrected_ts = f"{main_part}{tz_hour}:{tz_minute}"
-        else:
-            corrected_ts = f"{main_part}{tz_hour}:00"
 
-    # Replace the first space with 'T' to conform to the ISO 8601 standard format.
-    # This makes the timestamp compatible with datetime.fromisoformat().
-    iso_compatible_str = corrected_ts.replace(' ', 'T', 1)
+    # Ensure the format is ISO 8601 compliant
+    if ' ' in original_ts:
+        original_ts = original_ts.replace(' ', 'T', 1)
+
+    # If ends with +00 or -09 etc., pad with ":00"
+    import re
+    if re.match(r'.*[+-]\d{2}$', original_ts):
+        original_ts += ':00'
 
     try:
-        # Use the highly efficient fromisoformat for parsing.
-        parsed_dt = datetime.fromisoformat(iso_compatible_str)
+        parsed_dt = datetime.fromisoformat(original_ts)
         if parsed_dt.tzinfo is None:
             parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
         return parsed_dt
     except ValueError:
-        # Fallback to strptime for other less common formats.
-        # This provides robustness for formats not covered by the primary method.
+        # fallback formats
         formats_to_try = [
             '%Y-%m-%d %H:%M:%S.%f%z',
             '%Y-%m-%d %H:%M:%S%z',
@@ -185,4 +168,5 @@ def _parse_timestamp(ts_str: str) -> datetime:
             except ValueError:
                 continue
 
-    raise ValueError(f"Could not parse timestamp: '{original_ts}' with any known format.")
+    raise ValueError(f"Could not parse timestamp: '{ts_str}' with any known format.")
+
