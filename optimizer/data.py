@@ -135,38 +135,79 @@ def _parse_timestamp(ts_str: str) -> datetime:
     This function is designed to be robust and handle multiple timestamp formats,
     including standard ISO 8601, and non-standard variations from other services.
     """
+    original_ts = ts_str.strip()
+    logging.debug(f"Attempting to parse timestamp: '{original_ts}'")
+    
+    # Handle the specific problematic format: "YYYY-MM-DD HH:MM:SS.ffffff+XX"
+    # Convert it to proper ISO format first
+    if len(original_ts) >= 3 and (original_ts[-3] == '+' or original_ts[-3] == '-') and original_ts[-2:].isdigit():
+        # This handles formats like "2025-07-30 10:26:17.53492+00"
+        corrected_ts = original_ts + ':00'
+        corrected_ts = corrected_ts.replace(' ', 'T', 1)
+        logging.debug(f"Pre-correcting timezone format: '{original_ts}' -> '{corrected_ts}'")
+        try:
+            return datetime.fromisoformat(corrected_ts)
+        except ValueError as e:
+            logging.debug(f"Pre-corrected format failed: {e}")
+    
     # First, try to parse the timestamp directly using the powerful fromisoformat.
     # This handles standard formats like "YYYY-MM-DDTHH:MM:SS.ffffff+ZZ:ZZ" very efficiently.
     try:
         # Replace space with 'T' for broader ISO 8601 compatibility
-        iso_str = ts_str.replace(' ', 'T', 1)
+        iso_str = original_ts.replace(' ', 'T', 1)
+        logging.debug(f"Trying fromisoformat with: '{iso_str}'")
         return datetime.fromisoformat(iso_str)
-    except ValueError:
+    except ValueError as e:
+        logging.debug(f"fromisoformat failed: {e}")
         # If direct parsing fails, proceed to handle known non-standard formats.
         pass
 
-    # Handle non-standard timezone formats like "...+00" or "...-07"
-    # by converting them to the standard "...+00:00" or "...-07:00".
-    if len(ts_str) > 5 and (ts_str[-3] == '+' or ts_str[-3] == '-') and ':' not in ts_str[-6:]:
+    # Manual parsing for problematic timezone formats
+    import re
+    
+    # Pattern for timestamps with 2-digit timezone: "YYYY-MM-DD HH:MM:SS.ffffff+XX"
+    pattern = r'^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})(?:\.(\d+))?([+-]\d{2})$'
+    match = re.match(pattern, original_ts)
+    
+    if match:
+        date_part, time_part, microseconds, tz_part = match.groups()
+        
+        # Construct proper ISO format
+        if microseconds:
+            # Pad or truncate microseconds to 6 digits
+            microseconds = microseconds.ljust(6, '0')[:6]
+            iso_str = f"{date_part}T{time_part}.{microseconds}{tz_part}:00"
+        else:
+            iso_str = f"{date_part}T{time_part}{tz_part}:00"
+        
+        logging.debug(f"Manual regex parsing: '{original_ts}' -> '{iso_str}'")
         try:
-            # Add the missing colon for timezone
-            corrected_ts = ts_str[:-3] + ts_str[-3:] + ':00'
-            # Replace space with 'T' for ISO compatibility
-            corrected_ts = corrected_ts.replace(' ', 'T', 1)
-            return datetime.fromisoformat(corrected_ts)
-        except ValueError:
-            # If correction fails, proceed to the final fallback.
-            pass
+            return datetime.fromisoformat(iso_str)
+        except ValueError as e:
+            logging.debug(f"Manual regex parsing failed: {e}")
 
     # Final fallback for any other formats that strptime can handle.
-    for fmt in (
+    formats_to_try = [
         '%Y-%m-%d %H:%M:%S.%f%z',
         '%Y-%m-%d %H:%M:%S%z',
+        '%Y-%m-%d %H:%M:%S.%f',
         '%Y-%m-%d %H:%M:%S',
-    ):
+        '%Y-%m-%dT%H:%M:%S.%f%z',
+        '%Y-%m-%dT%H:%M:%S%z',
+        '%Y-%m-%dT%H:%M:%S.%f',
+        '%Y-%m-%dT%H:%M:%S',
+    ]
+    
+    for fmt in formats_to_try:
         try:
-            return datetime.strptime(ts_str, fmt)
-        except ValueError:
+            logging.debug(f"Trying strptime with format: '{fmt}'")
+            parsed = datetime.strptime(original_ts, fmt)
+            # If no timezone info, assume UTC
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed
+        except ValueError as e:
+            logging.debug(f"strptime with '{fmt}' failed: {e}")
             continue
 
-    raise ValueError(f"Could not parse timestamp: '{ts_str}' with any known format.")
+    raise ValueError(f"Could not parse timestamp: '{original_ts}' with any known format.")
