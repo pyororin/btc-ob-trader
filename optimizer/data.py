@@ -132,8 +132,9 @@ def _split_data_by_timestamp(full_dataset_path: Path, total_hours: float, oos_ho
 def _parse_timestamp(ts_str: str) -> datetime:
     """
     Parses a timestamp string into a timezone-aware datetime object.
-    This function is designed to be robust and handle multiple timestamp formats,
-    including standard ISO 8601, and non-standard variations from other services.
+    This function is designed to handle ISO 8601 formatted timestamps,
+    which are exported from the Go `export` service using `time.RFC3339Nano`.
+    It includes a workaround for Python < 3.11, which cannot parse 'Z' timezone suffix.
     """
     original_ts = ts_str.strip()
     logging.debug(f"Attempting to parse timestamp: '{original_ts}'")
@@ -160,9 +161,12 @@ def _parse_timestamp(ts_str: str) -> datetime:
     iso_compatible_str = iso_compatible_str.replace(' ', 'T', 1)
 
     try:
-        # Use the highly efficient fromisoformat for parsing.
-        logging.debug(f"Attempting to parse with fromisoformat: '{iso_compatible_str}'")
-        parsed_dt = datetime.fromisoformat(iso_compatible_str)
+        # The Go export service uses `time.RFC3339Nano`, which produces a format
+        # that is compatible with `datetime.fromisoformat` after the 'Z' workaround.
+        # Example: '2025-07-30T10:44:44.09986Z' -> '2025-07-30T10:44:44.09986+00:00'
+        parsed_dt = datetime.fromisoformat(iso_compatible_ts)
+
+        # If the timestamp is naive (no timezone info), assume it's in UTC.
         if parsed_dt.tzinfo is None:
             parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
         return parsed_dt
@@ -181,7 +185,7 @@ def _parse_timestamp(ts_str: str) -> datetime:
         '%Y-%m-%dT%H:%M:%S.%f',
         '%Y-%m-%dT%H:%M:%S',
     ]
-
+    
     for fmt in formats_to_try:
         try:
             logging.debug(f"Trying strptime with format: '{fmt}'")
