@@ -138,7 +138,7 @@ func main() {
 		}
 
 		record := []string{
-			t.Format(time.RFC3339Nano),
+			t.Format("2006-01-02 15:04:05.999999-07"),
 			eventType,
 			pair,
 			side,
