@@ -93,8 +93,6 @@ services:
       context: .
       dockerfile: cmd/report/Dockerfile
     container_name: obi-scalp-report-generator
-    env_file:
-      - .env
     environment:
       - DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@timescaledb:${DB_PORT}/${DB_NAME}?sslmode=disable
       - REPORT_INTERVAL_MINUTES=1
