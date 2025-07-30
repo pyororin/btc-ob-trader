@@ -132,72 +132,42 @@ def _split_data_by_timestamp(full_dataset_path: Path, total_hours: float, oos_ho
 def _parse_timestamp(ts_str: str) -> datetime:
     """
     Parses a timestamp string into a timezone-aware datetime object.
-    This function is designed to handle ISO 8601 formatted timestamps,
-    which are exported from the Go `export` service using `time.RFC3339Nano`.
-    It includes a workaround for Python < 3.11, which cannot parse 'Z' timezone suffix.
+    This function robustly handles multiple ISO 8601 variations, including
+    those with 'Z' suffix and timezone offsets without a colon, ensuring
+    compatibility with Python < 3.11.
     """
-    original_ts = ts_str.strip()
-    logging.debug(f"Attempting to parse timestamp: '{original_ts}'")
-    
     import re
     
-    # This regex handles timestamps with an optional timezone that may be missing a colon.
-    # Example: "2025-07-30 10:44:44.09986+00" -> "2025-07-30T10:44:44.09986+00:00"
-    # It looks for a +/- followed by exactly two digits at the end of the string.
-    pattern = re.compile(r"^(.*)([+-]\d{2})$")
-    match = pattern.match(original_ts)
-    
-    corrected_ts = original_ts
-    if match:
-        main_part, tz_part = match.groups()
-        corrected_ts = f"{main_part}{tz_part}:00"
-        logging.debug(f"Corrected timezone format: '{original_ts}' -> '{corrected_ts}'")
-
-    # Replace the first space with 'T' to conform to the ISO 8601 standard format.
-    # This makes the timestamp compatible with datetime.fromisoformat().
-    iso_compatible_str = corrected_ts.replace(' ', 'T', 1)
+    original_ts = ts_str.strip()
+    logging.debug(f"Attempting to parse timestamp: '{original_ts}'")
 
     # Workaround for Python < 3.11 which doesn't support 'Z' suffix in fromisoformat
     if original_ts.upper().endswith('Z'):
-        iso_compatible_ts = original_ts[:-1] + '+00:00'
-        logging.debug(f"Replaced 'Z' with '+00:00': '{iso_compatible_ts}'")
+        ts_to_parse = original_ts[:-1] + '+00:00'
+        logging.debug(f"Replaced 'Z' with '+00:00': '{ts_to_parse}'")
     else:
-        iso_compatible_ts = original_ts
+        ts_to_parse = original_ts
+
+    # This regex handles timestamps with a timezone that is missing a colon.
+    # Example: "2025-07-30T11:23:57.385118+00" -> "...+00:00"
+    # It looks for a +/- followed by exactly two digits at the end of the string.
+    pattern = re.compile(r"^(.*[+-]\d{2})$")
+    match = pattern.match(ts_to_parse)
+    if match:
+        ts_to_parse = ts_to_parse + ":00"
+        logging.debug(f"Appended ':00' to timezone: '{ts_to_parse}'")
 
     try:
-        # The Go export service uses `time.RFC3339Nano`, which produces a format
-        # that is compatible with `datetime.fromisoformat` after the 'Z' workaround.
-        # Example: '2025-07-30T10:44:44.09986Z' -> '2025-07-30T10:44:44.09986+00:00'
-        parsed_dt = datetime.fromisoformat(iso_compatible_ts)
+        # datetime.fromisoformat is efficient but strict.
+        # The pre-processing steps above make the timestamp compatible.
+        parsed_dt = datetime.fromisoformat(ts_to_parse)
 
         # If the timestamp is naive (no timezone info), assume it's in UTC.
         if parsed_dt.tzinfo is None:
             parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+
         return parsed_dt
-    except ValueError as e:
-        logging.debug(f"fromisoformat failed: {e}. Falling back to strptime.")
-
-    # Fallback to strptime for other less common formats.
-    # This provides robustness for formats not covered by the primary method.
-    formats_to_try = [
-        '%Y-%m-%d %H:%M:%S.%f%z',
-        '%Y-%m-%d %H:%M:%S%z',
-        '%Y-%m-%d %H:%M:%S.%f',
-        '%Y-%m-%d %H:%M:%S',
-        '%Y-%m-%dT%H:%M:%S.%f%z',
-        '%Y-%m-%dT%H:%M:%S%z',
-        '%Y-%m-%dT%H:%M:%S.%f',
-        '%Y-%m-%dT%H:%M:%S',
-    ]
-    
-    for fmt in formats_to_try:
-        try:
-            logging.debug(f"Trying strptime with format: '{fmt}'")
-            parsed = datetime.strptime(original_ts, fmt)
-            if parsed.tzinfo is None:
-                return parsed.replace(tzinfo=timezone.utc)
-            return parsed
-        except ValueError:
-            continue
-
-    raise ValueError(f"Could not parse timestamp: '{original_ts}' with any known format.")
+    except ValueError:
+        # For any other format, log an error and raise.
+        logging.error(f"Timestamp parsing failed for: '{original_ts}'")
+        raise ValueError(f"Could not parse timestamp: '{original_ts}' with any known format.")
