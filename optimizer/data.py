@@ -132,33 +132,41 @@ def _split_data_by_timestamp(full_dataset_path: Path, total_hours: float, oos_ho
 def _parse_timestamp(ts_str: str) -> datetime:
     """
     Parses a timestamp string into a timezone-aware datetime object.
-    Handles multiple common timestamp formats, including the one from Go's export script.
+    This function is designed to be robust and handle multiple timestamp formats,
+    including standard ISO 8601, and non-standard variations from other services.
     """
-    processed_ts = ts_str
-
-    # Heuristic to detect Go-specific format: contains a space and ends with a timezone offset like "-07"
-    if ' ' in processed_ts and len(processed_ts) > 6 and (processed_ts[-3] == '+' or processed_ts[-3] == '-') and ':' not in processed_ts[-6:]:
-        # Convert "YYYY-MM-DD HH:MM:SS.ffffff-07" to "YYYY-MM-DDTHH:MM:SS.ffffff-07:00"
-        processed_ts = processed_ts[:-3] + processed_ts[-3:] + ':00'
-        processed_ts = processed_ts.replace(' ', 'T', 1)
-
+    # First, try to parse the timestamp directly using the powerful fromisoformat.
+    # This handles standard formats like "YYYY-MM-DDTHH:MM:SS.ffffff+ZZ:ZZ" very efficiently.
     try:
-        # Try parsing with the potentially modified string
-        return datetime.fromisoformat(processed_ts)
+        # Replace space with 'T' for broader ISO 8601 compatibility
+        iso_str = ts_str.replace(' ', 'T', 1)
+        return datetime.fromisoformat(iso_str)
     except ValueError:
+        # If direct parsing fails, proceed to handle known non-standard formats.
+        pass
+
+    # Handle non-standard timezone formats like "...+00" or "...-07"
+    # by converting them to the standard "...+00:00" or "...-07:00".
+    if len(ts_str) > 5 and (ts_str[-3] == '+' or ts_str[-3] == '-') and ':' not in ts_str[-6:]:
         try:
-            # If that fails, try parsing the original string, in case the heuristic was wrong
-            return datetime.fromisoformat(ts_str)
+            # Add the missing colon for timezone
+            corrected_ts = ts_str[:-3] + ts_str[-3:] + ':00'
+            # Replace space with 'T' for ISO compatibility
+            corrected_ts = corrected_ts.replace(' ', 'T', 1)
+            return datetime.fromisoformat(corrected_ts)
         except ValueError:
-            # Final fallback for other non-ISO formats
-            for fmt in (
-                '%Y-%m-%d %H:%M:%S.%f%z',
-                '%Y-%m-%d %H:%M:%S%z',
-                '%Y-%m-%d %H:%M:%S',
-            ):
-                try:
-                    return datetime.strptime(ts_str, fmt)
-                except ValueError:
-                    continue
+            # If correction fails, proceed to the final fallback.
+            pass
+
+    # Final fallback for any other formats that strptime can handle.
+    for fmt in (
+        '%Y-%m-%d %H:%M:%S.%f%z',
+        '%Y-%m-%d %H:%M:%S%z',
+        '%Y-%m-%d %H:%M:%S',
+    ):
+        try:
+            return datetime.strptime(ts_str, fmt)
+        except ValueError:
+            continue
 
     raise ValueError(f"Could not parse timestamp: '{ts_str}' with any known format.")
