@@ -93,6 +93,10 @@ services:
       context: .
       dockerfile: cmd/report/Dockerfile
     container_name: obi-scalp-report-generator
+    working_dir: /app
+    volumes:
+      - .:/app
+      - ./.env:/app/.env:ro
     env_file:
       - .env
     environment:
