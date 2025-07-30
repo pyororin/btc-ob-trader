@@ -140,7 +140,7 @@ is watching for.
         logging.error(f"Failed to create optimization job file: {e}")
 
 
-def check_for_drift(metrics_1h: Dict, metrics_15m: Dict, baseline: Dict) -> List[Dict]:
+def check_for_drift(metrics_1h: Optional[Dict], metrics_15m: Optional[Dict], baseline: Optional[Dict]) -> List[Dict]:
     """
     Checks for performance drift by comparing current metrics against the baseline.
 
@@ -153,6 +153,16 @@ def check_for_drift(metrics_1h: Dict, metrics_15m: Dict, baseline: Dict) -> List
         A list of dictionaries, where each dictionary represents a detected
         drift event. Returns an empty list if no drift is detected.
     """
+    # --- Condition 4: Zero Metrics Fallback (Major) ---
+    if not metrics_1h or not metrics_15m or not baseline:
+        logging.critical(
+            "EMERGENCY TRIGGER (Incomplete Data): One or more metrics could not be retrieved."
+        )
+        return [{
+            "trigger_type": "zero_metrics_fallback", "severity": "major",
+            "window_is": 1, "window_oos": 10/60
+        }]
+
     detected_drifts = []
     sharpe_mu, sharpe_sigma = baseline["sharpe_mu"], baseline["sharpe_sigma"]
 
@@ -232,12 +242,8 @@ def main():
             metrics_15m = get_performance_metrics(conn, 0.25)
             baseline_stats = get_baseline_statistics(conn)
 
-            # 2. Check for drift conditions if all data is available
-            if metrics_1h and metrics_15m and baseline_stats:
-                detected_drifts = check_for_drift(metrics_1h, metrics_15m, baseline_stats)
-            else:
-                logging.warning("Skipping drift check due to incomplete data.")
-                detected_drifts = []
+            # 2. Check for drift conditions
+            detected_drifts = check_for_drift(metrics_1h, metrics_15m, baseline_stats)
 
             # 3. If drift is detected, trigger optimization with the highest priority
             if detected_drifts:
