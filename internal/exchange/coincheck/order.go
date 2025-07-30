@@ -62,11 +62,10 @@ func (c *Client) newRequest(method, endpoint string, body io.Reader) (*http.Requ
 	}
 
 	c.mu.Lock()
-	nonceVal := time.Now().UnixNano()
-	if nonceVal <= c.lastNonce {
-		nonceVal = c.lastNonce + 1
-	}
-	c.lastNonce = nonceVal
+	// Always increment the last nonce; using time.Now().UnixNano() can be problematic
+	// in high-frequency trading scenarios or if the system clock is adjusted.
+	c.lastNonce++
+	nonceVal := c.lastNonce
 	c.mu.Unlock()
 
 	nonce := strconv.FormatInt(nonceVal, 10)
