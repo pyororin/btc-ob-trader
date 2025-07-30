@@ -141,13 +141,16 @@ def _parse_timestamp(ts_str: str) -> datetime:
     # Example: "2025-07-30 10:44:44.09986+00" -> "2025-07-30T10:44:44.09986+00:00"
     # It looks for a +/- followed by exactly two digits at the end of the string.
     import re
-    pattern = re.compile(r"^(.*)([+-]\d{2})$")
+    pattern = re.compile(r"^(.*?)([+-]\d{2})(\d{2})?$")
     match = pattern.match(original_ts)
     
     corrected_ts = original_ts
     if match:
-        main_part, tz_part = match.groups()
-        corrected_ts = f"{main_part}{tz_part}:00"
+        main_part, tz_hour, tz_minute = match.groups()
+        if tz_minute:
+            corrected_ts = f"{main_part}{tz_hour}:{tz_minute}"
+        else:
+            corrected_ts = f"{main_part}{tz_hour}:00"
 
     # Replace the first space with 'T' to conform to the ISO 8601 standard format.
     # This makes the timestamp compatible with datetime.fromisoformat().
