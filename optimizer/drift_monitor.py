@@ -39,7 +39,7 @@ def get_db_connection() -> Optional[DbConnection]:
         return None
 
 
-def get_performance_metrics(conn: DbConnection, hours: float) -> Dict[str, float]:
+def get_performance_metrics(conn: DbConnection, hours: float) -> Optional[Dict[str, float]]:
     """
     Fetches the latest performance metrics from the pnl_reports table.
 
@@ -48,8 +48,8 @@ def get_performance_metrics(conn: DbConnection, hours: float) -> Dict[str, float
         hours: The time window in hours to look back for the latest report.
 
     Returns:
-        A dictionary with performance metrics. Returns a dict with zero-values
-        as a fallback if the query fails or returns no data.
+        A dictionary with performance metrics, or None if the query fails or
+        returns no data.
     """
     minutes = int(hours * 60)
     query = """
@@ -59,8 +59,6 @@ def get_performance_metrics(conn: DbConnection, hours: float) -> Dict[str, float
         ORDER BY time DESC
         LIMIT 1;
     """
-    fallback_metrics = {"sharpe_ratio": 0.0, "profit_factor": 0.0, "max_drawdown": 0.0}
-
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(query, (minutes,))
@@ -75,11 +73,11 @@ def get_performance_metrics(conn: DbConnection, hours: float) -> Dict[str, float
         logging.error(f"Database error in get_performance_metrics: {e}")
         conn.rollback()
 
-    logging.warning(f"Could not get metrics for last {hours}h. Returning zero values.")
-    return fallback_metrics
+    logging.warning(f"Could not get metrics for last {hours}h. Returning None.")
+    return None
 
 
-def get_baseline_statistics(conn: DbConnection) -> Dict[str, float]:
+def get_baseline_statistics(conn: DbConnection) -> Optional[Dict[str, float]]:
     """
     Calculates the moving average (mu) and standard deviation (sigma) of the
     Sharpe ratio over the last 7 days to use as a performance baseline.
@@ -88,17 +86,14 @@ def get_baseline_statistics(conn: DbConnection) -> Dict[str, float]:
         conn: The database connection object.
 
     Returns:
-        A dictionary with the mean and std dev of the Sharpe ratio. Returns
-        a fallback with a non-zero sigma if the query fails or data is insufficient.
+        A dictionary with the mean and std dev of the Sharpe ratio, or None
+        if the query fails or data is insufficient.
     """
     query = """
         SELECT AVG(sharpe_ratio) AS sharpe_mu, STDDEV(sharpe_ratio) AS sharpe_sigma
         FROM pnl_reports
         WHERE time >= NOW() - INTERVAL '7 days';
     """
-    # Use a small non-zero sigma as a fallback to avoid division by zero errors
-    fallback_stats = {"sharpe_mu": 0.0, "sharpe_sigma": 0.1}
-
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(query)
@@ -113,8 +108,8 @@ def get_baseline_statistics(conn: DbConnection) -> Dict[str, float]:
         logging.error(f"Database error in get_baseline_statistics: {e}")
         conn.rollback()
 
-    logging.warning("Could not retrieve baseline statistics. Returning fallback values.")
-    return fallback_stats
+    logging.warning("Could not retrieve baseline statistics. Returning None.")
+    return None
 
 
 def trigger_optimization(drift_details: Dict[str, Any]):
@@ -174,7 +169,7 @@ def check_for_drift(metrics_1h: Dict, metrics_15m: Dict, baseline: Dict) -> List
 
     # --- Condition 2: Emergency Sharpe Ratio Drop (Major) ---
     z_score_1h = (metrics_1h["sharpe_ratio"] - sharpe_mu) / sharpe_sigma
-    if z_score_1h < config.SHARPE_EMERGENCY_THRESHOLD_SD or z_score_15m < config.SHARPE_EMERGENCY_THRESHOLD_SD:
+    if z_score_1h < config.SHARPE_EMERGENCY_THRESHOLD_SD and z_score_15m < config.SHARPE_EMERGENCY_THRESHOLD_SD:
         logging.critical(
             f"EMERGENCY TRIGGER (Sharpe Drop): 1h Z={z_score_1h:.2f}, 15m Z={z_score_15m:.2f}"
         )
@@ -184,9 +179,9 @@ def check_for_drift(metrics_1h: Dict, metrics_15m: Dict, baseline: Dict) -> List
         })
 
     # --- Condition 3: Profit Factor Degradation (Normal) ---
-    # Trigger if the profit factor is below the threshold, including cases where it is zero
-    # (which often indicates no trades or an error).
-    if metrics_1h["profit_factor"] < config.PF_DRIFT_THRESHOLD:
+    # Trigger if the profit factor is below the threshold, but not zero,
+    # as zero is handled by the emergency fallback.
+    if 0 < metrics_1h["profit_factor"] < config.PF_DRIFT_THRESHOLD:
         logging.warning(
             f"DRIFT DETECTED (Profit Factor): PF={metrics_1h['profit_factor']:.2f} < {config.PF_DRIFT_THRESHOLD}"
         )
@@ -218,6 +213,10 @@ def main():
     checks for drift, and triggers re-optimization if necessary.
     """
     logging.info("Drift monitor started.")
+
+    # Add a startup delay to allow the database to initialize
+    time.sleep(10)
+
     conn = None
     try:
         conn = get_db_connection()
@@ -233,8 +232,12 @@ def main():
             metrics_15m = get_performance_metrics(conn, 0.25)
             baseline_stats = get_baseline_statistics(conn)
 
-            # 2. Check for drift conditions
-            detected_drifts = check_for_drift(metrics_1h, metrics_15m, baseline_stats)
+            # 2. Check for drift conditions if all data is available
+            if metrics_1h and metrics_15m and baseline_stats:
+                detected_drifts = check_for_drift(metrics_1h, metrics_15m, baseline_stats)
+            else:
+                logging.warning("Skipping drift check due to incomplete data.")
+                detected_drifts = []
 
             # 3. If drift is detected, trigger optimization with the highest priority
             if detected_drifts:
