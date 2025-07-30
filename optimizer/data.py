@@ -136,13 +136,11 @@ def _parse_timestamp(ts_str: str) -> datetime:
     including standard ISO 8601, and non-standard variations from other services.
     """
     original_ts = ts_str.strip()
-    logging.debug(f"Attempting to parse timestamp: '{original_ts}'")
-    
-    import re
     
     # This regex handles timestamps with an optional timezone that may be missing a colon.
     # Example: "2025-07-30 10:44:44.09986+00" -> "2025-07-30T10:44:44.09986+00:00"
     # It looks for a +/- followed by exactly two digits at the end of the string.
+    import re
     pattern = re.compile(r"^(.*)([+-]\d{2})$")
     match = pattern.match(original_ts)
     
@@ -150,7 +148,6 @@ def _parse_timestamp(ts_str: str) -> datetime:
     if match:
         main_part, tz_part = match.groups()
         corrected_ts = f"{main_part}{tz_part}:00"
-        logging.debug(f"Corrected timezone format: '{original_ts}' -> '{corrected_ts}'")
 
     # Replace the first space with 'T' to conform to the ISO 8601 standard format.
     # This makes the timestamp compatible with datetime.fromisoformat().
@@ -158,35 +155,31 @@ def _parse_timestamp(ts_str: str) -> datetime:
 
     try:
         # Use the highly efficient fromisoformat for parsing.
-        logging.debug(f"Attempting to parse with fromisoformat: '{iso_compatible_str}'")
         parsed_dt = datetime.fromisoformat(iso_compatible_str)
         if parsed_dt.tzinfo is None:
             parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
         return parsed_dt
-    except ValueError as e:
-        logging.debug(f"fromisoformat failed: {e}. Falling back to strptime.")
+    except ValueError:
+        # Fallback to strptime for other less common formats.
+        # This provides robustness for formats not covered by the primary method.
+        formats_to_try = [
+            '%Y-%m-%d %H:%M:%S.%f%z',
+            '%Y-%m-%d %H:%M:%S%z',
+            '%Y-%m-%d %H:%M:%S.%f',
+            '%Y-%m-%d %H:%M:%S',
+            '%Y-%m-%dT%H:%M:%S.%f%z',
+            '%Y-%m-%dT%H:%M:%S%z',
+            '%Y-%m-%dT%H:%M:%S.%f',
+            '%Y-%m-%dT%H:%M:%S',
+        ]
 
-    # Fallback to strptime for other less common formats.
-    # This provides robustness for formats not covered by the primary method.
-    formats_to_try = [
-        '%Y-%m-%d %H:%M:%S.%f%z',
-        '%Y-%m-%d %H:%M:%S%z',
-        '%Y-%m-%d %H:%M:%S.%f',
-        '%Y-%m-%d %H:%M:%S',
-        '%Y-%m-%dT%H:%M:%S.%f%z',
-        '%Y-%m-%dT%H:%M:%S%z',
-        '%Y-%m-%dT%H:%M:%S.%f',
-        '%Y-%m-%dT%H:%M:%S',
-    ]
-    
-    for fmt in formats_to_try:
-        try:
-            logging.debug(f"Trying strptime with format: '{fmt}'")
-            parsed = datetime.strptime(original_ts, fmt)
-            if parsed.tzinfo is None:
-                return parsed.replace(tzinfo=timezone.utc)
-            return parsed
-        except ValueError:
-            continue
+        for fmt in formats_to_try:
+            try:
+                parsed = datetime.strptime(original_ts, fmt)
+                if parsed.tzinfo is None:
+                    return parsed.replace(tzinfo=timezone.utc)
+                return parsed
+            except ValueError:
+                continue
 
     raise ValueError(f"Could not parse timestamp: '{original_ts}' with any known format.")
