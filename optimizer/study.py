@@ -294,12 +294,18 @@ def warm_start_with_recent_trials(study: optuna.Study, recent_days: int):
     # Trial.datetime_complete is a timezone-aware datetime object (UTC).
     cutoff_dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=recent_days)
 
-    recent_trials = [
-        t for t in previous_study.trials
-        if t.state == optuna.trial.TrialState.COMPLETE and
-           t.datetime_complete is not None and
-           t.datetime_complete > cutoff_dt
-    ]
+    recent_trials = []
+    for t in previous_study.trials:
+        if t.state != optuna.trial.TrialState.COMPLETE or t.datetime_complete is None:
+            continue
+
+        dt_complete = t.datetime_complete
+        # If the datetime object from the database is naive, make it timezone-aware (assume UTC)
+        if dt_complete.tzinfo is None:
+            dt_complete = dt_complete.replace(tzinfo=datetime.timezone.utc)
+
+        if dt_complete > cutoff_dt:
+            recent_trials.append(t)
 
     if not recent_trials:
         logging.info(f"No recent trials (last {recent_days} days) found in study '{previous_study.study_name}'.")
