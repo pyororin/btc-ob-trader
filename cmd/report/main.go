@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"time"
 
@@ -99,7 +100,11 @@ func runReportGeneration(repo *datastore.Repository, reportService *report.Servi
 
 	analysisReport, err := reportService.AnalyzeTrades(reportTrades)
 	if err != nil {
-		l.Errorf("Failed to analyze trades: %v", err)
+		if errors.Is(err, report.ErrNoExecutedTrades) {
+			l.Warnf("Skipping report generation: %v", err)
+		} else {
+			l.Errorf("Failed to analyze trades: %v", err)
+		}
 		return
 	}
 
