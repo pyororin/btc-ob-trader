@@ -13,6 +13,7 @@ class TestStudy(unittest.TestCase):
     @patch('optimizer.study.optuna.create_study')
     def test_create_study_multi_objective(self, mock_create_study):
         """Verify that create_study configures a multi-objective study correctly."""
+        from .study import create_study
         create_study()
 
         # Check that optuna.create_study was called
@@ -27,6 +28,63 @@ class TestStudy(unittest.TestCase):
         # Check the directions
         expected_directions = ['maximize', 'maximize', 'minimize']
         self.assertEqual(kwargs['directions'], expected_directions)
+
+    @patch('optimizer.study.optuna.load_study')
+    @patch('optimizer.study.optuna.get_all_study_summaries')
+    def test_warm_start_with_mixed_timezones(self, mock_get_summaries, mock_load_study):
+        """Test warm start handles trials with and without timezone information."""
+        from .study import warm_start_with_recent_trials
+        from datetime import datetime, timezone, timedelta
+
+        # 1. Setup mock data
+        now = datetime.now(timezone.utc)
+
+        # Trial with timezone-aware datetime (recent)
+        aware_trial = MagicMock()
+        aware_trial.state = optuna.trial.TrialState.COMPLETE
+        aware_trial.datetime_complete = now - timedelta(days=1)
+
+        # Trial with timezone-naive datetime (recent)
+        naive_trial = MagicMock()
+        naive_trial.state = optuna.trial.TrialState.COMPLETE
+        naive_trial.datetime_complete = now.replace(tzinfo=None) - timedelta(days=2)
+
+        # Trial that is too old
+        old_trial = MagicMock()
+        old_trial.state = optuna.trial.TrialState.COMPLETE
+        old_trial.datetime_complete = now - timedelta(days=30)
+
+        # Incomplete trial
+        incomplete_trial = MagicMock()
+        incomplete_trial.state = optuna.trial.TrialState.RUNNING
+        incomplete_trial.datetime_complete = None
+
+        mock_study_summary = MagicMock()
+        mock_study_summary.study_name = "previous-study-123"
+        mock_get_summaries.return_value = [mock_study_summary]
+
+        mock_previous_study = MagicMock()
+        mock_previous_study.trials = [aware_trial, naive_trial, old_trial, incomplete_trial]
+        mock_load_study.return_value = mock_previous_study
+
+        # 2. Setup the current study
+        current_study = optuna.create_study()
+        current_study.add_trials = MagicMock() # Mock the method we want to check
+
+        # 3. Run the function to be tested
+        warm_start_with_recent_trials(current_study, recent_days=10)
+
+        # 4. Assertions
+        # Should be called once
+        self.assertTrue(current_study.add_trials.called)
+
+        # Get the list of trials passed to add_trials
+        added_trials_list = current_study.add_trials.call_args[0][0]
+
+        # Should have added the 2 recent trials, but not the old or incomplete one
+        self.assertEqual(len(added_trials_list), 2)
+        self.assertIn(aware_trial, added_trials_list)
+        self.assertIn(naive_trial, added_trials_list)
 
 class TestObjective(unittest.TestCase):
     """Tests for the objective.py module."""
