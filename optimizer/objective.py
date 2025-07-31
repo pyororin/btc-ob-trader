@@ -54,16 +54,16 @@ class Objective:
         """
         self.study = study
 
-    def __call__(self, trial: optuna.Trial) -> float:
+    def __call__(self, trial: optuna.Trial) -> tuple[float, float, float]:
         """
-        Executes a single optimization trial.
+        Executes a single optimization trial for multi-objective optimization.
 
         Args:
             trial: The Optuna trial object.
 
         Returns:
-            The objective value for the trial (e.g., Sharpe Ratio), which Optuna
-            will try to maximize.
+            A tuple of objective values (Sharpe Ratio, Win Rate, Max Drawdown)
+            for Optuna to optimize.
 
         Raises:
             optuna.exceptions.TrialPruned: If the trial should be pruned early.
@@ -83,21 +83,31 @@ class Objective:
 
         self._calculate_and_set_metrics(trial, summary)
 
-        # Pruning based on trade count
+        # Pruning based on minimum trade count
         total_trades = trial.user_attrs.get("trades", 0)
         if total_trades < config.MIN_TRADES_FOR_PRUNING:
             logging.debug(f"Trial {trial.number} pruned with {total_trades} trades (min: {config.MIN_TRADES_FOR_PRUNING}).")
             raise optuna.exceptions.TrialPruned()
 
-        # The objective value for Optuna's internal pruner is kept simple.
-        # Sharpe Ratio is generally more robust than SQN.
-        objective_for_pruner = trial.user_attrs.get("sharpe_ratio", 0.0)
-        trial.report(objective_for_pruner, 1)
+        # Soft constraint for high drawdown
+        # P0: "dd < 25 % ならペナルティ追加" is interpreted as "if relative dd > 25%, penalize"
+        DD_PENALTY_THRESHOLD = 0.25
+        relative_drawdown = trial.user_attrs.get("relative_drawdown", 1.0)
+        if relative_drawdown > DD_PENALTY_THRESHOLD:
+            logging.debug(f"Trial {trial.number} penalized for high relative drawdown: {relative_drawdown:.2%}")
+            # Return values that are very unattractive for the optimizer
+            return -100.0, 0.0, 1_000_000.0
 
-        if trial.should_prune():
-            raise optuna.exceptions.TrialPruned()
+        # Pruning via trial.report and should_prune() is not straightforward
+        # in multi-objective optimization and is therefore disabled. The HyperbandPruner
+        # may still prune based on the first objective if it's reported, but
+        # we are not reporting intermediate values here.
 
-        return objective_for_pruner
+        sharpe_ratio = trial.user_attrs.get("sharpe_ratio", 0.0)
+        win_rate = trial.user_attrs.get("win_rate", 0.0)
+        max_drawdown = trial.user_attrs.get("max_drawdown", 0.0)
+
+        return sharpe_ratio, win_rate, max_drawdown
 
     def _suggest_parameters(self, trial: optuna.Trial) -> dict:
         """Suggests a set of parameters for a trial."""
@@ -144,15 +154,19 @@ class Objective:
         total_trades = summary.get('TotalTrades', 0)
         sharpe_ratio = summary.get('SharpeRatio', 0.0)
         profit_factor = summary.get('ProfitFactor', 0.0)
+        win_rate = summary.get('WinRate', 0.0) # WinRate is already a percentage
+        max_drawdown_abs = summary.get('MaxDrawdown', 0.0)
         pnl_history = summary.get('PnlHistory', [])
 
-        max_drawdown, relative_drawdown = calculate_max_drawdown(pnl_history)
+        # The Python-based relative drawdown calculation might be more reliable
+        _, relative_drawdown = calculate_max_drawdown(pnl_history)
         sqn = sharpe_ratio * np.sqrt(total_trades) if total_trades > 0 and sharpe_ratio is not None else 0.0
 
         trial.set_user_attr("trades", total_trades)
         trial.set_user_attr("sharpe_ratio", sharpe_ratio)
+        trial.set_user_attr("win_rate", win_rate)
         trial.set_user_attr("profit_factor", profit_factor)
-        trial.set_user_attr("max_drawdown", max_drawdown)
+        trial.set_user_attr("max_drawdown", max_drawdown_abs)
         trial.set_user_attr("relative_drawdown", relative_drawdown)
         trial.set_user_attr("sqn", sqn)
 
