@@ -31,3 +31,6 @@ cmd/export/export
 cmd/report/report
 
 optimizer/__pycache__/*.pyc
+
+# Compiled binary output directory
+bin/
