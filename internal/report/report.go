@@ -2,6 +2,7 @@ package report
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -9,6 +10,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 )
+
+// ErrNoExecutedTrades is returned when there are no executed trades to analyze.
+var ErrNoExecutedTrades = errors.New("no executed trades to analyze")
 
 // Trade はデータベースからの取引を表します。
 type Trade struct {
@@ -86,8 +90,8 @@ func (s *Service) AnalyzeTrades(trades []Trade) (Report, error) {
 
 	if len(executedTrades) == 0 {
 		// If there are no executed trades, we shouldn't generate a report.
-		// Return an error to prevent a "zero trade" report from being saved.
-		return Report{}, fmt.Errorf("no executed trades to analyze, only %d cancelled trades found", cancelledCount)
+		// Return a specific error to allow for nuanced handling.
+		return Report{}, fmt.Errorf("%w: only %d cancelled trades found", ErrNoExecutedTrades, cancelledCount)
 	}
 
 	var buys, sells []Trade
