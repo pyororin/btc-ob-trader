@@ -14,27 +14,25 @@ from .simulation import run_simulation
 
 def create_study() -> optuna.Study:
     """
-    Creates and configures a new Optuna study.
+    Creates and configures a new Optuna study for multi-objective optimization.
 
-    It uses a HyperbandPruner for efficient early stopping of unpromising trials
-    and a TPESampler, which supports warm-starting, for effective hyperparameter searching.
+    It uses a HyperbandPruner for efficient early stopping and the MOTPESampler,
+    which is designed for multi-objective problems.
 
     Returns:
         An optuna.Study object.
     """
     study_name = f"obi-scalp-optimization-{int(datetime.datetime.now().timestamp())}"
-    logging.info(f"Creating new Optuna study: {study_name}")
+    logging.info(f"Creating new multi-objective Optuna study: {study_name}")
 
     pruner = optuna.pruners.HyperbandPruner(min_resource=5, max_resource=100, reduction_factor=3)
-    # Use TPESampler as it supports warm-starting with prior trials.
-    # multivariate=True allows it to handle complex parameter interactions.
-    # consider_prior=True is essential for the warm-start functionality.
-    sampler = optuna.samplers.TPESampler(multivariate=True, consider_prior=True, warn_independent_sampling=False)
+    # MOTPESampler is well-suited for multi-objective optimization problems.
+    sampler = optuna.samplers.MOTPESampler(consider_prior=True, seed=42)
 
     return optuna.create_study(
         study_name=study_name,
         storage=config.STORAGE_URL,
-        direction='maximize',
+        directions=['maximize', 'maximize', 'minimize'],  # SR (max), WinRate (max), MaxDD (min)
         load_if_exists=True,
         pruner=pruner,
         sampler=sampler
@@ -69,16 +67,13 @@ def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int):
 def progress_callback(study: optuna.Study, trial: optuna.Trial, n_trials: int):
     """Callback function to report progress periodically."""
     if trial.number > 0 and trial.number % 100 == 0:
-        try:
-            best_trial = study.best_trial
-            logging.info(
-                f"Trial {trial.number}/{n_trials}: Best trial so far is #{best_trial.number} "
-                f"with SR: {best_trial.value:.2f}, "
-                f"PF: {best_trial.user_attrs.get('profit_factor', 0.0):.2f}, "
-                f"Trades: {best_trial.user_attrs.get('trades', 0)}"
-            )
-        except ValueError:
-            logging.info(f"Trial {trial.number}/{n_trials}: No completed trials yet.")
+        # In multi-objective optimization, study.best_trial is deprecated.
+        # We log the pareto front size or just the trial number.
+        pareto_front = study.best_trials
+        logging.info(
+            f"Trial {trial.number}/{n_trials}: "
+            f"Pareto front contains {len(pareto_front)} trials."
+        )
 
 def analyze_and_validate(study: optuna.Study, oos_csv_path: Path) -> bool:
     """
