@@ -41,39 +41,48 @@ def get_db_connection() -> Optional[DbConnection]:
 
 def get_performance_metrics(conn: DbConnection, hours: float) -> Optional[Dict[str, float]]:
     """
-    Fetches the latest performance metrics from the pnl_reports table.
+    Fetches aggregated performance metrics from the pnl_reports table
+    over a specified time window.
+
+    It calculates the average Sharpe Ratio, average Profit Factor, and the
+    maximum Max Drawdown over the period.
 
     Args:
         conn: The database connection object.
-        hours: The time window in hours to look back for the latest report.
+        hours: The time window in hours to look back for reports.
 
     Returns:
-        A dictionary with performance metrics, or None if the query fails or
-        returns no data.
+        A dictionary with aggregated performance metrics, or None if the query
+        fails or if there is no data to aggregate.
     """
     minutes = int(hours * 60)
     query = """
-        SELECT sharpe_ratio, profit_factor, max_drawdown
+        SELECT
+            AVG(sharpe_ratio) AS sharpe_ratio,
+            AVG(profit_factor) AS profit_factor,
+            MAX(max_drawdown) AS max_drawdown
         FROM pnl_reports
-        WHERE time >= NOW() - INTERVAL '1 minute' * %s
-        ORDER BY time DESC
-        LIMIT 1;
+        WHERE time >= NOW() - INTERVAL '1 minute' * %s;
     """
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(query, (minutes,))
             result = cur.fetchone()
-            if result:
+            # If there's no data in the window, AVG/MAX return NULL.
+            # We should treat this as "no metrics found".
+            if result and result['sharpe_ratio'] is not None:
                 logging.info(
-                    f"Metrics for last {hours}h: Sharpe={result['sharpe_ratio']:.2f}, "
-                    f"PF={result['profit_factor']:.2f}, MDD={result['max_drawdown']:.2f}"
+                    f"Aggregated metrics for last {hours}h: "
+                    f"Sharpe={result['sharpe_ratio']:.2f}, "
+                    f"PF={result['profit_factor']:.2f}, "
+                    f"MDD={result['max_drawdown']:.2f}"
                 )
                 return dict(result)
     except psycopg2.Error as e:
         logging.error(f"Database error in get_performance_metrics: {e}")
         conn.rollback()
 
-    logging.warning(f"Could not get metrics for last {hours}h. Returning None.")
+    logging.warning(f"Could not get aggregated metrics for last {hours}h. Returning None.")
     return None
 
 
