@@ -11,10 +11,10 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
-	// "github.com/google/uuid" // No longer used after removing newNonce
 )
 
 var (
@@ -39,15 +39,18 @@ type Client struct {
 	apiKey     string
 	secretKey  string
 	httpClient *http.Client
+	nonce      atomic.Int64
 }
 
 // NewClient creates a new Coincheck API client.
 func NewClient(apiKey, secretKey string) *Client {
-	return &Client{
+	c := &Client{
 		apiKey:     apiKey,
 		secretKey:  secretKey,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
+	c.nonce.Store(time.Now().UnixNano())
+	return c
 }
 
 func (c *Client) newRequest(method, endpoint string, body io.Reader) (*http.Request, error) {
@@ -57,9 +60,10 @@ func (c *Client) newRequest(method, endpoint string, body io.Reader) (*http.Requ
 		return nil, err
 	}
 
-	// Generate a nonce using the current time in nanoseconds for each request.
-	// This approach is robust against application restarts, unlike an in-memory counter.
-	nonce := strconv.FormatInt(time.Now().UnixNano(), 10)
+	// Atomically increment the nonce to ensure it's unique and monotonically increasing.
+	// This is safe for concurrent use.
+	nonceVal := c.nonce.Add(1)
+	nonce := strconv.FormatInt(nonceVal, 10)
 	message := nonce + url
 	if body != nil && body != http.NoBody {
 		buf := new(bytes.Buffer)
