@@ -32,7 +32,7 @@ def create_study() -> optuna.Study:
         study_name=study_name,
         storage=config.STORAGE_URL,
         direction='maximize',
-        load_if_exists=False,
+        load_if_exists=True,
         pruner=pruner,
         sampler=sampler
     )
