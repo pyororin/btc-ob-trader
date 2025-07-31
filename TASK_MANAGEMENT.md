@@ -27,7 +27,8 @@ Julesが `make up` や `make replay` のようなDocker Composeを利用する�
 
 ## 改善タスク一覧 (既存機能)
 
-| ID     | タイトル                      | ステータス | 手順
+| ID     | タイトル                      | ステータス | 手順 |
+| -------| --------------------------- |---------|-----|
 | P0 | 多目的化 & ゆるい制約 | todo | ① Optuna の MOTPE に切替え、maximize=[Sharpe, win_rate] / minimize=[max_dd] で Pareto フロント探索 ② 合格判定を soft filter（例：dd < 25 % ならペナルティ追加）に変更 |
 | P1 | 探索空間の再設計 | todo | ① loguniform で感度の高い閾値を対数スケール化 ② 相関の強いパラメータは階層構造に（例：adaptive_* は enabled 時のみサンプル） |
 | P2 | Walk‑forward CV の導入 | todo | backtester.run(params, start, end) を N 分割して平均スコアを返す。テスト期間を 2023→24→25 とローリング |
@@ -40,7 +41,8 @@ Julesが `make up` や `make replay` のようなDocker Composeを利用する�
 ---
 
 ## 新機能一覧
-| ID   | 機能名                      | 優先度 | 仕様概要
+| ID   | 機能名                      | 優先度 | 仕様概要 |
+| -----| -------------------------- |------|--------|
 | N/A | オンライン適応型 Bayesian Optimization | high | 本番稼働中の live PnL を “観測ノイズ入り目的関数” に組込み、Optuna を継続学習モードで走らせることで、市場 regime 変更に追従。実装イメージ: WebSocket で約定結果 → RabbitMQ → optimizer_worker が逐次 study.tell()。 |
 | N/A | メタパラメータ探索サービス化 | mid | FastAPI + Redis で「この YAML と損益 CSV を PUT すると最適セットを返す」社内 API を構築。CI で nightly BT & Slack 通知。 |
 | N/A | グラフィカル KDE ダッシュボード | mid | Streamlit で上位試行の KDE／相関ヒートマップを即時確認。高原領域クリック → YAML スニペット自動生成。 |
