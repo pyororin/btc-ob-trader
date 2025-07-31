@@ -81,8 +81,8 @@ class TestObjective(unittest.TestCase):
         self.assertEqual(result, (-100.0, 0.0, 1_000_000.0))
 
     @patch('optimizer.objective.simulation.run_simulation')
-    def test_objective_pruned_low_trades(self, mock_run_simulation):
-        """Test that a trial is pruned if it has too few trades."""
+    def test_objective_penalized_low_trades(self, mock_run_simulation):
+        """Test that a trial is penalized if it has too few trades."""
         # Mock a result with very few trades
         mock_summary = {
             'TotalTrades': config.MIN_TRADES_FOR_PRUNING - 1, # One less than required
@@ -96,9 +96,19 @@ class TestObjective(unittest.TestCase):
         trial = self.study.ask()
         trial.suggest_int('spread_limit', 20, 80)
 
-        # Check that TrialPruned is raised
-        with self.assertRaises(optuna.exceptions.TrialPruned):
-            self.objective(trial)
+        result = self.objective(trial)
+        self.assertEqual(result, (-100.0, 0.0, 1_000_000.0))
+
+    def test_objective_no_sim_path(self):
+        """Test that a penalty is returned if the simulation path is missing."""
+        # Create a study without the user attribute
+        study_no_path = optuna.create_study(directions=['maximize', 'maximize', 'minimize'])
+        objective_no_path = Objective(study_no_path)
+        trial = study_no_path.ask()
+        trial.suggest_int('spread_limit', 20, 80)
+
+        result = objective_no_path(trial)
+        self.assertEqual(result, (-100.0, 0.0, 1_000_000.0))
 
 if __name__ == '__main__':
     unittest.main()

@@ -58,36 +58,39 @@ class Objective:
         """
         Executes a single optimization trial for multi-objective optimization.
 
+        This function handles failed or invalid trials by returning a penalty
+        value instead of raising an exception, to ensure the MOTPE sampler
+        always receives valid objective values.
+
         Args:
             trial: The Optuna trial object.
 
         Returns:
             A tuple of objective values (Sharpe Ratio, Win Rate, Max Drawdown)
             for Optuna to optimize.
-
-        Raises:
-            optuna.exceptions.TrialPruned: If the trial should be pruned early.
         """
+        # Define a constant for penalty values to be returned for failed trials
+        PENALTY_VALUES = (-100.0, 0.0, 1_000_000.0)
         params = self._suggest_parameters(trial)
 
         sim_csv_path = self.study.user_attrs.get('current_csv_path')
         if not sim_csv_path:
-            logging.error("Simulation CSV path not found in study user attributes.")
-            raise optuna.exceptions.TrialPruned("Missing simulation data path.")
+            logging.error("Simulation CSV path not found in study user attributes. Returning penalty.")
+            return PENALTY_VALUES
 
         summary = simulation.run_simulation(params, sim_csv_path)
 
         if not isinstance(summary, dict) or not summary:
-            logging.warning(f"Trial {trial.number}: Simulation failed or returned empty result. Pruning.")
-            raise optuna.exceptions.TrialPruned()
+            logging.warning(f"Trial {trial.number}: Simulation failed or returned empty result. Returning penalty.")
+            return PENALTY_VALUES
 
         self._calculate_and_set_metrics(trial, summary)
 
         # Pruning based on minimum trade count
         total_trades = trial.user_attrs.get("trades", 0)
         if total_trades < config.MIN_TRADES_FOR_PRUNING:
-            logging.debug(f"Trial {trial.number} pruned with {total_trades} trades (min: {config.MIN_TRADES_FOR_PRUNING}).")
-            raise optuna.exceptions.TrialPruned()
+            logging.debug(f"Trial {trial.number} has {total_trades} trades (min: {config.MIN_TRADES_FOR_PRUNING}). Returning penalty.")
+            return PENALTY_VALUES
 
         # Soft constraint for high drawdown
         # P0: "dd < 25 % ならペナルティ追加" is interpreted as "if relative dd > 25%, penalize"
