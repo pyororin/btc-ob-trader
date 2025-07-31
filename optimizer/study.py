@@ -17,7 +17,7 @@ def create_study() -> optuna.Study:
     Creates and configures a new Optuna study.
 
     It uses a HyperbandPruner for efficient early stopping of unpromising trials
-    and a CMA-ES sampler for effective hyperparameter searching.
+    and a TPESampler, which supports warm-starting, for effective hyperparameter searching.
 
     Returns:
         An optuna.Study object.
@@ -26,7 +26,10 @@ def create_study() -> optuna.Study:
     logging.info(f"Creating new Optuna study: {study_name}")
 
     pruner = optuna.pruners.HyperbandPruner(min_resource=5, max_resource=100, reduction_factor=3)
-    sampler = optuna.samplers.CmaEsSampler(warn_independent_sampling=False)
+    # Use TPESampler as it supports warm-starting with prior trials.
+    # multivariate=True allows it to handle complex parameter interactions.
+    # consider_prior=True is essential for the warm-start functionality.
+    sampler = optuna.samplers.TPESampler(multivariate=True, consider_prior=True, warn_independent_sampling=False)
 
     return optuna.create_study(
         study_name=study_name,
@@ -239,3 +242,78 @@ def _save_best_parameters(params: dict):
         logging.info(f"Successfully updated trade config: {config.BEST_CONFIG_OUTPUT_PATH}")
     except Exception as e:
         logging.error(f"Failed to save the best parameter config file: {e}")
+
+
+def warm_start_with_recent_trials(study: optuna.Study, recent_days: int):
+    """
+    Performs a warm-start by adding recent trials from previous studies.
+
+    This function scans the Optuna storage for all completed studies, finds the
+    most recent one (excluding the current study), and adds its trials from
+    the last `recent_days` to the current study. This helps the sampler
+    start with a better prior, especially in a rolling optimization setup.
+
+    Args:
+        study: The current Optuna study object to add trials to.
+        recent_days: The number of days to look back for recent trials.
+    """
+    if not recent_days or recent_days <= 0:
+        logging.info("Warm-start is disabled (recent_days is not set).")
+        return
+
+    logging.info(f"Attempting warm-start with trials from the last {recent_days} days.")
+
+    try:
+        all_summaries = optuna.get_all_study_summaries(storage=config.STORAGE_URL)
+    except Exception as e:
+        logging.error(f"Could not retrieve study summaries for warm-start: {e}")
+        return
+
+    # Filter out the current study and find the most recent completed study.
+    # The study name format is f"obi-scalp-optimization-{timestamp}".
+    completed_studies = [s for s in all_summaries if s.study_name != study.study_name]
+    if not completed_studies:
+        logging.info("No previous studies found for warm-start.")
+        return
+
+    # Sort by the timestamp in the name to find the most recent study.
+    try:
+        completed_studies.sort(key=lambda s: int(s.study_name.split('-')[-1]), reverse=True)
+    except (ValueError, IndexError):
+        logging.warning("Could not sort studies by name to find the most recent one. Skipping warm-start.")
+        return
+
+    latest_study_summary = completed_studies[0]
+
+    logging.info(f"Loading most recent study '{latest_study_summary.study_name}' for warm-start.")
+    try:
+        previous_study = optuna.load_study(
+            study_name=latest_study_summary.study_name,
+            storage=config.STORAGE_URL
+        )
+    except KeyError:
+        logging.warning(f"Failed to load study '{latest_study_summary.study_name}'. Skipping warm-start.")
+        return
+
+    # Filter trials from the last `recent_days`.
+    # Trial.datetime_complete is a timezone-aware datetime object (UTC).
+    cutoff_dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=recent_days)
+
+    recent_trials = [
+        t for t in previous_study.trials
+        if t.state == optuna.trial.TrialState.COMPLETE and
+           t.datetime_complete is not None and
+           t.datetime_complete > cutoff_dt
+    ]
+
+    if not recent_trials:
+        logging.info(f"No recent trials (last {recent_days} days) found in study '{previous_study.study_name}'.")
+        return
+
+    # Add the filtered trials to the current study.
+    logging.info(f"Adding {len(recent_trials)} recent trials to the current study for warm-start.")
+    try:
+        study.add_trials(recent_trials)
+    except Exception as e:
+        # This could happen for various reasons, e.g., if a trial somehow gets duplicated.
+        logging.error(f"Failed to add trials for warm-start: {e}", exc_info=True)

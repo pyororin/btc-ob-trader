@@ -62,9 +62,11 @@ def ensure_dummy_trade_config():
 
 def run():
     """Runs the full optimization process for testing."""
-    # Set DB_HOST to localhost for direct connection from the script
-    os.environ['DB_HOST'] = 'localhost'
-    print("Set DB_HOST to localhost for testing.")
+    # For in-container testing where the container is not on the same docker network,
+    # use host.docker.internal to connect to the host machine where docker exposes the port.
+    db_host = os.environ.get('DB_HOST', 'host.docker.internal')
+    os.environ['DB_HOST'] = db_host
+    print(f"Set DB_HOST to {db_host} for testing.")
 
     # Ensure .env file exists and load it
     env_path = APP_ROOT / '.env'
@@ -84,11 +86,11 @@ def run():
                 key, value = line.strip().split('=', 1)
                 os.environ[key] = value
 
-    # Construct DATABASE_URL, overriding DB_HOST to localhost
+    # Construct DATABASE_URL, using the resolved DB_HOST
     db_user = os.getenv('DB_USER')
     db_password = os.getenv('DB_PASSWORD')
     db_name = os.getenv('DB_NAME')
-    db_host = 'localhost' # Force localhost for test script
+    # db_host is already set from os.environ['DB_HOST']
     db_port = os.getenv('DB_PORT')
     if all([db_user, db_password, db_name, db_host, db_port]):
         os.environ['DATABASE_URL'] = f"postgres://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}?sslmode=disable"
