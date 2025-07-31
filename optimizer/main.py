@@ -3,6 +3,7 @@ import json
 import os
 import logging
 import sys
+import subprocess
 
 from . import config
 from . import data
@@ -63,6 +64,55 @@ def run_optimization_job(job: dict):
         logging.error(f"An unexpected error occurred during the optimization job: {e}", exc_info=True)
 
 
+def compile_simulation_binary() -> bool:
+    """
+    Compiles the Go simulation binary if it doesn't exist or is outdated.
+
+    This function checks for the existence of the simulation binary and, if
+    it's missing, runs `go build` to create it. This avoids the overhead of
+    using `go run` for every simulation trial.
+
+    Returns:
+        True if the binary exists or was compiled successfully, False otherwise.
+    """
+    binary_path = config.SIMULATION_BINARY_PATH
+    source_path = config.APP_ROOT / 'cmd' / 'bot' / 'main.go'
+
+    if not source_path.exists():
+        logging.error(f"Go source file not found at {source_path}. Cannot compile binary.")
+        return False
+
+    if binary_path.exists():
+        logging.info(f"Simulation binary already exists at {binary_path}. Skipping compilation.")
+        return True
+
+    logging.info(f"Compiling simulation binary to {binary_path}...")
+    try:
+        # Ensure the target directory exists
+        binary_path.parent.mkdir(parents=True, exist_ok=True)
+
+        command = [
+            'go', 'build',
+            '-o', str(binary_path),
+            str(source_path)
+        ]
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=config.APP_ROOT
+        )
+        logging.info("Successfully compiled Go simulation binary.")
+        return True
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Failed to compile Go simulation binary: {e.stderr}")
+        return False
+    except Exception as e:
+        logging.error(f"An unexpected error occurred during compilation: {e}")
+        return False
+
+
 def main_loop(run_once: bool = False):
     """
     The main loop of the optimizer service.
@@ -75,6 +125,12 @@ def main_loop(run_once: bool = False):
     """
     if not config.CONFIG_TEMPLATE_PATH.exists():
         logging.error(f"Trade config template not found at {config.CONFIG_TEMPLATE_PATH}. Exiting.")
+        return
+
+    # --- Pre-computation Step ---
+    # Compile the Go binary once at startup to avoid repeated compilation.
+    if not compile_simulation_binary():
+        logging.error("Failed to prepare simulation binary. Optimizer cannot run.")
         return
 
     logging.info("Optimizer service started. Waiting for optimization job...")

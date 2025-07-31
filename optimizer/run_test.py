@@ -62,9 +62,10 @@ def ensure_dummy_trade_config():
 
 def run():
     """Runs the full optimization process for testing."""
-    # For in-container testing where the container is not on the same docker network,
-    # use host.docker.internal to connect to the host machine where docker exposes the port.
-    db_host = os.environ.get('DB_HOST', 'host.docker.internal')
+    # In this testing environment, service name resolution via Docker DNS seems unavailable.
+    # However, the timescaledb port is mapped to the host.
+    # We will try connecting via 'localhost' as the host machine.
+    db_host = os.environ.get('DB_HOST', 'localhost')
     os.environ['DB_HOST'] = db_host
     print(f"Set DB_HOST to {db_host} for testing.")
 

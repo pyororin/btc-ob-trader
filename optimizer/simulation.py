@@ -41,8 +41,9 @@ def run_simulation(params: dict, sim_csv_path: Path) -> dict:
             temp_f.write(config_yaml_str)
 
         # 2. Construct the command to run the Go simulation
+        # Execute the pre-compiled binary for performance.
         command = [
-            'go', 'run', 'cmd/bot/main.go',
+            str(config.SIMULATION_BINARY_PATH),
             '--simulate',
             f'--trade-config={temp_config_file}',
             f'--csv={sim_csv_path}',

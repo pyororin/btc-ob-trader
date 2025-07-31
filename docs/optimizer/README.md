@@ -49,11 +49,12 @@ services:
 
 ### 4.1. 最適化の実行 (`main.py` と関連モジュール)
 
-1.  **ジョブの待機**: `main.py`は、`drift-monitor`サービスによって`optimization_job.json`が作成されるのを待ち続けます。
-2.  **データ準備 (`data.py`)**:
+1.  **起動と事前コンパイル**: `main.py`は、サービスの起動時に、まずGo言語で書かれたバックテストエンジン（`cmd/bot/main.go`）を一度だけコンパイルし、実行可能バイナリ（`/app/bin/bot`）を生成します。これにより、最適化の各試行で毎回コンパイルするオーバーヘッドをなくし、処理速度を大幅に向上させます。
+2.  **ジョブの待機**: `main.py`は、`drift-monitor`サービスによって`optimization_job.json`が作成されるのを待ち続けます。
+3.  **データ準備 (`data.py`)**:
     -   `go run cmd/export/main.go`を実行し、ジョブで指定された期間の市場データをCSVにエクスポートします。
     -   データをIn-Sample (IS)とOut-of-Sample (OOS)に分割します。
-3.  **In-Sample (IS) 最適化 (`study.py`, `objective.py`)**:
+4.  **In-Sample (IS) 最適化 (`study.py`, `objective.py`)**:
     -   `study.py`がOptunaの`Study`を新規作成します。
     -   設定された`n_trials`回数、`objective.py`の目的関数が呼び出されます。
     -   目的関数は、`trial.suggest_*`でパラメータを生成し、`simulation.py`経由でバックテストを実行し、結果を評価します。性能の悪い試行は枝刈りされます。
