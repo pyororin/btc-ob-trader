@@ -85,12 +85,9 @@ func (s *Service) AnalyzeTrades(trades []Trade) (Report, error) {
 	}
 
 	if len(executedTrades) == 0 {
-		return Report{
-			StartDate:       trades[0].Time,
-			EndDate:         trades[len(trades)-1].Time,
-			CancelledTrades: cancelledCount,
-			TotalTrades:     0,
-		}, nil
+		// If there are no executed trades, we shouldn't generate a report.
+		// Return an error to prevent a "zero trade" report from being saved.
+		return Report{}, fmt.Errorf("no executed trades to analyze, only %d cancelled trades found", cancelledCount)
 	}
 
 	var buys, sells []Trade
