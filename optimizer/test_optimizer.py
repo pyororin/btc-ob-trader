@@ -77,8 +77,10 @@ class TestObjective(unittest.TestCase):
 
         result = self.objective(trial)
 
-        # Check if the penalty values are returned
-        self.assertEqual(result, (-100.0, 0.0, 1_000_000.0))
+        # Check if the randomized penalty values are returned
+        self.assertLess(result[0], -100.0)
+        self.assertEqual(result[1], 0.0)
+        self.assertGreater(result[2], 1_000_000.0)
 
     @patch('optimizer.objective.simulation.run_simulation')
     def test_objective_penalized_low_trades(self, mock_run_simulation):
@@ -97,7 +99,9 @@ class TestObjective(unittest.TestCase):
         trial.suggest_int('spread_limit', 20, 80)
 
         result = self.objective(trial)
-        self.assertEqual(result, (-100.0, 0.0, 1_000_000.0))
+        self.assertLess(result[0], -100.0)
+        self.assertEqual(result[1], 0.0)
+        self.assertGreater(result[2], 1_000_000.0)
 
     def test_objective_no_sim_path(self):
         """Test that a penalty is returned if the simulation path is missing."""
@@ -108,7 +112,9 @@ class TestObjective(unittest.TestCase):
         trial.suggest_int('spread_limit', 20, 80)
 
         result = objective_no_path(trial)
-        self.assertEqual(result, (-100.0, 0.0, 1_000_000.0))
+        self.assertLess(result[0], -100.0)
+        self.assertEqual(result[1], 0.0)
+        self.assertGreater(result[2], 1_000_000.0)
 
 if __name__ == '__main__':
     unittest.main()
