@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
@@ -40,8 +39,6 @@ type Client struct {
 	apiKey     string
 	secretKey  string
 	httpClient *http.Client
-	mu         sync.Mutex
-	lastNonce  int64
 }
 
 // NewClient creates a new Coincheck API client.
@@ -50,7 +47,6 @@ func NewClient(apiKey, secretKey string) *Client {
 		apiKey:     apiKey,
 		secretKey:  secretKey,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
-		lastNonce:  time.Now().UnixNano(),
 	}
 }
 
@@ -61,14 +57,9 @@ func (c *Client) newRequest(method, endpoint string, body io.Reader) (*http.Requ
 		return nil, err
 	}
 
-	c.mu.Lock()
-	// Always increment the last nonce; using time.Now().UnixNano() can be problematic
-	// in high-frequency trading scenarios or if the system clock is adjusted.
-	c.lastNonce++
-	nonceVal := c.lastNonce
-	c.mu.Unlock()
-
-	nonce := strconv.FormatInt(nonceVal, 10)
+	// Generate a nonce using the current time in nanoseconds for each request.
+	// This approach is robust against application restarts, unlike an in-memory counter.
+	nonce := strconv.FormatInt(time.Now().UnixNano(), 10)
 	message := nonce + url
 	if body != nil && body != http.NoBody {
 		buf := new(bytes.Buffer)
