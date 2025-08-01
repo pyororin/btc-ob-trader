@@ -26,8 +26,9 @@ def create_study() -> optuna.Study:
     logging.info(f"Creating new multi-objective Optuna study: {study_name}")
 
     pruner = optuna.pruners.HyperbandPruner(min_resource=5, max_resource=100, reduction_factor=3)
-    # MOTPESampler is well-suited for multi-objective optimization problems.
-    sampler = optuna.samplers.MOTPESampler(consider_prior=True, seed=42)
+    # NSGAIISampler is the recommended sampler for multi-objective optimization.
+    # It is more robust against large Pareto fronts than the deprecated MOTPESampler.
+    sampler = optuna.samplers.NSGAIISampler(seed=42)
 
     return optuna.create_study(
         study_name=study_name,

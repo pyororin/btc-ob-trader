@@ -70,26 +70,25 @@ class Objective:
             A tuple of objective values (Sharpe Ratio, Max Drawdown) for
             Optuna to optimize.
         """
-        # To prevent the Pareto front from bloating with identical penalty values,
-        # we add a small random noise to make each failed trial unique.
-        def get_penalty_values():
-            return (
-                -100.0 - random.random(),  # SR (Maximize)
-                1_000_000.0 + random.random() # MaxDD (Minimize)
-            )
+        # This function returns a value that is guaranteed to be dominated by
+        # a trial with 0 trades (SR=0, MaxDD=0). This prevents trials that
+        # are pruned for low trade count or high drawdown from bloating the
+        # Pareto front.
+        def get_dominated_penalty():
+            return -1.0, 1_000_000.0
 
         params = self._suggest_parameters(trial)
 
         sim_csv_path = self.study.user_attrs.get('current_csv_path')
         if not sim_csv_path:
             logging.error("Simulation CSV path not found in study user attributes. Returning penalty.")
-            return get_penalty_values()
+            return get_dominated_penalty()
 
         summary = simulation.run_simulation(params, sim_csv_path)
 
         if not isinstance(summary, dict) or not summary:
             logging.warning(f"Trial {trial.number}: Simulation failed or returned empty result. Returning penalty.")
-            return get_penalty_values()
+            return get_dominated_penalty()
 
         self._calculate_and_set_metrics(trial, summary)
 
@@ -97,7 +96,7 @@ class Objective:
         total_trades = trial.user_attrs.get("trades", 0)
         if total_trades < config.MIN_TRADES_FOR_PRUNING:
             logging.debug(f"Trial {trial.number} has {total_trades} trades (min: {config.MIN_TRADES_FOR_PRUNING}). Returning penalty.")
-            return get_penalty_values()
+            return get_dominated_penalty()
 
         # Soft constraint for high drawdown
         # P0: "dd < 25 % ならペナルティ追加" is interpreted as "if relative dd > 25%, penalize"
@@ -106,7 +105,7 @@ class Objective:
         if relative_drawdown > DD_PENALTY_THRESHOLD:
             logging.debug(f"Trial {trial.number} penalized for high relative drawdown: {relative_drawdown:.2%}")
             # Return values that are very unattractive for the optimizer
-            return get_penalty_values()
+            return get_dominated_penalty()
 
         # Pruning via trial.report and should_prune() is not straightforward
         # in multi-objective optimization and is therefore disabled. The HyperbandPruner
