@@ -55,7 +55,7 @@ class Objective:
         """
         self.study = study
 
-    def __call__(self, trial: optuna.Trial) -> tuple[float, float, float]:
+    def __call__(self, trial: optuna.Trial) -> tuple[float, float]:
         """
         Executes a single optimization trial for multi-objective optimization.
 
@@ -67,16 +67,15 @@ class Objective:
             trial: The Optuna trial object.
 
         Returns:
-            A tuple of objective values (Sharpe Ratio, Win Rate, Max Drawdown)
-            for Optuna to optimize.
+            A tuple of objective values (Sharpe Ratio, Max Drawdown) for
+            Optuna to optimize.
         """
         # To prevent the Pareto front from bloating with identical penalty values,
         # we add a small random noise to make each failed trial unique.
         def get_penalty_values():
             return (
-                -100.0 - random.random(),  # Maximize
-                0.0,                       # Maximize
-                1_000_000.0 + random.random() # Minimize
+                -100.0 - random.random(),  # SR (Maximize)
+                1_000_000.0 + random.random() # MaxDD (Minimize)
             )
 
         params = self._suggest_parameters(trial)
@@ -115,10 +114,9 @@ class Objective:
         # we are not reporting intermediate values here.
 
         sharpe_ratio = trial.user_attrs.get("sharpe_ratio", 0.0)
-        win_rate = trial.user_attrs.get("win_rate", 0.0)
         max_drawdown = trial.user_attrs.get("max_drawdown", 0.0)
 
-        return sharpe_ratio, win_rate, max_drawdown
+        return sharpe_ratio, max_drawdown
 
     def _suggest_parameters(self, trial: optuna.Trial) -> dict:
         """Suggests a set of parameters for a trial."""
