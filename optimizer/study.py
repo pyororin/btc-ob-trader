@@ -33,7 +33,7 @@ def create_study() -> optuna.Study:
     return optuna.create_study(
         study_name=study_name,
         storage=config.STORAGE_URL,
-        directions=['maximize', 'minimize'],  # SR (max), MaxDD (min)
+        directions=['maximize', 'maximize', 'minimize'],  # SR (max), WinRate (max), MaxDD (min)
         load_if_exists=True,
         pruner=pruner,
         sampler=sampler
@@ -207,6 +207,7 @@ def _is_oos_passed(oos_summary: dict) -> bool:
     """Checks if the OOS simulation summary meets the minimum passing criteria."""
     return (
         oos_summary.get('TotalTrades', 0) >= config.OOS_MIN_TRADES and
+        oos_summary.get('ProfitFactor', 0.0) >= config.OOS_MIN_PROFIT_FACTOR and
         oos_summary.get('SharpeRatio', 0.0) >= config.OOS_MIN_SHARPE_RATIO
     )
 
@@ -215,6 +216,8 @@ def _get_oos_fail_reason(oos_summary: dict) -> str:
     reasons = []
     if oos_summary.get('TotalTrades', 0) < config.OOS_MIN_TRADES:
         reasons.append(f"trades < {config.OOS_MIN_TRADES}")
+    if oos_summary.get('ProfitFactor', 0.0) < config.OOS_MIN_PROFIT_FACTOR:
+        reasons.append(f"PF < {config.OOS_MIN_PROFIT_FACTOR}")
     if oos_summary.get('SharpeRatio', 0.0) < config.OOS_MIN_SHARPE_RATIO:
         reasons.append(f"SR < {config.OOS_MIN_SHARPE_RATIO}")
     return ", ".join(reasons) if reasons else "Unknown reason"
@@ -309,17 +312,6 @@ def warm_start_with_recent_trials(study: optuna.Study, recent_days: int):
         logging.info(f"No recent trials (last {recent_days} days) found in study '{previous_study.study_name}'.")
         return
 
-    # Sort trials by completion time (most recent first)
-    recent_trials.sort(key=lambda t: t.datetime_complete, reverse=True)
-
-    # Limit the number of trials to the configured maximum
-    if len(recent_trials) > config.WARM_START_MAX_TRIALS:
-        logging.info(
-            f"Limiting warm-start trials from {len(recent_trials)} to the {config.WARM_START_MAX_TRIALS} most recent ones."
-        )
-        recent_trials = recent_trials[:config.WARM_START_MAX_TRIALS]
-
-
     # Add the filtered trials to the current study, converting them if necessary.
     logging.info(f"Adding {len(recent_trials)} recent trials to the current study for warm-start.")
 
@@ -334,9 +326,21 @@ def warm_start_with_recent_trials(study: optuna.Study, recent_days: int):
                 study.add_trial(trial)
             elif n_objectives_past == 3 and n_objectives_current == 2:
                 # Handle conversion from 3 objectives (SR, WinRate, MaxDD) to 2 (SR, MaxDD).
-                # Values are indexed [0, 1, 2]. We need [0, 2].
                 new_values = [trial.values[0], trial.values[2]]
-
+                recreated_trial = optuna.create_trial(
+                    state=trial.state,
+                    values=new_values,
+                    params=trial.params,
+                    distributions=trial.distributions,
+                    user_attrs=trial.user_attrs,
+                    system_attrs=trial.system_attrs,
+                    intermediate_values=trial.intermediate_values
+                )
+                study.add_trial(recreated_trial)
+            elif n_objectives_past == 2 and n_objectives_current == 3:
+                # Handle conversion from 2 objectives (SR, MaxDD) to 3 (SR, WinRate, MaxDD).
+                win_rate = trial.user_attrs.get('win_rate', 0.0)
+                new_values = [trial.values[0], win_rate, trial.values[1]]
                 recreated_trial = optuna.create_trial(
                     state=trial.state,
                     values=new_values,
