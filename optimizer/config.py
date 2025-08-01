@@ -51,7 +51,7 @@ STORAGE_URL = os.getenv('STORAGE_URL', CONFIG.get('storage_url', DEFAULT_STORAGE
 
 # Optimizer Settings
 N_TRIALS = CONFIG.get('n_trials', 800)
-WARM_START_MAX_TRIALS = CONFIG.get('warm_start_max_trials', 200)
+WARM_START_TRIALS_MULTIPLIER = CONFIG.get('warm_start_trials_multiplier', 3)
 MIN_TRADES_FOR_PRUNING = CONFIG.get('min_trades_for_pruning', 5)
 MAX_RETRY = CONFIG.get('max_retry', 5)
 EARLY_STOP_COUNT = CONFIG.get('early_stop_count', 3)
@@ -74,6 +74,12 @@ OBJECTIVE_WEIGHTS = CONFIG.get('objective_weights', {
 ANALYZER_CONFIG = CONFIG.get('analyzer', {})
 TOP_TRIALS_QUANTILE = ANALYZER_CONFIG.get('top_trials_quantile', 0.1)
 MIN_TRIALS_FOR_ANALYSIS = ANALYZER_CONFIG.get('min_trials_for_analysis', 10)
+
+# Stability Analysis Settings
+STABILITY_CONFIG = CONFIG.get('stability_analysis', {})
+STABILITY_CHECK_N_RUNS = STABILITY_CONFIG.get('n_runs', 5)
+STABILITY_JITTER_FACTOR = STABILITY_CONFIG.get('jitter_factor', 0.05)
+STABILITY_PENALTY_FACTOR = STABILITY_CONFIG.get('penalty_factor', 0.5)
 
 # Drift Monitor Settings
 DB_USER = os.getenv('DB_USER')
