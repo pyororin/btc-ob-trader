@@ -187,43 +187,69 @@ class Objective:
         return jittered_params
 
     def _suggest_parameters(self, trial: optuna.Trial) -> dict:
-        """Suggests a set of parameters for a trial."""
+        """
+        Suggests a set of parameters for a trial.
+
+        BUGFIX: This function now creates a nested dictionary that directly
+        matches the structure of the trade_config.yaml.template file.
+        The previous implementation created a flat dictionary, which caused
+        the Jinja2 rendering to fail and resulted in an empty or malformed
+        config, leading to zero trades in the simulation.
+        """
         return {
             'spread_limit': trial.suggest_int('spread_limit', 20, 80),
             'lot_max_ratio': trial.suggest_float('lot_max_ratio', 0.8, 1.0),
             'order_ratio': trial.suggest_float('order_ratio', 0.8, 1.0),
-            'adaptive_position_sizing_enabled': trial.suggest_categorical('adaptive_position_sizing_enabled', [True, False]),
-            'adaptive_num_trades': trial.suggest_int('adaptive_num_trades', 3, 20),
-            'adaptive_reduction_step': trial.suggest_float('adaptive_reduction_step', 0.5, 1.0),
-            'adaptive_min_ratio': trial.suggest_float('adaptive_min_ratio', 0.1, 0.8),
-            'long_obi_threshold': trial.suggest_float('long_obi_threshold', 0.05, 4.0),
-            'long_tp': trial.suggest_int('long_tp', 50, 200),
-            'long_sl': trial.suggest_int('long_sl', -200, -50),
-            'short_obi_threshold': trial.suggest_float('short_obi_threshold', -4.0, -0.05),
-            'short_tp': trial.suggest_int('short_tp', 50, 200),
-            'short_sl': trial.suggest_int('short_sl', -200, -50),
-            'hold_duration_ms': trial.suggest_int('hold_duration_ms', 200, 1000),
-            'slope_filter_enabled': trial.suggest_categorical('slope_filter_enabled', [True, False]),
-            'slope_period': trial.suggest_int('slope_period', 3, 50),
-            'slope_threshold': trial.suggest_float('slope_threshold', 0.0, 1.0),
-            'ewma_lambda': trial.suggest_float('ewma_lambda', 0.05, 0.3),
-            'dynamic_obi_enabled': trial.suggest_categorical('dynamic_obi_enabled', [True, False]),
-            'volatility_factor': trial.suggest_float('volatility_factor', 0.25, 10.0),
-            'min_threshold_factor': trial.suggest_float('min_threshold_factor', 0.5, 1.0),
-            'max_threshold_factor': trial.suggest_float('max_threshold_factor', 1.0, 3.0),
-            'twap_enabled': trial.suggest_categorical('twap_enabled', [True, False]),
-            'twap_max_order_size_btc': trial.suggest_float('twap_max_order_size_btc', 0.01, 0.1),
-            'twap_interval_seconds': trial.suggest_int('twap_interval_seconds', 1, 10),
-            'twap_partial_exit_enabled': trial.suggest_categorical('twap_partial_exit_enabled', [True, False]),
-            'twap_profit_threshold': trial.suggest_float('twap_profit_threshold', 0.1, 2.0),
-            'twap_exit_ratio': trial.suggest_float('twap_exit_ratio', 0.1, 1.0),
-            'risk_max_drawdown_percent': trial.suggest_int('risk_max_drawdown_percent', 15, 25),
-            'risk_max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.5, 0.9),
-            'composite_threshold': trial.suggest_float('composite_threshold', 0.05, 4.0),
-            'obi_weight': trial.suggest_float('obi_weight', 0.1, 2.0),
-            'ofi_weight': trial.suggest_float('ofi_weight', 0.0, 2.0),
-            'cvd_weight': trial.suggest_float('cvd_weight', 0.0, 2.0),
-            'micro_price_weight': trial.suggest_float('micro_price_weight', 0.0, 2.0),
+            'adaptive_position_sizing': {
+                'enabled': trial.suggest_categorical('adaptive_position_sizing_enabled', [True, False]),
+                'num_trades': trial.suggest_int('adaptive_num_trades', 3, 20),
+                'reduction_step': trial.suggest_float('adaptive_reduction_step', 0.5, 1.0),
+                'min_ratio': trial.suggest_float('adaptive_min_ratio', 0.1, 0.8),
+            },
+            'long': {
+                'obi_threshold': trial.suggest_float('long_obi_threshold', 0.1, 2.0),
+                'tp': trial.suggest_int('long_tp', 50, 200),
+                'sl': trial.suggest_int('long_sl', -200, -50),
+            },
+            'short': {
+                'obi_threshold': trial.suggest_float('short_obi_threshold', -2.0, -0.1),
+                'tp': trial.suggest_int('short_tp', 50, 200),
+                'sl': trial.suggest_int('short_sl', -200, -50),
+            },
+            'signal': {
+                'hold_duration_ms': trial.suggest_int('hold_duration_ms', 200, 1000),
+                'obi_weight': trial.suggest_float('obi_weight', 0.1, 2.0),
+                'ofi_weight': trial.suggest_float('ofi_weight', 0.0, 2.0),
+                'cvd_weight': trial.suggest_float('cvd_weight', 0.0, 2.0),
+                'micro_price_weight': trial.suggest_float('micro_price_weight', 0.0, 2.0),
+                'composite_threshold': trial.suggest_float('composite_threshold', 0.1, 2.0),
+                'slope_filter': {
+                    'enabled': trial.suggest_categorical('slope_filter_enabled', [True, False]),
+                    'period': trial.suggest_int('slope_period', 3, 50),
+                    'threshold': trial.suggest_float('slope_threshold', 0.0, 0.5),
+                },
+            },
+            'volatility': {
+                'ewma_lambda': trial.suggest_float('ewma_lambda', 0.05, 0.3),
+                'dynamic_obi': {
+                    'enabled': trial.suggest_categorical('dynamic_obi_enabled', [True, False]),
+                    'volatility_factor': trial.suggest_float('volatility_factor', 0.5, 5.0),
+                    'min_threshold_factor': trial.suggest_float('min_threshold_factor', 0.5, 1.0),
+                    'max_threshold_factor': trial.suggest_float('max_threshold_factor', 1.0, 3.0),
+                },
+            },
+            'twap': {
+                'enabled': trial.suggest_categorical('twap_enabled', [True, False]),
+                'max_order_size_btc': trial.suggest_float('twap_max_order_size_btc', 0.01, 0.1),
+                'interval_seconds': trial.suggest_int('twap_interval_seconds', 1, 10),
+                'partial_exit_enabled': trial.suggest_categorical('twap_partial_exit_enabled', [True, False]),
+                'profit_threshold': trial.suggest_float('twap_profit_threshold', 0.1, 2.0),
+                'exit_ratio': trial.suggest_float('twap_exit_ratio', 0.1, 1.0),
+            },
+            'risk': {
+                'max_drawdown_percent': trial.suggest_int('risk_max_drawdown_percent', 15, 25),
+                'max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.5, 0.9),
+            },
         }
 
     def _calculate_and_set_metrics(self, trial: optuna.Trial, summary: dict):
