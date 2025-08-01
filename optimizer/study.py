@@ -311,10 +311,39 @@ def warm_start_with_recent_trials(study: optuna.Study, recent_days: int):
         logging.info(f"No recent trials (last {recent_days} days) found in study '{previous_study.study_name}'.")
         return
 
-    # Add the filtered trials to the current study.
+    # Add the filtered trials to the current study, converting them if necessary.
     logging.info(f"Adding {len(recent_trials)} recent trials to the current study for warm-start.")
-    try:
-        study.add_trials(recent_trials)
-    except Exception as e:
-        # This could happen for various reasons, e.g., if a trial somehow gets duplicated.
-        logging.error(f"Failed to add trials for warm-start: {e}", exc_info=True)
+
+    n_objectives_current = len(study.directions)
+
+    for trial in recent_trials:
+        try:
+            n_objectives_past = len(trial.values)
+
+            if n_objectives_current == n_objectives_past:
+                # If the number of objectives is the same, add the trial directly.
+                study.add_trial(trial)
+            elif n_objectives_past == 3 and n_objectives_current == 2:
+                # Handle conversion from 3 objectives (SR, WinRate, MaxDD) to 2 (SR, MaxDD).
+                # Values are indexed [0, 1, 2]. We need [0, 2].
+                new_values = [trial.values[0], trial.values[2]]
+
+                recreated_trial = optuna.create_trial(
+                    state=trial.state,
+                    values=new_values,
+                    params=trial.params,
+                    distributions=trial.distributions,
+                    user_attrs=trial.user_attrs,
+                    system_attrs=trial.system_attrs,
+                    intermediate_values=trial.intermediate_values
+                )
+                study.add_trial(recreated_trial)
+            else:
+                logging.warning(
+                    f"Skipping trial #{trial.number} from study '{previous_study.study_name}' due to "
+                    f"unhandled objective count mismatch: past={n_objectives_past}, current={n_objectives_current}."
+                )
+
+        except Exception as e:
+            # This could happen for various reasons, e.g., if a trial somehow gets duplicated.
+            logging.error(f"Failed to add trial #{trial.number} for warm-start: {e}", exc_info=False)
