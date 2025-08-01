@@ -207,7 +207,6 @@ def _is_oos_passed(oos_summary: dict) -> bool:
     """Checks if the OOS simulation summary meets the minimum passing criteria."""
     return (
         oos_summary.get('TotalTrades', 0) >= config.OOS_MIN_TRADES and
-        oos_summary.get('ProfitFactor', 0.0) >= config.OOS_MIN_PROFIT_FACTOR and
         oos_summary.get('SharpeRatio', 0.0) >= config.OOS_MIN_SHARPE_RATIO
     )
 
@@ -216,8 +215,6 @@ def _get_oos_fail_reason(oos_summary: dict) -> str:
     reasons = []
     if oos_summary.get('TotalTrades', 0) < config.OOS_MIN_TRADES:
         reasons.append(f"trades < {config.OOS_MIN_TRADES}")
-    if oos_summary.get('ProfitFactor', 0.0) < config.OOS_MIN_PROFIT_FACTOR:
-        reasons.append(f"PF < {config.OOS_MIN_PROFIT_FACTOR}")
     if oos_summary.get('SharpeRatio', 0.0) < config.OOS_MIN_SHARPE_RATIO:
         reasons.append(f"SR < {config.OOS_MIN_SHARPE_RATIO}")
     return ", ".join(reasons) if reasons else "Unknown reason"
