@@ -9,6 +9,7 @@ from typing import Union, Dict
 
 # Import the centralized config module
 from . import config
+from .objective import MetricsCalculator
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -43,17 +44,29 @@ def analyze_study(study_name: str, storage_url: str) -> Union[Dict, None]:
         logging.warning("No completed trials found in the study.")
         return None
 
+    # In a multi-objective setting, we can't rely on a single 'value'.
+    # We reuse the MetricsCalculator to create a composite score for ranking.
     df = study.trials_dataframe()
-    # Filter out pruned or failed trials and drop rows with no objective value
-    df = df[df['state'] == 'COMPLETE'].dropna(subset=['value'])
+    df = df[df['state'] == 'COMPLETE']
 
     if df.empty:
         logging.warning("No completed trials with valid objective values found.")
         return None
 
-    # --- 1. Filter top trials based on quantile ---
-    quantile_threshold = df['value'].quantile(1 - config.TOP_TRIALS_QUANTILE)
-    top_trials_df = df[df['value'] >= quantile_threshold]
+    # --- 1. Calculate and add composite scores to the DataFrame ---
+    metrics_calculator = MetricsCalculator(config.OBJECTIVE_WEIGHTS, completed_trials)
+    # Create a map of trial number to composite score
+    scores = {trial.number: metrics_calculator.calculate_score(trial) for trial in completed_trials}
+    df['composite_score'] = df['number'].map(scores)
+
+    df.dropna(subset=['composite_score'], inplace=True)
+    if df.empty:
+        logging.warning("No trials could be scored.")
+        return None
+
+    # --- 2. Filter top trials based on the composite score quantile ---
+    quantile_threshold = df['composite_score'].quantile(1 - config.TOP_TRIALS_QUANTILE)
+    top_trials_df = df[df['composite_score'] >= quantile_threshold]
 
     # Safeguard: If not enough top trials, fall back to the single best trial
     if len(top_trials_df) < config.MIN_TRIALS_FOR_ANALYSIS:
