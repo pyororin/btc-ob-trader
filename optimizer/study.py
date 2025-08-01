@@ -162,13 +162,11 @@ def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> bool:
 
         logging.info(f"--- Running OOS Validation attempt #{i+1} (source: {candidate['source']}) ---")
 
-        # Ensure boolean parameters are converted to strings ('true'/'false') for Jinja2 rendering.
-        # This handles params from both Optuna (bool) and the analyzer (which are loaded from JSON).
-        processed_params = {
-            k: str(v).lower() if isinstance(v, bool) else v
-            for k, v in candidate['params'].items()
-        }
-        oos_summary = run_simulation(processed_params, oos_csv_path)
+        # BUGFIX: Pass parameters directly to simulation. The explicit conversion
+        # to string ('true'/'false') caused inconsistencies with the IS-phase
+        # where Python booleans (True/False) were passed. The Go simulation
+        # expects booleans, not strings, for these parameters.
+        oos_summary = run_simulation(candidate['params'], oos_csv_path)
 
         if not isinstance(oos_summary, dict) or not oos_summary:
             logging.warning("OOS simulation failed or returned empty results.")
@@ -222,14 +220,12 @@ def _get_oos_fail_reason(oos_summary: dict) -> str:
 def _save_best_parameters(params: dict):
     """Renders and saves the final trade configuration file."""
     try:
-        # Ensure boolean parameters are correctly formatted as strings for the final config.
-        processed_params = {
-            k: str(v).lower() if isinstance(v, bool) else v
-            for k, v in params.items()
-        }
+        # BUGFIX: Pass parameters directly to the template render function.
+        # This ensures consistency with the simulation calls and relies on
+        # Jinja2 to correctly render Python boolean types for the YAML config.
         with open(config.CONFIG_TEMPLATE_PATH, 'r') as f:
             template = Template(f.read())
-        config_str = template.render(processed_params)
+        config_str = template.render(params)
         with open(config.BEST_CONFIG_OUTPUT_PATH, 'w') as f:
             f.write(config_str)
         logging.info(f"Successfully updated trade config: {config.BEST_CONFIG_OUTPUT_PATH}")
