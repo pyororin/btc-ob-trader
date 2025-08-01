@@ -69,6 +69,16 @@ min_order_book_snapshots: 100000
 # 例: 30
 min_trades_for_pruning: 10
 
+# --- Stability Analysis Settings ---
+# Settings for the objective regularization to find robust parameters.
+stability_analysis:
+  # Number of additional simulation runs with jittered parameters.
+  n_runs: 5
+  # The factor by which to jitter numerical parameters (e.g., 0.05 for +/- 5%).
+  jitter_factor: 0.05
+  # The weight of the standard deviation penalty in the final objective score.
+  penalty_factor: 0.5
+
 # --- Analyzer Settings ---
 analyzer:
   # The quantile of top-performing trials to consider for robustness analysis.
