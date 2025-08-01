@@ -89,7 +89,46 @@ class Objective:
             logging.warning(f"Trial {trial.number}: Simulation failed or returned empty result. Returning penalty.")
             return get_dominated_penalty()
 
-        self._calculate_and_set_metrics(trial, summary)
+        # --- Stability Analysis (Objective Regularization) ---
+        # Run multiple simulations with small jitters to evaluate parameter stability.
+        jitter_results = [summary] # Start with the result from the original params
+        for i in range(config.STABILITY_CHECK_N_RUNS):
+            jittered_params = self._get_jittered_params(trial)
+            jitter_summary = simulation.run_simulation(jittered_params, sim_csv_path)
+            if jitter_summary:
+                jitter_results.append(jitter_summary)
+
+        if len(jitter_results) < config.STABILITY_CHECK_N_RUNS / 2:
+             logging.warning(f"Trial {trial.number}: Too many jittered simulations failed. Returning penalty.")
+             return get_dominated_penalty()
+
+        # Calculate mean and std dev for the objectives across all jittered runs
+        sharpe_ratios, win_rates, max_drawdowns = [], [], []
+        for res in jitter_results:
+            sharpe_ratios.append(res.get('SharpeRatio', 0.0))
+            win_rates.append(res.get('WinRate', 0.0))
+            max_drawdowns.append(res.get('MaxDrawdown', 0.0))
+
+        mean_sr = np.mean(sharpe_ratios)
+        std_sr = np.std(sharpe_ratios)
+        mean_wr = np.mean(win_rates)
+        std_wr = np.std(win_rates)
+        mean_mdd = np.mean(max_drawdowns)
+        std_mdd = np.std(max_drawdowns)
+
+        # The final objective is penalized by the standard deviation
+        lambda_penalty = config.STABILITY_PENALTY_FACTOR
+        final_sr = mean_sr - (lambda_penalty * std_sr)
+        final_wr = mean_wr - (lambda_penalty * std_wr)
+        final_mdd = mean_mdd + (lambda_penalty * std_mdd) # Add penalty for instability
+
+        # Store all calculated metrics in user_attrs for later analysis
+        self._calculate_and_set_metrics(trial, summary) # Set for the original run
+        trial.set_user_attr("mean_sharpe_ratio", mean_sr)
+        trial.set_user_attr("stdev_sharpe_ratio", std_sr)
+        trial.set_user_attr("final_sharpe_ratio", final_sr)
+
+        # Pruning based on the original (non-jittered) result
 
         # Pruning based on minimum trade count
         total_trades = trial.user_attrs.get("trades", 0)
@@ -115,7 +154,37 @@ class Objective:
         win_rate = trial.user_attrs.get("win_rate", 0.0)
         max_drawdown = trial.user_attrs.get("max_drawdown", 0.0)
 
-        return sharpe_ratio, win_rate, max_drawdown
+        return final_sr, final_wr, final_mdd
+
+    def _get_jittered_params(self, trial: optuna.Trial) -> dict:
+        """
+        Creates a new set of parameters with small random noise applied.
+
+        This is used for stability analysis. Categorical parameters are not changed.
+        """
+        jittered_params = {}
+        for name, value in trial.params.items():
+            dist = trial.distributions[name]
+
+            if isinstance(dist, optuna.distributions.FloatDistribution):
+                # Apply jitter as a percentage of the distribution's range
+                jitter_range = (dist.high - dist.low) * config.STABILITY_JITTER_FACTOR
+                noise = random.uniform(-jitter_range, jitter_range)
+                new_value = np.clip(value + noise, dist.low, dist.high)
+                jittered_params[name] = new_value
+
+            elif isinstance(dist, optuna.distributions.IntDistribution):
+                # Apply jitter as a percentage of the distribution's range, then round
+                jitter_range = (dist.high - dist.low) * config.STABILITY_JITTER_FACTOR
+                noise = random.uniform(-jitter_range, jitter_range)
+                new_value = int(round(np.clip(value + noise, dist.low, dist.high)))
+                jittered_params[name] = new_value
+
+            else: # CategoricalDistribution
+                # Do not jitter categorical parameters
+                jittered_params[name] = value
+
+        return jittered_params
 
     def _suggest_parameters(self, trial: optuna.Trial) -> dict:
         """Suggests a set of parameters for a trial."""
@@ -127,19 +196,19 @@ class Objective:
             'adaptive_num_trades': trial.suggest_int('adaptive_num_trades', 3, 20),
             'adaptive_reduction_step': trial.suggest_float('adaptive_reduction_step', 0.5, 1.0),
             'adaptive_min_ratio': trial.suggest_float('adaptive_min_ratio', 0.1, 0.8),
-            'long_obi_threshold': trial.suggest_float('long_obi_threshold', 0.1, 2.0),
+            'long_obi_threshold': trial.suggest_float('long_obi_threshold', 0.05, 4.0),
             'long_tp': trial.suggest_int('long_tp', 50, 200),
             'long_sl': trial.suggest_int('long_sl', -200, -50),
-            'short_obi_threshold': trial.suggest_float('short_obi_threshold', -2.0, -0.1),
+            'short_obi_threshold': trial.suggest_float('short_obi_threshold', -4.0, -0.05),
             'short_tp': trial.suggest_int('short_tp', 50, 200),
             'short_sl': trial.suggest_int('short_sl', -200, -50),
             'hold_duration_ms': trial.suggest_int('hold_duration_ms', 200, 1000),
             'slope_filter_enabled': trial.suggest_categorical('slope_filter_enabled', [True, False]),
             'slope_period': trial.suggest_int('slope_period', 3, 50),
-            'slope_threshold': trial.suggest_float('slope_threshold', 0.0, 0.5),
+            'slope_threshold': trial.suggest_float('slope_threshold', 0.0, 1.0),
             'ewma_lambda': trial.suggest_float('ewma_lambda', 0.05, 0.3),
             'dynamic_obi_enabled': trial.suggest_categorical('dynamic_obi_enabled', [True, False]),
-            'volatility_factor': trial.suggest_float('volatility_factor', 0.5, 5.0),
+            'volatility_factor': trial.suggest_float('volatility_factor', 0.25, 10.0),
             'min_threshold_factor': trial.suggest_float('min_threshold_factor', 0.5, 1.0),
             'max_threshold_factor': trial.suggest_float('max_threshold_factor', 1.0, 3.0),
             'twap_enabled': trial.suggest_categorical('twap_enabled', [True, False]),
@@ -150,7 +219,7 @@ class Objective:
             'twap_exit_ratio': trial.suggest_float('twap_exit_ratio', 0.1, 1.0),
             'risk_max_drawdown_percent': trial.suggest_int('risk_max_drawdown_percent', 15, 25),
             'risk_max_position_ratio': trial.suggest_float('risk_max_position_ratio', 0.5, 0.9),
-            'composite_threshold': trial.suggest_float('composite_threshold', 0.1, 2.0),
+            'composite_threshold': trial.suggest_float('composite_threshold', 0.05, 4.0),
             'obi_weight': trial.suggest_float('obi_weight', 0.1, 2.0),
             'ofi_weight': trial.suggest_float('ofi_weight', 0.0, 2.0),
             'cvd_weight': trial.suggest_float('cvd_weight', 0.0, 2.0),
