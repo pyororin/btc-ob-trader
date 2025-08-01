@@ -51,7 +51,7 @@ def run_optimization_job(job: dict):
         optuna_study = study.create_study()
 
         # Perform warm-start using recent trials from previous studies
-        recent_days = job.get('recent_days_warm_start', 10) # Default to 10 days
+        recent_days = job.get('recent_days_warm_start', 1) # Default to 1 day
         study.warm_start_with_recent_trials(optuna_study, recent_days)
 
         study.run_optimization(optuna_study, is_csv_path, n_trials)
