@@ -16,6 +16,10 @@ def nest_params(flat_params: dict) -> dict:
     This version uses a predefined mapping for clarity and robustness,
     avoiding complex regex or brittle logic.
 
+    It also sanitizes string values that represent booleans (e.g., 'True',
+    'false') into actual Python booleans, correcting for potential type
+    conversion issues when retrieving parameters from DataFrames or databases.
+
     Args:
         flat_params: A flat dictionary where keys match the keys used in
                      `objective.py`'s `trial.suggest_*` calls.
@@ -85,14 +89,22 @@ def nest_params(flat_params: dict) -> dict:
         'risk_max_position_ratio': ('risk', 'max_position_ratio'),
     }
 
-    # Populate the nested dictionary from the flat parameters
+    # Sanitize and populate the nested dictionary from the flat parameters
     for flat_key, value in flat_params.items():
+        # Sanitize boolean-like strings before nesting
+        sanitized_value = value
+        if isinstance(value, str):
+            if value.lower() == 'true':
+                sanitized_value = True
+            elif value.lower() == 'false':
+                sanitized_value = False
+
         if flat_key in key_map:
             path = key_map[flat_key]
             current_level = nested_params
             for i, part in enumerate(path):
                 if i == len(path) - 1:
-                    current_level[part] = value
+                    current_level[part] = sanitized_value
                 else:
                     current_level = current_level.setdefault(part, {})
         # Note: Unmapped keys from flat_params are ignored.
