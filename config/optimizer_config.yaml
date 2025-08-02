@@ -17,9 +17,10 @@ params_dir: 'data/params'
 # 例: 100
 n_trials: 800
 
-# ウォームスタートで利用するTrial数を、現在の実行Trial数(`n_trials`)の何倍にするかを指定します。
-# 例: 3
-warm_start_trials_multiplier: 3
+# ウォームスタートで読み込む過去のTrialの最大数。
+# これを超える数のTrialが見つかった場合、最新のものからこの数だけが使われます。
+# 例: 250
+warm_start_max_trials: 200
 
 # --- 合格/不合格基準 ---
 
@@ -67,16 +68,6 @@ min_order_book_snapshots: 100000
 # jobファイルで 'min_trades' が指定されている場合はそちらを優先します。
 # 例: 30
 min_trades_for_pruning: 10
-
-# --- Stability Analysis Settings ---
-# Settings for the objective regularization to find robust parameters.
-stability_analysis:
-  # Number of additional simulation runs with jittered parameters.
-  n_runs: 5
-  # The factor by which to jitter numerical parameters (e.g., 0.05 for +/- 5%).
-  jitter_factor: 0.05
-  # The weight of the standard deviation penalty in the final objective score.
-  penalty_factor: 0.5
 
 # --- Analyzer Settings ---
 analyzer:
