@@ -31,8 +31,7 @@ def export_and_split_data(total_hours: float, oos_hours: float) -> Tuple[Union[P
     cmd = [
         'go', 'run', 'cmd/export/main.go',
         f'--hours-before={int(total_hours)}',
-        '--no-zip',
-        f'--trade-config={config.BEST_CONFIG_OUTPUT_PATH}'
+        '--no-zip'
     ]
 
     try:

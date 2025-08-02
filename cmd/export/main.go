@@ -47,15 +47,19 @@ func main() {
 	}
 
 	// --- Config and Logger Setup ---
-	// We need dummy config paths to load the DB settings from .env
-	cfg, err := config.LoadConfig("config/app_config.yaml", *tradeConfigPath)
+	// The export script only needs DB credentials, which can come from app_config.yaml or env vars.
+	// The trade_config.yaml is not strictly necessary for this script to run.
+	tradeConfig := *tradeConfigPath
+	if _, err := os.Stat(tradeConfig); os.IsNotExist(err) {
+		logger.Infof("Trade config file not found at '%s', proceeding without it. DB credentials will be loaded from app_config.yaml or environment variables.", tradeConfig)
+		tradeConfig = "" // Set path to empty so LoadConfig can ignore it
+	}
+
+	cfg, err := config.LoadConfig("config/app_config.yaml", tradeConfig)
 	if err != nil {
-		// If files don't exist, we can still proceed if env vars are set.
-		// Create a dummy config to hold env vars.
 		logger.Warnf("Could not load config files, relying on environment variables: %v", err)
 		cfg = config.GetConfig()
 		if cfg == nil {
-			// If GetConfig is also nil, we must exit.
 			logger.Fatal("Failed to initialize any configuration.")
 		}
 	}
