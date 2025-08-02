@@ -5,7 +5,7 @@ import optuna
 
 from optimizer.objective import Objective
 from optimizer.config import CONFIG_TEMPLATE_PATH, PARAMS_DIR
-from optimizer.utils import finalize_for_yaml
+from optimizer.utils import finalize_for_yaml, nest_params
 from jinja2 import Environment, FileSystemLoader
 
 class TestConfigRendering(unittest.TestCase):
@@ -62,7 +62,8 @@ class TestConfigRendering(unittest.TestCase):
 
         # 2. Instantiate Objective and suggest parameters
         objective = Objective(study=None)
-        params = objective._suggest_parameters(trial)
+        flat_params = objective._suggest_parameters(trial)
+        params = nest_params(flat_params) # Convert to nested structure
 
         # 3. Load and render the template using the correct environment
         env = Environment(
