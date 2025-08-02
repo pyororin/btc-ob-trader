@@ -33,7 +33,7 @@ def run_simulation(params: dict, sim_csv_path: Path) -> dict:
         # Setup a Jinja2 environment that uses a custom finalizer for YAML compatibility
         env = Environment(
             loader=FileSystemLoader(searchpath=config.PARAMS_DIR),
-            finalize=_finalize_for_yaml
+            finalize=finalize_for_yaml
         )
         template = env.get_template(config.CONFIG_TEMPLATE_PATH.name)
         config_yaml_str = template.render(params)
