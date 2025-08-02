@@ -89,46 +89,7 @@ class Objective:
             logging.warning(f"Trial {trial.number}: Simulation failed or returned empty result. Returning penalty.")
             return get_dominated_penalty()
 
-        # --- Stability Analysis (Objective Regularization) ---
-        # Run multiple simulations with small jitters to evaluate parameter stability.
-        jitter_results = [summary] # Start with the result from the original params
-        for i in range(config.STABILITY_CHECK_N_RUNS):
-            jittered_params = self._get_jittered_params(trial)
-            jitter_summary = simulation.run_simulation(jittered_params, sim_csv_path)
-            if jitter_summary:
-                jitter_results.append(jitter_summary)
-
-        if len(jitter_results) < config.STABILITY_CHECK_N_RUNS / 2:
-             logging.warning(f"Trial {trial.number}: Too many jittered simulations failed. Returning penalty.")
-             return get_dominated_penalty()
-
-        # Calculate mean and std dev for the objectives across all jittered runs
-        sharpe_ratios, win_rates, max_drawdowns = [], [], []
-        for res in jitter_results:
-            sharpe_ratios.append(res.get('SharpeRatio', 0.0))
-            win_rates.append(res.get('WinRate', 0.0))
-            max_drawdowns.append(res.get('MaxDrawdown', 0.0))
-
-        mean_sr = np.mean(sharpe_ratios)
-        std_sr = np.std(sharpe_ratios)
-        mean_wr = np.mean(win_rates)
-        std_wr = np.std(win_rates)
-        mean_mdd = np.mean(max_drawdowns)
-        std_mdd = np.std(max_drawdowns)
-
-        # The final objective is penalized by the standard deviation
-        lambda_penalty = config.STABILITY_PENALTY_FACTOR
-        final_sr = mean_sr - (lambda_penalty * std_sr)
-        final_wr = mean_wr - (lambda_penalty * std_wr)
-        final_mdd = mean_mdd + (lambda_penalty * std_mdd) # Add penalty for instability
-
-        # Store all calculated metrics in user_attrs for later analysis
-        self._calculate_and_set_metrics(trial, summary) # Set for the original run
-        trial.set_user_attr("mean_sharpe_ratio", mean_sr)
-        trial.set_user_attr("stdev_sharpe_ratio", std_sr)
-        trial.set_user_attr("final_sharpe_ratio", final_sr)
-
-        # Pruning based on the original (non-jittered) result
+        self._calculate_and_set_metrics(trial, summary)
 
         # Pruning based on minimum trade count
         total_trades = trial.user_attrs.get("trades", 0)
@@ -154,37 +115,7 @@ class Objective:
         win_rate = trial.user_attrs.get("win_rate", 0.0)
         max_drawdown = trial.user_attrs.get("max_drawdown", 0.0)
 
-        return final_sr, final_wr, final_mdd
-
-    def _get_jittered_params(self, trial: optuna.Trial) -> dict:
-        """
-        Creates a new set of parameters with small random noise applied.
-
-        This is used for stability analysis. Categorical parameters are not changed.
-        """
-        jittered_params = {}
-        for name, value in trial.params.items():
-            dist = trial.distributions[name]
-
-            if isinstance(dist, optuna.distributions.FloatDistribution):
-                # Apply jitter as a percentage of the distribution's range
-                jitter_range = (dist.high - dist.low) * config.STABILITY_JITTER_FACTOR
-                noise = random.uniform(-jitter_range, jitter_range)
-                new_value = np.clip(value + noise, dist.low, dist.high)
-                jittered_params[name] = new_value
-
-            elif isinstance(dist, optuna.distributions.IntDistribution):
-                # Apply jitter as a percentage of the distribution's range, then round
-                jitter_range = (dist.high - dist.low) * config.STABILITY_JITTER_FACTOR
-                noise = random.uniform(-jitter_range, jitter_range)
-                new_value = int(round(np.clip(value + noise, dist.low, dist.high)))
-                jittered_params[name] = new_value
-
-            else: # CategoricalDistribution
-                # Do not jitter categorical parameters
-                jittered_params[name] = value
-
-        return jittered_params
+        return sharpe_ratio, win_rate, max_drawdown
 
     def _suggest_parameters(self, trial: optuna.Trial) -> dict:
         """
@@ -207,12 +138,12 @@ class Objective:
                 'min_ratio': trial.suggest_float('adaptive_min_ratio', 0.1, 0.8),
             },
             'long': {
-                'obi_threshold': trial.suggest_float('long_obi_threshold', 0.1, 2.0),
+                'obi_threshold': 0.0, # This parameter is not used for signal generation. Set to 0.
                 'tp': trial.suggest_int('long_tp', 50, 200),
                 'sl': trial.suggest_int('long_sl', -200, -50),
             },
             'short': {
-                'obi_threshold': trial.suggest_float('short_obi_threshold', -2.0, -0.1),
+                'obi_threshold': 0.0, # This parameter is not used for signal generation. Set to 0.
                 'tp': trial.suggest_int('short_tp', 50, 200),
                 'sl': trial.suggest_int('short_sl', -200, -50),
             },
@@ -222,7 +153,8 @@ class Objective:
                 'ofi_weight': trial.suggest_float('ofi_weight', 0.0, 2.0),
                 'cvd_weight': trial.suggest_float('cvd_weight', 0.0, 2.0),
                 'micro_price_weight': trial.suggest_float('micro_price_weight', 0.0, 2.0),
-                'composite_threshold': trial.suggest_float('composite_threshold', 0.1, 2.0),
+                # Lower the threshold's lower bound to allow for more sensitive signals
+                'composite_threshold': trial.suggest_float('composite_threshold', 0.01, 2.0),
                 'slope_filter': {
                     'enabled': trial.suggest_categorical('slope_filter_enabled', [True, False]),
                     'period': trial.suggest_int('slope_period', 3, 50),

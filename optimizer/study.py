@@ -162,13 +162,11 @@ def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> bool:
 
         logging.info(f"--- Running OOS Validation attempt #{i+1} (source: {candidate['source']}) ---")
 
-        # Ensure boolean parameters are converted to strings ('true'/'false') for Jinja2 rendering.
-        # This handles params from both Optuna (bool) and the analyzer (which are loaded from JSON).
-        processed_params = {
-            k: str(v).lower() if isinstance(v, bool) else v
-            for k, v in candidate['params'].items()
-        }
-        oos_summary = run_simulation(processed_params, oos_csv_path)
+        # BUGFIX: Pass parameters directly to simulation. The explicit conversion
+        # to string ('true'/'false') caused inconsistencies with the IS-phase
+        # where Python booleans (True/False) were passed. The Go simulation
+        # expects booleans, not strings, for these parameters.
+        oos_summary = run_simulation(candidate['params'], oos_csv_path)
 
         if not isinstance(oos_summary, dict) or not oos_summary:
             logging.warning("OOS simulation failed or returned empty results.")
@@ -222,14 +220,12 @@ def _get_oos_fail_reason(oos_summary: dict) -> str:
 def _save_best_parameters(params: dict):
     """Renders and saves the final trade configuration file."""
     try:
-        # Ensure boolean parameters are correctly formatted as strings for the final config.
-        processed_params = {
-            k: str(v).lower() if isinstance(v, bool) else v
-            for k, v in params.items()
-        }
+        # BUGFIX: Pass parameters directly to the template render function.
+        # This ensures consistency with the simulation calls and relies on
+        # Jinja2 to correctly render Python boolean types for the YAML config.
         with open(config.CONFIG_TEMPLATE_PATH, 'r') as f:
             template = Template(f.read())
-        config_str = template.render(processed_params)
+        config_str = template.render(params)
         with open(config.BEST_CONFIG_OUTPUT_PATH, 'w') as f:
             f.write(config_str)
         logging.info(f"Successfully updated trade config: {config.BEST_CONFIG_OUTPUT_PATH}")
@@ -237,7 +233,7 @@ def _save_best_parameters(params: dict):
         logging.error(f"Failed to save the best parameter config file: {e}")
 
 
-def warm_start_with_recent_trials(study: optuna.Study, recent_days: int, n_trials_for_this_run: int):
+def warm_start_with_recent_trials(study: optuna.Study, recent_days: int):
     """
     Performs a warm-start by adding recent trials from previous studies.
 
@@ -308,17 +304,6 @@ def warm_start_with_recent_trials(study: optuna.Study, recent_days: int, n_trial
     if not recent_trials:
         logging.info(f"No recent trials (last {recent_days} days) found in study '{previous_study.study_name}'.")
         return
-
-    # Sort trials by completion time (most recent first)
-    recent_trials.sort(key=lambda t: t.datetime_complete, reverse=True)
-
-    # Limit the number of trials to a multiple of the current run's n_trials
-    max_warm_start_trials = int(n_trials_for_this_run * config.WARM_START_TRIALS_MULTIPLIER)
-    if len(recent_trials) > max_warm_start_trials:
-        logging.info(
-            f"Limiting warm-start trials from {len(recent_trials)} to the {max_warm_start_trials} most recent ones."
-        )
-        recent_trials = recent_trials[:max_warm_start_trials]
 
     # Add the filtered trials to the current study, converting them if necessary.
     logging.info(f"Adding {len(recent_trials)} recent trials to the current study for warm-start.")
