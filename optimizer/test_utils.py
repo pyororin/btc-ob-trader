@@ -6,8 +6,9 @@ class TestUtils(unittest.TestCase):
     def test_nest_params_fully(self):
         """
         Tests that a complete flat parameter dictionary from Optuna is
-        correctly and exactly converted into a nested dictionary.
+        correctly and exactly converted into a nested dictionary, covering all possible keys.
         """
+        # This dictionary contains every single key that is defined in objective.py
         flat_params = {
             'spread_limit': 80,
             'lot_max_ratio': 0.9,
@@ -44,6 +45,7 @@ class TestUtils(unittest.TestCase):
             'risk_max_position_ratio': 0.8
         }
 
+        # This is the exact nested structure that the template expects.
         expected_nested_params = {
             'spread_limit': 80,
             'lot_max_ratio': 0.9,
