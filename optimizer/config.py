@@ -75,6 +75,12 @@ ANALYZER_CONFIG = CONFIG.get('analyzer', {})
 TOP_TRIALS_QUANTILE = ANALYZER_CONFIG.get('top_trials_quantile', 0.1)
 MIN_TRIALS_FOR_ANALYSIS = ANALYZER_CONFIG.get('min_trials_for_analysis', 10)
 
+# Stability Analysis Settings
+STABILITY_CONFIG = CONFIG.get('stability_analysis', {})
+STABILITY_CHECK_N_RUNS = STABILITY_CONFIG.get('n_runs', 5)
+STABILITY_JITTER_FACTOR = STABILITY_CONFIG.get('jitter_factor', 0.05)
+STABILITY_PENALTY_FACTOR = STABILITY_CONFIG.get('penalty_factor', 0.5)
+
 # Drift Monitor Settings
 DB_USER = os.getenv('DB_USER')
 DB_PASSWORD = os.getenv('DB_PASSWORD')
