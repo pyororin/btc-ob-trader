@@ -69,14 +69,14 @@ class Objective:
             trial: The Optuna trial object.
 
         Returns:
-            A tuple of objective values (Profit Factor, Total Trades, Max Drawdown)
+            A tuple of objective values (Sharpe Ratio, Win Rate, Max Drawdown)
             for Optuna to optimize.
         """
         # This function returns a value that is guaranteed to be dominated by
-        # a trial with 0 trades (PF=0, Trades=0, MaxDD=large). This prevents
-        # trials that are pruned from bloating the Pareto front.
+        # a trial with 0 trades (SR=0, WinRate=0, MaxDD=0). This prevents trials
+        # that are pruned from bloating the Pareto front.
         def get_dominated_penalty():
-            return 0.0, 0, 1_000_000.0
+            return -1.0, 0.0, 1_000_000.0
 
         flat_params = self._suggest_parameters(trial)
         params = nest_params(flat_params)
@@ -107,53 +107,59 @@ class Objective:
              logging.warning(f"Trial {trial.number}: Too many jittered simulations failed. Returning penalty.")
              return get_dominated_penalty()
 
-        # Calculate mean and std dev for the new objectives across all jittered runs
-        profit_factors, total_trades_list, max_drawdowns = [], [], []
+        # Calculate mean and std dev for the objectives across all jittered runs
+        sharpe_ratios, win_rates, max_drawdowns = [], [], []
         for res in jitter_results:
-            profit_factors.append(res.get('ProfitFactor', 0.0))
-            total_trades_list.append(res.get('TotalTrades', 0))
+            sharpe_ratios.append(res.get('SharpeRatio', 0.0))
+            win_rates.append(res.get('WinRate', 0.0))
             max_drawdowns.append(res.get('MaxDrawdown', 0.0))
 
-        mean_pf = np.mean(profit_factors)
-        std_pf = np.std(profit_factors)
-        mean_trades = np.mean(total_trades_list)
-        std_trades = np.std(total_trades_list)
+        mean_sr = np.mean(sharpe_ratios)
+        std_sr = np.std(sharpe_ratios)
+        mean_wr = np.mean(win_rates)
+        std_wr = np.std(win_rates)
         mean_mdd = np.mean(max_drawdowns)
         std_mdd = np.std(max_drawdowns)
 
         # The final objective is penalized by the standard deviation
         lambda_penalty = config.STABILITY_PENALTY_FACTOR
-        final_pf = mean_pf - (lambda_penalty * std_pf)
-        final_trades = mean_trades - (lambda_penalty * std_trades)
+        final_sr = mean_sr - (lambda_penalty * std_sr)
+        final_wr = mean_wr - (lambda_penalty * std_wr)
         final_mdd = mean_mdd + (lambda_penalty * std_mdd) # Add penalty for instability
 
         # Store all calculated metrics in user_attrs for later analysis
         self._calculate_and_set_metrics(trial, summary) # Set for the original run
-        trial.set_user_attr("mean_profit_factor", mean_pf)
-        trial.set_user_attr("stdev_profit_factor", std_pf)
-        trial.set_user_attr("final_profit_factor", final_pf)
-        trial.set_user_attr("mean_total_trades", mean_trades)
-        trial.set_user_attr("stdev_total_trades", std_trades)
-        trial.set_user_attr("final_total_trades", final_trades)
-
+        trial.set_user_attr("mean_sharpe_ratio", mean_sr)
+        trial.set_user_attr("stdev_sharpe_ratio", std_sr)
+        trial.set_user_attr("final_sharpe_ratio", final_sr)
 
         # Pruning based on the original (non-jittered) result
+
+        # Pruning based on minimum trade count
         total_trades = trial.user_attrs.get("trades", 0)
         if total_trades < config.MIN_TRADES_FOR_PRUNING:
             logging.debug(f"Trial {trial.number} has {total_trades} trades (min: {config.MIN_TRADES_FOR_PRUNING}). Returning penalty.")
             return get_dominated_penalty()
 
         # Soft constraint for high drawdown
+        # P0: "dd < 25 % ならペナルティ追加" is interpreted as "if relative dd > 25%, penalize"
         DD_PENALTY_THRESHOLD = 0.25
         relative_drawdown = trial.user_attrs.get("relative_drawdown", 1.0)
         if relative_drawdown > DD_PENALTY_THRESHOLD:
             logging.debug(f"Trial {trial.number} penalized for high relative drawdown: {relative_drawdown:.2%}")
+            # Return values that are very unattractive for the optimizer
             return get_dominated_penalty()
 
         # Pruning via trial.report and should_prune() is not straightforward
-        # in multi-objective optimization and is therefore disabled.
+        # in multi-objective optimization and is therefore disabled. The HyperbandPruner
+        # may still prune based on the first objective if it's reported, but
+        # we are not reporting intermediate values here.
 
-        return final_pf, final_trades, final_mdd
+        sharpe_ratio = trial.user_attrs.get("sharpe_ratio", 0.0)
+        win_rate = trial.user_attrs.get("win_rate", 0.0)
+        max_drawdown = trial.user_attrs.get("max_drawdown", 0.0)
+
+        return final_sr, final_wr, final_mdd
 
     def _get_jittered_params(self, trial: optuna.Trial) -> dict:
         """
@@ -194,14 +200,15 @@ class Objective:
 
         # Basic Trading
         params['spread_limit'] = trial.suggest_int('spread_limit', 20, 80)
-        params['lot_max_ratio'] = trial.suggest_float('lot_max_ratio', 0.8, 1.0)
-        params['order_ratio'] = trial.suggest_float('order_ratio', 0.8, 1.0)
+        # The following are now fixed in the template file
+        # params['lot_max_ratio'] = trial.suggest_float('lot_max_ratio', 0.8, 1.0)
+        # params['order_ratio'] = trial.suggest_float('order_ratio', 0.8, 1.0)
 
-        # Adaptive Position Sizing
-        params['adaptive_position_sizing_enabled'] = trial.suggest_categorical('adaptive_position_sizing_enabled', [True, False])
-        params['adaptive_num_trades'] = trial.suggest_int('adaptive_num_trades', 3, 20)
-        params['adaptive_reduction_step'] = trial.suggest_float('adaptive_reduction_step', 0.5, 1.0)
-        params['adaptive_min_ratio'] = trial.suggest_float('adaptive_min_ratio', 0.1, 0.8)
+        # Adaptive Position Sizing (Fixed in template)
+        # params['adaptive_position_sizing_enabled'] = trial.suggest_categorical('adaptive_position_sizing_enabled', [True, False])
+        # params['adaptive_num_trades'] = trial.suggest_int('adaptive_num_trades', 3, 20)
+        # params['adaptive_reduction_step'] = trial.suggest_float('adaptive_reduction_step', 0.5, 1.0)
+        # params['adaptive_min_ratio'] = trial.suggest_float('adaptive_min_ratio', 0.1, 0.8)
 
         # Long/Short Strategy
         params['long_obi_threshold'] = trial.suggest_float('long_obi_threshold', 0.1, 1.0)
@@ -212,17 +219,17 @@ class Objective:
         params['short_sl'] = trial.suggest_int('short_sl', -200, -50)
 
         # Signal Filters
-        params['hold_duration_ms'] = trial.suggest_int('hold_duration_ms', 200, 1000)
-        params['obi_weight'] = trial.suggest_float('obi_weight', 0.1, 2.0)
-        params['ofi_weight'] = trial.suggest_float('ofi_weight', 0.0, 2.0)
-        params['cvd_weight'] = trial.suggest_float('cvd_weight', 0.0, 2.0)
-        params['micro_price_weight'] = trial.suggest_float('micro_price_weight', 0.0, 2.0)
-        params['composite_threshold'] = trial.suggest_float('composite_threshold', 0.01, 2.0)
+        # params['hold_duration_ms'] is fixed in the template
+        params['obi_weight'] = trial.suggest_float('obi_weight', 0.5, 2.0)
+        params['ofi_weight'] = trial.suggest_float('ofi_weight', 0.5, 2.0)
+        params['cvd_weight'] = trial.suggest_float('cvd_weight', 0.0, 1.0)
+        params['micro_price_weight'] = trial.suggest_float('micro_price_weight', 0.0, 0.5)
+        params['composite_threshold'] = trial.suggest_float('composite_threshold', 0.2, 1.2)
 
-        # Signal Slope Filter
-        params['slope_filter_enabled'] = trial.suggest_categorical('slope_filter_enabled', [True, False])
-        params['slope_period'] = trial.suggest_int('slope_period', 3, 50)
-        params['slope_threshold'] = trial.suggest_float('slope_threshold', 0.0, 0.5)
+        # Signal Slope Filter (Fixed in template)
+        # params['slope_filter_enabled'] = trial.suggest_categorical('slope_filter_enabled', [True, False])
+        # params['slope_period'] = trial.suggest_int('slope_period', 3, 50)
+        # params['slope_threshold'] = trial.suggest_float('slope_threshold', 0.0, 0.5)
 
         # Volatility
         params['ewma_lambda'] = trial.suggest_float('ewma_lambda', 0.05, 0.3)
@@ -231,17 +238,17 @@ class Objective:
         params['min_threshold_factor'] = trial.suggest_float('min_threshold_factor', 0.5, 1.0)
         params['max_threshold_factor'] = trial.suggest_float('max_threshold_factor', 1.0, 3.0)
 
-        # TWAP Execution
-        params['twap_enabled'] = trial.suggest_categorical('twap_enabled', [True, False])
-        params['twap_max_order_size_btc'] = trial.suggest_float('twap_max_order_size_btc', 0.01, 0.1)
-        params['twap_interval_seconds'] = trial.suggest_int('twap_interval_seconds', 1, 10)
-        params['twap_partial_exit_enabled'] = trial.suggest_categorical('twap_partial_exit_enabled', [True, False])
-        params['twap_profit_threshold'] = trial.suggest_float('twap_profit_threshold', 0.1, 2.0)
-        params['twap_exit_ratio'] = trial.suggest_float('twap_exit_ratio', 0.1, 1.0)
+        # TWAP Execution (Fixed in template)
+        # params['twap_enabled'] = trial.suggest_categorical('twap_enabled', [True, False])
+        # params['twap_max_order_size_btc'] = trial.suggest_float('twap_max_order_size_btc', 0.01, 0.1)
+        # params['twap_interval_seconds'] = trial.suggest_int('twap_interval_seconds', 1, 10)
+        # params['twap_partial_exit_enabled'] = trial.suggest_categorical('twap_partial_exit_enabled', [True, False])
+        # params['twap_profit_threshold'] = trial.suggest_float('twap_profit_threshold', 0.1, 2.0)
+        # params['twap_exit_ratio'] = trial.suggest_float('twap_exit_ratio', 0.1, 1.0)
 
-        # Risk Management
-        params['risk_max_drawdown_percent'] = trial.suggest_int('risk_max_drawdown_percent', 15, 25)
-        params['risk_max_position_ratio'] = trial.suggest_float('risk_max_position_ratio', 0.5, 0.9)
+        # Risk Management (Fixed in template)
+        # params['risk_max_drawdown_percent'] = trial.suggest_int('risk_max_drawdown_percent', 15, 25)
+        # params['risk_max_position_ratio'] = trial.suggest_float('risk_max_position_ratio', 0.5, 0.9)
 
         return params
 
