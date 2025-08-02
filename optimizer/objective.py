@@ -96,8 +96,10 @@ class Objective:
         # Run multiple simulations with small jitters to evaluate parameter stability.
         jitter_results = [summary] # Start with the result from the original params
         for i in range(config.STABILITY_CHECK_N_RUNS):
-            jittered_params = self._get_jittered_params(trial)
-            jitter_summary = simulation.run_simulation(jittered_params, sim_csv_path)
+            jittered_flat_params = self._get_jittered_params(trial)
+            # The jittered params are flat, so they must be nested before simulation.
+            jittered_nested_params = nest_params(jittered_flat_params)
+            jitter_summary = simulation.run_simulation(jittered_nested_params, sim_csv_path)
             if jitter_summary:
                 jitter_results.append(jitter_summary)
 
