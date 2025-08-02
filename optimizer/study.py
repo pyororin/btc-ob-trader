@@ -166,6 +166,12 @@ def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> bool:
         # Convert the flat params from Optuna trial/analyzer to the nested
         # structure required by the simulation's Jinja2 template.
         nested_params = nest_params(candidate['params'])
+
+        # --- Debug Logging ---
+        # Log the exact parameters being sent to the OOS simulation.
+        logging.info(f"OOS run #{i+1} parameters:\n{json.dumps(nested_params, indent=2)}")
+        # --- End Debug Logging ---
+
         oos_summary = run_simulation(nested_params, oos_csv_path)
 
         if not isinstance(oos_summary, dict) or not oos_summary:

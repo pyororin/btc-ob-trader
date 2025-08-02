@@ -92,29 +92,30 @@ def nest_params(flat_params: dict) -> dict:
     }
 
     # Sanitize and populate the nested dictionary from the flat parameters
-    def _sanitize_bool(val):
-        if isinstance(val, str):
-            if val.lower() == 'true': return True
-            if val.lower() == 'false': return False
-        # Handle float/int representations of booleans from analyzer.py
-        if isinstance(val, (int, float)):
-            if val == 1: return True
-            if val == 0: return False
-        return val
-
     for flat_key, value in flat_params.items():
-        sanitized_value = _sanitize_bool(value)
-
         if flat_key in key_map:
             path = key_map[flat_key]
             current_level = nested_params
+
+            # Sanitize boolean values only for 'enabled' keys
+            if 'enabled' in flat_key:
+                if isinstance(value, str):
+                    if value.lower() == 'true':
+                        sanitized_value = True
+                    elif value.lower() == 'false':
+                        sanitized_value = False
+                    else:
+                        sanitized_value = value # Keep original if not 'true'/'false'
+                elif isinstance(value, (int, float)):
+                    sanitized_value = bool(value)
+                else:
+                    sanitized_value = value
+            else:
+                sanitized_value = value
+
             for i, part in enumerate(path):
                 if i == len(path) - 1:
-                    # For keys that are specifically boolean, ensure proper conversion
-                    if 'enabled' in flat_key:
-                         current_level[part] = bool(sanitized_value)
-                    else:
-                         current_level[part] = sanitized_value
+                    current_level[part] = sanitized_value
                 else:
                     current_level = current_level.setdefault(part, {})
         # Note: Unmapped keys from flat_params are ignored.
