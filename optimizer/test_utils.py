@@ -17,8 +17,10 @@ class TestUtils(unittest.TestCase):
             'adaptive_num_trades': 10,
             'adaptive_reduction_step': 0.8,
             'adaptive_min_ratio': 0.4,
+            'long_obi_threshold': 0.5,
             'long_tp': 100,
             'long_sl': -100,
+            'short_obi_threshold': 0.6,
             'short_tp': 110,
             'short_sl': -110,
             'hold_duration_ms': 500,
@@ -57,12 +59,12 @@ class TestUtils(unittest.TestCase):
                 'min_ratio': 0.4
             },
             'long': {
-                'obi_threshold': 0.0,
+                'obi_threshold': 0.5,
                 'tp': 100,
                 'sl': -100
             },
             'short': {
-                'obi_threshold': 0.0,
+                'obi_threshold': 0.6,
                 'tp': 110,
                 'sl': -110
             },

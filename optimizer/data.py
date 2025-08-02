@@ -2,6 +2,7 @@ import logging
 import subprocess
 import shutil
 import os
+import math
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Union, Tuple
@@ -30,7 +31,7 @@ def export_and_split_data(total_hours: float, oos_hours: float) -> Tuple[Union[P
 
     cmd = [
         'go', 'run', 'cmd/export/main.go',
-        f'--hours-before={int(total_hours)}',
+        f'--hours-before={math.ceil(total_hours)}',
         '--no-zip'
     ]
 

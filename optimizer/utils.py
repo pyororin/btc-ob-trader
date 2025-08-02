@@ -54,9 +54,11 @@ def nest_params(flat_params: dict) -> dict:
         'adaptive_reduction_step': ('adaptive_position_sizing', 'reduction_step'),
         'adaptive_min_ratio': ('adaptive_position_sizing', 'min_ratio'),
         # long
+        'long_obi_threshold': ('long', 'obi_threshold'),
         'long_tp': ('long', 'tp'),
         'long_sl': ('long', 'sl'),
         # short
+        'short_obi_threshold': ('short', 'obi_threshold'),
         'short_tp': ('short', 'tp'),
         'short_sl': ('short', 'sl'),
         # signal
@@ -91,17 +93,26 @@ def nest_params(flat_params: dict) -> dict:
 
     # Sanitize and populate the nested dictionary from the flat parameters
     for flat_key, value in flat_params.items():
-        # Sanitize boolean-like strings before nesting
-        sanitized_value = value
-        if isinstance(value, str):
-            if value.lower() == 'true':
-                sanitized_value = True
-            elif value.lower() == 'false':
-                sanitized_value = False
-
         if flat_key in key_map:
             path = key_map[flat_key]
             current_level = nested_params
+
+            # Sanitize boolean values only for 'enabled' keys
+            if 'enabled' in flat_key:
+                if isinstance(value, str):
+                    if value.lower() == 'true':
+                        sanitized_value = True
+                    elif value.lower() == 'false':
+                        sanitized_value = False
+                    else:
+                        sanitized_value = value # Keep original if not 'true'/'false'
+                elif isinstance(value, (int, float)):
+                    sanitized_value = bool(value)
+                else:
+                    sanitized_value = value
+            else:
+                sanitized_value = value
+
             for i, part in enumerate(path):
                 if i == len(path) - 1:
                     current_level[part] = sanitized_value
