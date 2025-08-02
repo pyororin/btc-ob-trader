@@ -36,7 +36,7 @@ def run_simulation(params: dict, sim_csv_path: Path) -> dict:
             finalize=finalize_for_yaml
         )
         template = env.get_template(config.CONFIG_TEMPLATE_PATH.name)
-        config_yaml_str = template.render(params)
+        config_yaml_str = template.render(**params)
 
 
         # Use delete=False, so the file is not deleted when the 'with' block exits.
