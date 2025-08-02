@@ -66,13 +66,13 @@ class TestConfigRendering(unittest.TestCase):
 
         # 3. Load the Jinja2 template using the correct environment
         # This mirrors the implementation in simulation.py to ensure the test is accurate
-        from optimizer.simulation import _finalize_for_yaml
+        from optimizer.utils import finalize_for_yaml
         from jinja2 import Environment, FileSystemLoader
         from optimizer.config import PARAMS_DIR
 
         env = Environment(
             loader=FileSystemLoader(searchpath=PARAMS_DIR),
-            finalize=_finalize_for_yaml
+            finalize=finalize_for_yaml
         )
         template = env.get_template(CONFIG_TEMPLATE_PATH.name)
 

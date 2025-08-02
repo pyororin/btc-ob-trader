@@ -7,6 +7,8 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 from . import config
+from .utils import finalize_for_yaml
+
 
 def _finalize_for_yaml(value):
     """
