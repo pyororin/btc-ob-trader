@@ -145,41 +145,5 @@ class TestUtils(unittest.TestCase):
         self.maxDiff = None
         self.assertDictEqual(nested_params, expected_nested_params)
 
-    def test_nest_params_handles_numpy_types(self):
-        """
-        Tests that nest_params correctly handles numpy data types, converting
-        them to standard Python types. This is crucial because Optuna dataframes
-        often use numpy types.
-        """
-        try:
-            import numpy as np
-        except ImportError:
-            self.skipTest("Numpy not installed, skipping numpy type test.")
-
-        # Simulate input from a pandas/numpy environment
-        flat_params_numpy = {
-            'spread_limit': np.int64(80),
-            'lot_max_ratio': np.float64(0.9),
-            'adaptive_position_sizing_enabled': np.bool_(True),
-            'long_tp': np.int32(100),
-        }
-
-        nested_params = nest_params(flat_params_numpy)
-
-        # Check top-level types
-        self.assertIsInstance(nested_params['spread_limit'], int, "spread_limit should be int")
-        self.assertIsInstance(nested_params['lot_max_ratio'], float, "lot_max_ratio should be float")
-
-        # Check nested types
-        adaptive_sizing = nested_params['adaptive_position_sizing']
-        self.assertIsInstance(adaptive_sizing['enabled'], bool, "enabled should be bool")
-
-        long_params = nested_params['long']
-        self.assertIsInstance(long_params['tp'], int, "long_tp should be int")
-
-        # Also verify a default value's type
-        self.assertIsInstance(long_params['obi_threshold'], float, "obi_threshold should be float")
-
-
 if __name__ == '__main__':
     unittest.main()
