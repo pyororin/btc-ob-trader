@@ -31,25 +31,25 @@ spread_limit: {{ spread_limit }}
 # lot_max_ratio: 1回の注文で使用する証拠金の最大比率。
 # 例えば、0.05 は利用可能残高の5%を上限とすることを意味します。
 # リスク管理の重要な要素です。値を大きくするとハイリスク・ハイリターンになります。
-lot_max_ratio: 0.95
+lot_max_ratio: {{ lot_max_ratio }}
 
 # order_ratio: 注文量に対する比率。
 # この比率は、アダプティブ・ポジションサイジング機能によって動的に調整されることがあります。
-order_ratio: 0.95
+order_ratio: {{ order_ratio }}
 
 # adaptive_position_sizing: アダプティブ（適応型）ポジションサイズ調整機能の設定。
 # 直近の取引成績に応じて、自動でロットサイズを調整します。
 adaptive_position_sizing:
   # enabled: この機能を有効にするか (`true`) 無効にするか (`false`)。
-  enabled: False
+  enabled: {{ adaptive_position_sizing.enabled }}
   # num_trades: パフォーマンス評価の対象とする直近の取引回数。
-  num_trades: 10
+  num_trades: {{ adaptive_position_sizing.num_trades }}
   # reduction_step: 損失が出た場合に、次の注文のロットサイズを縮小する係数。
   # 0.8 は、現在のロットサイズを80%に減らすことを意味します（20%減）。
-  reduction_step: 0.8
+  reduction_step: {{ adaptive_position_sizing.reduction_step }}
   # min_ratio:ロットサイズの下限を、元の `order_ratio` に対する割合で指定します。
   # 0.5 は、`order_ratio` の50%より小さくならないように制限します。
-  min_ratio: 0.5
+  min_ratio: {{ adaptive_position_sizing.min_ratio }}
 
 # ------------------------------------------------------------------------------
 # エントリー戦略 (Entry Strategy)
@@ -87,34 +87,40 @@ short:
 
 # signal: シグナルの精度を高めるためのフィルター設定。
 signal:
-  # hold_duration_ms: 0.5秒間シグナルが持続した場合にエントリーします。
-  hold_duration_ms: 500
+  # hold_duration_ms: シグナル確定までの待機時間（ミリ秒）。
+  # OBIが閾値を超えても即座にエントリーせず、この時間だけ閾値を超え続けた場合にシグナルが確定します。
+  # 値を大きくすると「ダマシ」を避けやすくなりますが、エントリーは遅れます。
+  # 値を小さくすると素早く反応できますが、ノイズに弱くなります。
+  hold_duration_ms: {{ signal.hold_duration_ms }}
 
   # cvd_window_minutes: CVD (Cumulative Volume Delta) を計算する際の期間（分）。
   cvd_window_minutes: 1
 
   # --- 複合シグナル設定 (Composite Signal Settings) ---
-  # 各指標の重みを固定値とします。OBIとOFIを主要指標とし、CVDとMicroPriceを補助的に利用します。
+  # 以下のパラメータは、複数の指標を組み合わせて取引シグナルを生成するために使用されます。
+  # 各指標に重みを付け、その合計スコアが `composite_threshold` を超えた場合にシグナルが発生します。
 
   # obi_weight: OBI (Order Book Imbalance) の重み。
-  obi_weight: 1.0
+  obi_weight: {{ signal.obi_weight }}
   # ofi_weight: OFI (Order Flow Imbalance) の重み。
-  ofi_weight: 1.0
+  ofi_weight: {{ signal.ofi_weight }}
   # cvd_weight: CVD (Cumulative Volume Delta) の重み。
-  cvd_weight: 0.5
+  cvd_weight: {{ signal.cvd_weight }}
   # micro_price_weight: MicroPrice の変化の重み。
-  micro_price_weight: 0.1
+  micro_price_weight: {{ signal.micro_price_weight }}
   # composite_threshold: 複合シグナルの発動閾値。
-  composite_threshold: 0.7
+  composite_threshold: {{ signal.composite_threshold }}
 
   # slope_filter: OBIの傾き（変化率）を利用したフィルター設定。
+  # OBIの値だけでなく、その変化の勢いも考慮に入れることで、トレンドの初動を捉えやすくなります。
   slope_filter:
-    # enabled: このフィルターは現在、無効に設定されています。
-    enabled: False
+    # enabled: このフィルターを有効にするか (`true`) 無効にするか (`false`)。
+    enabled: {{ signal.slope_filter.enabled }}
     # period: 傾きを計算するために使用する、直近のOBIデータの数。
-    period: 44
+    period: {{ signal.slope_filter.period }}
     # threshold: エントリーを許可するOBIの最小傾き。
-    threshold: 0.7
+    # 例えば、ロングシグナルの場合、OBIの傾きがこの値より大きい必要があります。
+    threshold: {{ signal.slope_filter.threshold }}
 
 # ------------------------------------------------------------------------------
 # 動的パラメータ調整 (Dynamic Parameters)
@@ -145,21 +151,21 @@ volatility:
 # 大きな注文を時間で分割して発注し、市場への価格インパクトを抑えつつ平均取得単価を安定させます。
 twap:
   # enabled: TWAP注文を有効にするか (`true`) 無効にするか (`false`)。
-  enabled: False
+  enabled: {{ twap.enabled }}
   # max_order_size_btc: 1回の分割注文における最大のサイズ（BTC）。
   # 最小値は取引所の制約により 0.01 です。
-  max_order_size_btc: 0.05
+  max_order_size_btc: {{ twap.max_order_size_btc }}
   # interval_seconds: 分割された注文を発注する間隔（秒）。
-  interval_seconds: 5
+  interval_seconds: {{ twap.interval_seconds }}
   # partial_exit_enabled: ポジションの一部を利益確定する（部分利食い）機能を有効にするか。
   # この機能は現在、TWAP注文と連動しています。
-  partial_exit_enabled: False
+  partial_exit_enabled: {{ twap.partial_exit_enabled }}
   # profit_threshold: 部分利食いをトリガーする利益率（%）。
   # 例: 0.5 は、0.5%の含み益が出た場合にトリガーされます。
-  profit_threshold: 1.0
+  profit_threshold: {{ twap.profit_threshold }}
   # exit_ratio: 部分利食いするポジションの割合。
   # 例: 0.5 は、現在のポジションの50%を利益確定します。
-  exit_ratio: 0.5
+  exit_ratio: {{ twap.exit_ratio }}
 
 # ------------------------------------------------------------------------------
 # リスク管理 (Risk Management)
@@ -169,8 +175,8 @@ risk:
   # max_drawdown_percent: 許容する最大のドローダウン率（%）。
   # 資産のピークからの下落率がこの値を超えた場合、ボットは新規の注文を停止します。
   # 非常に重要なリスク管理項目です。
-  max_drawdown_percent: 20
+  max_drawdown_percent: {{ risk.max_drawdown_percent }}
   # max_position_ratio: 利用可能残高に対する許容される最大ポジションサイズの割合。
   # 1.0 は、残高の100%までポジションを持つことを意味します。
   # これにより、所持金を超える取引を防ぎます。
-  max_position_ratio: 0.9
+  max_position_ratio: {{ risk.max_position_ratio }}

@@ -154,7 +154,8 @@ def _get_oos_candidates(study: optuna.Study, scored_trials: list) -> list[dict]:
 def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> bool:
     """Iteratively validates candidate parameters against OOS data."""
     early_stop_trigger_count = 0
-    early_stop_threshold = config.OOS_MIN_SHARPE_RATIO * config.EARLY_STOP_THRESHOLD_RATIO
+    # Early stop if the Profit Factor is unprofitable (<= 1.0)
+    early_stop_threshold_pf = 1.0
 
     for i, candidate in enumerate(candidates):
         if i >= config.MAX_RETRY:
@@ -185,10 +186,10 @@ def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> bool:
             fail_reason = _get_oos_fail_reason(oos_summary)
             log_message = f"OOS validation FAILED for attempt #{i+1} ({fail_reason})."
 
-            # Early stopping logic for OOS validation
-            if oos_sr < early_stop_threshold:
+            # Early stopping logic for OOS validation based on Profit Factor
+            if oos_pf < early_stop_threshold_pf:
                 early_stop_trigger_count += 1
-                log_message += f" SR below early stop threshold. Trigger: {early_stop_trigger_count}/{config.EARLY_STOP_COUNT}"
+                log_message += f" PF below early stop threshold. Trigger: {early_stop_trigger_count}/{config.EARLY_STOP_COUNT}"
             else:
                 early_stop_trigger_count = 0 # Reset counter on a non-terrible result
 
@@ -205,7 +206,7 @@ def _is_oos_passed(oos_summary: dict) -> bool:
     """Checks if the OOS simulation summary meets the minimum passing criteria."""
     return (
         oos_summary.get('TotalTrades', 0) >= config.OOS_MIN_TRADES and
-        oos_summary.get('SharpeRatio', 0.0) >= config.OOS_MIN_SHARPE_RATIO
+        oos_summary.get('ProfitFactor', 0.0) >= config.OOS_MIN_PROFIT_FACTOR
     )
 
 def _get_oos_fail_reason(oos_summary: dict) -> str:
@@ -213,8 +214,8 @@ def _get_oos_fail_reason(oos_summary: dict) -> str:
     reasons = []
     if oos_summary.get('TotalTrades', 0) < config.OOS_MIN_TRADES:
         reasons.append(f"trades < {config.OOS_MIN_TRADES}")
-    if oos_summary.get('SharpeRatio', 0.0) < config.OOS_MIN_SHARPE_RATIO:
-        reasons.append(f"SR < {config.OOS_MIN_SHARPE_RATIO}")
+    if oos_summary.get('ProfitFactor', 0.0) < config.OOS_MIN_PROFIT_FACTOR:
+        reasons.append(f"PF < {config.OOS_MIN_PROFIT_FACTOR}")
     return ", ".join(reasons) if reasons else "Unknown reason"
 
 def _save_best_parameters(flat_params: dict):
