@@ -229,7 +229,7 @@ def _save_best_parameters(flat_params: dict):
             finalize=finalize_for_yaml
         )
         template = env.get_template(config.CONFIG_TEMPLATE_PATH.name)
-        config_str = template.render(**nested_params)
+        config_str = template.render(nested_params)
 
         with open(config.BEST_CONFIG_OUTPUT_PATH, 'w') as f:
             f.write(config_str)
