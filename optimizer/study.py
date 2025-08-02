@@ -150,6 +150,31 @@ def _get_oos_candidates(study: optuna.Study, scored_trials: list) -> list[dict]:
 
     return candidates
 
+def _unflatten_params(flat_params: dict) -> dict:
+    """
+    Converts a flat dictionary with dot-separated keys into a nested dictionary.
+
+    Example:
+        >>> flat = {'a.b.c': 1, 'a.d': 2, 'e': 3}
+        >>> _unflatten_params(flat)
+        {'a': {'b': {'c': 1}, 'd': 2}, 'e': 3}
+
+    Args:
+        flat_params: A flat dictionary with keys like 'key.subkey'.
+
+    Returns:
+        A nested dictionary.
+    """
+    nested_params = {}
+    for key, value in flat_params.items():
+        parts = key.split('.')
+        d = nested_params
+        for part in parts[:-1]:
+            d = d.setdefault(part, {})
+        d[parts[-1]] = value
+    return nested_params
+
+
 def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> bool:
     """Iteratively validates candidate parameters against OOS data."""
     early_stop_trigger_count = 0
@@ -162,11 +187,10 @@ def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> bool:
 
         logging.info(f"--- Running OOS Validation attempt #{i+1} (source: {candidate['source']}) ---")
 
-        # BUGFIX: Pass parameters directly to simulation. The explicit conversion
-        # to string ('true'/'false') caused inconsistencies with the IS-phase
-        # where Python booleans (True/False) were passed. The Go simulation
-        # expects booleans, not strings, for these parameters.
-        oos_summary = run_simulation(candidate['params'], oos_csv_path)
+        # Convert the flat parameter dictionary from Optuna trial.params
+        # into a nested dictionary that matches the YAML template structure.
+        nested_params = _unflatten_params(candidate['params'])
+        oos_summary = run_simulation(nested_params, oos_csv_path)
 
         if not isinstance(oos_summary, dict) or not oos_summary:
             logging.warning("OOS simulation failed or returned empty results.")
@@ -179,7 +203,8 @@ def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> bool:
 
         if _is_oos_passed(oos_summary):
             logging.info(f"OOS validation PASSED for attempt #{i+1}.")
-            _save_best_parameters(candidate['params'])
+            # Also pass the nested params to the save function
+            _save_best_parameters(nested_params)
             return True
         else:
             fail_reason = _get_oos_fail_reason(oos_summary)
