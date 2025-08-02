@@ -10,17 +10,6 @@ from . import config
 from .utils import finalize_for_yaml
 
 
-def _finalize_for_yaml(value):
-    """
-    Custom Jinja2 finalizer to ensure YAML-compatible output.
-    Specifically, it converts Python booleans to lowercase 'true'/'false'.
-    """
-    if isinstance(value, bool):
-        return str(value).lower()
-    # Ensure None is rendered as an empty string to avoid YAML errors
-    return value if value is not None else ''
-
-
 def run_simulation(params: dict, sim_csv_path: Path) -> dict:
     """
     Runs a single Go simulation for a given set of parameters.
