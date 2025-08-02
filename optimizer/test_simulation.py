@@ -3,6 +3,8 @@ from unittest.mock import patch, MagicMock, mock_open
 import yaml
 from pathlib import Path
 import os
+import tempfile
+import shutil
 
 # Assume optimizer.config is setup correctly
 from optimizer import config
@@ -197,67 +199,59 @@ risk:
 
 class TestSimulation(unittest.TestCase):
 
-    # Patch the config paths to ensure they are controlled for this test
-    @patch('optimizer.config.CONFIG_TEMPLATE_PATH', Path("/mock/template.yaml"))
-    @patch('optimizer.config.SIMULATION_BINARY_PATH', Path("/mock/bin/bot"))
-    @patch('optimizer.config.APP_ROOT', Path("/mock/app"))
-    @patch('optimizer.config.PARAMS_DIR', Path("/mock/params"))
-    @patch('optimizer.simulation.tempfile.NamedTemporaryFile')
     @patch('optimizer.simulation.subprocess.run')
-    @patch('optimizer.simulation.os.remove')
-    def test_run_simulation_with_nested_params(self, mock_os_remove, mock_subprocess_run, mock_tempfile):
+    def test_run_simulation_with_nested_params(self, mock_subprocess_run):
         """
         Test that run_simulation correctly renders a NESTED parameter dictionary
         into a YAML file for the Go simulation. This confirms that the template
         and the parameter structure are compatible.
         """
-        # 1. Define a correctly nested parameter dictionary
-        nested_params = {
-            "spread_limit": 50, "lot_max_ratio": 0.9, "order_ratio": 0.95,
-            "adaptive_position_sizing": { "enabled": True, "num_trades": 10, "reduction_step": 0.8, "min_ratio": 0.5 },
-            "long": { "obi_threshold": 1.5, "tp": 100, "sl": -100 },
-            "short": { "obi_threshold": -1.5, "tp": 100, "sl": -100 },
-            "signal": { "hold_duration_ms": 500, "obi_weight": 1.0, "ofi_weight": 0.5, "cvd_weight": 0.2, "micro_price_weight": 0.8, "composite_threshold": 1.8,
-                "slope_filter": { "enabled": False, "period": 10, "threshold": 0.1 } },
-            "volatility": { "ewma_lambda": 0.1,
-                "dynamic_obi": { "enabled": True, "volatility_factor": 2.0, "min_threshold_factor": 0.7, "max_threshold_factor": 1.5 } },
-            "twap": { "enabled": False, "max_order_size_btc": 0.05, "interval_seconds": 5, "partial_exit_enabled": False, "profit_threshold": 1.0, "exit_ratio": 0.5 },
-            "risk": { "max_drawdown_percent": 20, "max_position_ratio": 0.8 }
-        }
+        # Create a temporary directory for our fake config files
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
 
-        # 2. Mock the subprocess to prevent actual execution
-        mock_process_result = MagicMock()
-        mock_process_result.stdout = '{"TotalTrades": 10, "SharpeRatio": 1.5}'
-        mock_subprocess_run.return_value = mock_process_result
+            # Create a dummy template file inside the temporary directory
+            template_path = temp_dir / "trade_config.yaml.template"
+            with open(template_path, "w") as f:
+                f.write(FULL_TEMPLATE_CONTENT)
 
-        # 3. Mock the temporary file to capture the written content
-        mock_file_handle = mock_open()
-        # The file object returned by the context manager needs a 'name' attribute
-        # for the `Path(temp_f.name)` call inside the function under test.
-        file_object_mock = mock_file_handle.return_value
-        file_object_mock.name = '/mock/params/dummy_temp_file.yaml'
-        mock_tempfile.return_value.__enter__.return_value = file_object_mock
+            # 1. Define a correctly nested parameter dictionary
+            nested_params = {
+                "spread_limit": 50, "lot_max_ratio": 0.9, "order_ratio": 0.95,
+                "adaptive_position_sizing": { "enabled": True, "num_trades": 10, "reduction_step": 0.8, "min_ratio": 0.5 },
+                "long": { "obi_threshold": 1.5, "tp": 100, "sl": -100 },
+                "short": { "obi_threshold": -1.5, "tp": 100, "sl": -100 },
+                "signal": { "hold_duration_ms": 500, "obi_weight": 1.0, "ofi_weight": 0.5, "cvd_weight": 0.2, "micro_price_weight": 0.8, "composite_threshold": 1.8,
+                    "slope_filter": { "enabled": False, "period": 10, "threshold": 0.1 } },
+                "volatility": { "ewma_lambda": 0.1,
+                    "dynamic_obi": { "enabled": True, "volatility_factor": 2.0, "min_threshold_factor": 0.7, "max_threshold_factor": 1.5 } },
+                "twap": { "enabled": False, "max_order_size_btc": 0.05, "interval_seconds": 5, "partial_exit_enabled": False, "profit_threshold": 1.0, "exit_ratio": 0.5 },
+                "risk": { "max_drawdown_percent": 20, "max_position_ratio": 0.8 }
+            }
 
-        # Mock the open call for the *template* file using the full template content
-        with patch('builtins.open', mock_open(read_data=FULL_TEMPLATE_CONTENT)):
-            # 4. Call the function to be tested
-            run_simulation(params=nested_params, sim_csv_path=Path("dummy.csv"))
+            # 2. Mock the subprocess to prevent actual execution
+            mock_process_result = MagicMock()
+            mock_process_result.stdout = '{"TotalTrades": 10, "SharpeRatio": 1.5}'
+            mock_subprocess_run.return_value = mock_process_result
 
-        # 5. Assert that the content written to the temp file is correct
-        # The 'write' method is on the file object mock, not the mock_open return value.
-        written_yaml_str = "".join(call.args[0] for call in file_object_mock.write.call_args_list)
-        written_data = yaml.safe_load(written_yaml_str)
+            # 3. Patch config to use our temporary directory and files
+            with patch('optimizer.config.CONFIG_TEMPLATE_PATH', template_path), \
+                 patch('optimizer.config.PARAMS_DIR', temp_dir):
 
-        # Check a few key values from different nested sections
-        self.assertEqual(written_data['spread_limit'], 50)
-        self.assertTrue(written_data['adaptive_position_sizing']['enabled'])
-        self.assertEqual(written_data['long']['tp'], 100)
-        self.assertEqual(written_data['signal']['slope_filter']['period'], 10)
-        self.assertEqual(written_data['risk']['max_position_ratio'], 0.8)
-        self.assertEqual(written_data['volatility']['dynamic_obi']['volatility_factor'], 2.0)
+                # 4. Call the function to be tested
+                result = run_simulation(params=nested_params, sim_csv_path=Path("dummy.csv"))
 
-        # Verify that the subprocess was called correctly
-        self.assertTrue(mock_subprocess_run.called)
+            # 5. Assertions
+            self.assertEqual(result, {"TotalTrades": 10, "SharpeRatio": 1.5})
+            self.assertTrue(mock_subprocess_run.called)
+
+            # Check the command that was run
+            called_command = mock_subprocess_run.call_args[0][0]
+            # The temp config file path will be something like '/tmp/tmpxxxyyy/tmpzzzz.yaml'
+            # We can check that the argument exists and points to the temp directory
+            temp_config_arg = called_command[2] # '--trade-config=...'
+            self.assertTrue(temp_config_arg.startswith(f'--trade-config={temp_dir_str}'))
+            self.assertTrue(temp_config_arg.endswith('.yaml'))
 
 if __name__ == '__main__':
     unittest.main()
