@@ -223,7 +223,7 @@ class Objective:
         params['ofi_weight'] = trial.suggest_float('ofi_weight', 0.0, 2.0)
         params['cvd_weight'] = trial.suggest_float('cvd_weight', 0.0, 2.0)
         params['micro_price_weight'] = trial.suggest_float('micro_price_weight', 0.0, 2.0)
-        params['composite_threshold'] = trial.suggest_float('composite_threshold', 0.01, 2.0)
+        params['composite_threshold'] = trial.suggest_float('composite_threshold', 0.5, 1.0)
 
         # Signal Slope Filter
         params['slope_filter_enabled'] = trial.suggest_categorical('slope_filter_enabled', [True, False])
