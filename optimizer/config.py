@@ -58,16 +58,14 @@ EARLY_STOP_COUNT = CONFIG.get('early_stop_count', 3)
 EARLY_STOP_THRESHOLD_RATIO = CONFIG.get('early_stop_threshold_ratio', -0.5)
 
 # Out-of-Sample (OOS) Validation Criteria
-OOS_MIN_SHARPE_RATIO = CONFIG.get('oos_min_sharpe_ratio', 0.5)
+OOS_MIN_PROFIT_FACTOR = CONFIG.get('oos_min_profit_factor', 1.1)
 OOS_MIN_TRADES = CONFIG.get('oos_min_trades', 10)
 
 # Objective Function Weights
 OBJECTIVE_WEIGHTS = CONFIG.get('objective_weights', {
-    'sharpe_ratio': 1.5,
-    'profit_factor': 1.0,
-    'relative_drawdown': 1.0,
-    'sqn': 0.5,
-    'trades': 0.5
+    'profit_factor': 2.0,
+    'trades': 1.5,
+    'relative_drawdown': 1.0
 })
 
 # Analyzer Settings
