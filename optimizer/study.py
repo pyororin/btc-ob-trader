@@ -5,12 +5,13 @@ import json
 import datetime
 import functools
 from pathlib import Path
-from jinja2 import Template
+from jinja2 import Environment, FileSystemLoader
 from typing import Union
 
 from . import config
 from .objective import Objective, MetricsCalculator
 from .simulation import run_simulation
+from .utils import nest_params, finalize_for_yaml
 
 def create_study() -> optuna.Study:
     """
@@ -162,13 +163,10 @@ def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> bool:
 
         logging.info(f"--- Running OOS Validation attempt #{i+1} (source: {candidate['source']}) ---")
 
-        # Ensure boolean parameters are converted to strings ('true'/'false') for Jinja2 rendering.
-        # This handles params from both Optuna (bool) and the analyzer (which are loaded from JSON).
-        processed_params = {
-            k: str(v).lower() if isinstance(v, bool) else v
-            for k, v in candidate['params'].items()
-        }
-        oos_summary = run_simulation(processed_params, oos_csv_path)
+        # Convert the flat params from Optuna trial/analyzer to the nested
+        # structure required by the simulation's Jinja2 template.
+        nested_params = nest_params(candidate['params'])
+        oos_summary = run_simulation(nested_params, oos_csv_path)
 
         if not isinstance(oos_summary, dict) or not oos_summary:
             logging.warning("OOS simulation failed or returned empty results.")
@@ -219,17 +217,20 @@ def _get_oos_fail_reason(oos_summary: dict) -> str:
         reasons.append(f"SR < {config.OOS_MIN_SHARPE_RATIO}")
     return ", ".join(reasons) if reasons else "Unknown reason"
 
-def _save_best_parameters(params: dict):
+def _save_best_parameters(flat_params: dict):
     """Renders and saves the final trade configuration file."""
     try:
-        # Ensure boolean parameters are correctly formatted as strings for the final config.
-        processed_params = {
-            k: str(v).lower() if isinstance(v, bool) else v
-            for k, v in params.items()
-        }
-        with open(config.CONFIG_TEMPLATE_PATH, 'r') as f:
-            template = Template(f.read())
-        config_str = template.render(processed_params)
+        # Convert flat params to the nested structure required by the template
+        nested_params = nest_params(flat_params)
+
+        # Use the same Jinja2 environment as run_simulation to ensure consistency
+        env = Environment(
+            loader=FileSystemLoader(searchpath=config.PARAMS_DIR),
+            finalize=finalize_for_yaml
+        )
+        template = env.get_template(config.CONFIG_TEMPLATE_PATH.name)
+        config_str = template.render(nested_params)
+
         with open(config.BEST_CONFIG_OUTPUT_PATH, 'w') as f:
             f.write(config_str)
         logging.info(f"Successfully updated trade config: {config.BEST_CONFIG_OUTPUT_PATH}")

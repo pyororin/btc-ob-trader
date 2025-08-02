@@ -1,9 +1,9 @@
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 import optuna
 
 # Modules to test
-from .study import create_study
+from .study import create_study, warm_start_with_recent_trials
 from .objective import Objective
 from . import config
 
@@ -13,7 +13,6 @@ class TestStudy(unittest.TestCase):
     @patch('optimizer.study.optuna.create_study')
     def test_create_study_multi_objective(self, mock_create_study):
         """Verify that create_study configures a multi-objective study correctly."""
-        from .study import create_study
         create_study()
 
         # Check that optuna.create_study was called
@@ -22,8 +21,8 @@ class TestStudy(unittest.TestCase):
         # Get the arguments passed to optuna.create_study
         args, kwargs = mock_create_study.call_args
 
-        # Check the sampler
-        self.assertIsInstance(kwargs['sampler'], optuna.samplers.MOTPESampler)
+        # Check the sampler (updated to NSGAIISampler)
+        self.assertIsInstance(kwargs['sampler'], optuna.samplers.NSGAIISampler)
 
         # Check the directions
         expected_directions = ['maximize', 'maximize', 'minimize']
@@ -33,30 +32,37 @@ class TestStudy(unittest.TestCase):
     @patch('optimizer.study.optuna.get_all_study_summaries')
     def test_warm_start_with_mixed_timezones(self, mock_get_summaries, mock_load_study):
         """Test warm start handles trials with and without timezone information."""
-        from .study import warm_start_with_recent_trials
         from datetime import datetime, timezone, timedelta
 
         # 1. Setup mock data
         now = datetime.now(timezone.utc)
 
-        # Trial with timezone-aware datetime (recent)
-        aware_trial = MagicMock()
-        aware_trial.state = optuna.trial.TrialState.COMPLETE
+        # Create mock trials with the necessary attributes for the logic to work
+        aware_trial = optuna.create_trial(
+            state=optuna.trial.TrialState.COMPLETE,
+            values=[1.0, 0.5, 100.0],
+            params={'param1': 1},
+            distributions={'param1': optuna.distributions.IntDistribution(1, 1)}
+        )
         aware_trial.datetime_complete = now - timedelta(days=1)
 
-        # Trial with timezone-naive datetime (recent)
-        naive_trial = MagicMock()
-        naive_trial.state = optuna.trial.TrialState.COMPLETE
+        naive_trial = optuna.create_trial(
+            state=optuna.trial.TrialState.COMPLETE,
+            values=[1.1, 0.6, 110.0],
+            params={'param1': 2},
+            distributions={'param1': optuna.distributions.IntDistribution(1, 2)}
+        )
         naive_trial.datetime_complete = now.replace(tzinfo=None) - timedelta(days=2)
 
-        # Trial that is too old
-        old_trial = MagicMock()
-        old_trial.state = optuna.trial.TrialState.COMPLETE
+        old_trial = optuna.create_trial(
+            state=optuna.trial.TrialState.COMPLETE,
+            values=[0.9, 0.4, 90.0],
+            params={'param1': 3},
+            distributions={'param1': optuna.distributions.IntDistribution(1, 3)}
+        )
         old_trial.datetime_complete = now - timedelta(days=30)
 
-        # Incomplete trial
-        incomplete_trial = MagicMock()
-        incomplete_trial.state = optuna.trial.TrialState.RUNNING
+        incomplete_trial = optuna.create_trial(state=optuna.trial.TrialState.RUNNING)
         incomplete_trial.datetime_complete = None
 
         mock_study_summary = MagicMock()
@@ -67,24 +73,21 @@ class TestStudy(unittest.TestCase):
         mock_previous_study.trials = [aware_trial, naive_trial, old_trial, incomplete_trial]
         mock_load_study.return_value = mock_previous_study
 
-        # 2. Setup the current study
-        current_study = optuna.create_study()
-        current_study.add_trials = MagicMock() # Mock the method we want to check
+        # 2. Setup the current study and mock its add_trial method
+        current_study = optuna.create_study(directions=['maximize', 'maximize', 'minimize'])
+        current_study.add_trial = MagicMock()
 
         # 3. Run the function to be tested
         warm_start_with_recent_trials(current_study, recent_days=10)
 
         # 4. Assertions
-        # Should be called once
-        self.assertTrue(current_study.add_trials.called)
+        # Should have been called twice (for the two recent, complete trials)
+        self.assertEqual(current_study.add_trial.call_count, 2)
 
-        # Get the list of trials passed to add_trials
-        added_trials_list = current_study.add_trials.call_args[0][0]
-
-        # Should have added the 2 recent trials, but not the old or incomplete one
-        self.assertEqual(len(added_trials_list), 2)
-        self.assertIn(aware_trial, added_trials_list)
-        self.assertIn(naive_trial, added_trials_list)
+        # Check that it was called with the correct trials
+        calls = current_study.add_trial.call_args_list
+        self.assertIn(call(aware_trial), calls)
+        self.assertIn(call(naive_trial), calls)
 
 class TestObjective(unittest.TestCase):
     """Tests for the objective.py module."""
@@ -135,10 +138,10 @@ class TestObjective(unittest.TestCase):
 
         result = self.objective(trial)
 
-        # Check if the randomized penalty values are returned
-        self.assertLess(result[0], -100.0)
+        # Check if the dominated penalty values are returned
+        self.assertEqual(result[0], -1.0)
         self.assertEqual(result[1], 0.0)
-        self.assertGreater(result[2], 1_000_000.0)
+        self.assertEqual(result[2], 1_000_000.0)
 
     @patch('optimizer.objective.simulation.run_simulation')
     def test_objective_penalized_low_trades(self, mock_run_simulation):
@@ -157,9 +160,9 @@ class TestObjective(unittest.TestCase):
         trial.suggest_int('spread_limit', 20, 80)
 
         result = self.objective(trial)
-        self.assertLess(result[0], -100.0)
+        self.assertEqual(result[0], -1.0)
         self.assertEqual(result[1], 0.0)
-        self.assertGreater(result[2], 1_000_000.0)
+        self.assertEqual(result[2], 1_000_000.0)
 
     def test_objective_no_sim_path(self):
         """Test that a penalty is returned if the simulation path is missing."""
@@ -170,9 +173,9 @@ class TestObjective(unittest.TestCase):
         trial.suggest_int('spread_limit', 20, 80)
 
         result = objective_no_path(trial)
-        self.assertLess(result[0], -100.0)
+        self.assertEqual(result[0], -1.0)
         self.assertEqual(result[1], 0.0)
-        self.assertGreater(result[2], 1_000_000.0)
+        self.assertEqual(result[2], 1_000_000.0)
 
 if __name__ == '__main__':
     unittest.main()

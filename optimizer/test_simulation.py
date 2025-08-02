@@ -1,3 +1,18 @@
+import unittest
+from unittest.mock import patch, MagicMock, mock_open
+import yaml
+from pathlib import Path
+import os
+import tempfile
+import shutil
+
+# Assume optimizer.config is setup correctly
+from optimizer import config
+from optimizer.simulation import run_simulation
+
+# This is the full content of the actual template file.
+# Using the real template makes the test much more robust.
+FULL_TEMPLATE_CONTENT = """
 # OBI-Scalp-Bot 取引戦略設定ファイル (trade_config.yaml)
 #
 # このファイルは、ボットの取引ロジックに直接関わるパラメータを管理します。
@@ -57,8 +72,8 @@ adaptive_position_sizing:
 
 # long: ロング（買い）エントリーの戦略設定。
 long:
-  # obi_threshold: [現在未使用] このパラメータは現在、シグナル生成ロジックでは使用されていません。
-  # シグナルは `signal` セクションの複合スコア (`composite_threshold`) に基づいて生成されます。
+  # obi_threshold: ロングエントリーをトリガーするOBI (Order Book Imbalance) の閾値。
+  # OBIがこの値を超えると、買いシグナルの候補となります。正の値を指定します。
   obi_threshold: {{ long.obi_threshold }}
   # tp: 利食い（Take Profit）を行う価格幅を円で指定します。
   # エントリー価格からこの値幅分、価格が上昇した場合に利食い注文が執行されます。
@@ -70,8 +85,8 @@ long:
 
 # short: ショート（売り）エントリーの戦略設定。
 short:
-  # obi_threshold: [現在未使用] このパラメータは現在、シグナル生成ロジックでは使用されていません。
-  # シグナルは `signal` セクションの複合スコア (`composite_threshold`) に基づいて生成されます。
+  # obi_threshold: ショートエントリーをトリガーするOBIの閾値。
+  # OBIがこの値を下回ると（より負の方向に大きいと）、売りシグナルの候補となります。負の値を指定します。
   obi_threshold: {{ short.obi_threshold }}
   # tp: 利食い（Take Profit）を行う価格幅を円で指定します。
   # エントリー価格からこの値幅分、価格が下落した場合に利食い注文が執行されます。
@@ -180,3 +195,63 @@ risk:
   # 1.0 は、残高の100%までポジションを持つことを意味します。
   # これにより、所持金を超える取引を防ぎます。
   max_position_ratio: {{ risk.max_position_ratio }}
+"""
+
+class TestSimulation(unittest.TestCase):
+
+    @patch('optimizer.simulation.subprocess.run')
+    def test_run_simulation_with_nested_params(self, mock_subprocess_run):
+        """
+        Test that run_simulation correctly renders a NESTED parameter dictionary
+        into a YAML file for the Go simulation. This confirms that the template
+        and the parameter structure are compatible.
+        """
+        # Create a temporary directory for our fake config files
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+
+            # Create a dummy template file inside the temporary directory
+            template_path = temp_dir / "trade_config.yaml.template"
+            with open(template_path, "w") as f:
+                f.write(FULL_TEMPLATE_CONTENT)
+
+            # 1. Define a correctly nested parameter dictionary
+            nested_params = {
+                "spread_limit": 50, "lot_max_ratio": 0.9, "order_ratio": 0.95,
+                "adaptive_position_sizing": { "enabled": True, "num_trades": 10, "reduction_step": 0.8, "min_ratio": 0.5 },
+                "long": { "obi_threshold": 1.5, "tp": 100, "sl": -100 },
+                "short": { "obi_threshold": -1.5, "tp": 100, "sl": -100 },
+                "signal": { "hold_duration_ms": 500, "obi_weight": 1.0, "ofi_weight": 0.5, "cvd_weight": 0.2, "micro_price_weight": 0.8, "composite_threshold": 1.8,
+                    "slope_filter": { "enabled": False, "period": 10, "threshold": 0.1 } },
+                "volatility": { "ewma_lambda": 0.1,
+                    "dynamic_obi": { "enabled": True, "volatility_factor": 2.0, "min_threshold_factor": 0.7, "max_threshold_factor": 1.5 } },
+                "twap": { "enabled": False, "max_order_size_btc": 0.05, "interval_seconds": 5, "partial_exit_enabled": False, "profit_threshold": 1.0, "exit_ratio": 0.5 },
+                "risk": { "max_drawdown_percent": 20, "max_position_ratio": 0.8 }
+            }
+
+            # 2. Mock the subprocess to prevent actual execution
+            mock_process_result = MagicMock()
+            mock_process_result.stdout = '{"TotalTrades": 10, "SharpeRatio": 1.5}'
+            mock_subprocess_run.return_value = mock_process_result
+
+            # 3. Patch config to use our temporary directory and files
+            with patch('optimizer.config.CONFIG_TEMPLATE_PATH', template_path), \
+                 patch('optimizer.config.PARAMS_DIR', temp_dir):
+
+                # 4. Call the function to be tested
+                result = run_simulation(params=nested_params, sim_csv_path=Path("dummy.csv"))
+
+            # 5. Assertions
+            self.assertEqual(result, {"TotalTrades": 10, "SharpeRatio": 1.5})
+            self.assertTrue(mock_subprocess_run.called)
+
+            # Check the command that was run
+            called_command = mock_subprocess_run.call_args[0][0]
+            # The temp config file path will be something like '/tmp/tmpxxxyyy/tmpzzzz.yaml'
+            # We can check that the argument exists and points to the temp directory
+            temp_config_arg = called_command[2] # '--trade-config=...'
+            self.assertTrue(temp_config_arg.startswith(f'--trade-config={temp_dir_str}'))
+            self.assertTrue(temp_config_arg.endswith('.yaml'))
+
+if __name__ == '__main__':
+    unittest.main()
