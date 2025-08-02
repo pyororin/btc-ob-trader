@@ -151,6 +151,31 @@ def _get_oos_candidates(study: optuna.Study, scored_trials: list) -> list[dict]:
 
     return candidates
 
+def _unflatten_params(flat_params: dict) -> dict:
+    """
+    Converts a flat dictionary with dot-separated keys into a nested dictionary.
+
+    Example:
+        >>> flat = {'a.b.c': 1, 'a.d': 2, 'e': 3}
+        >>> _unflatten_params(flat)
+        {'a': {'b': {'c': 1}, 'd': 2}, 'e': 3}
+
+    Args:
+        flat_params: A flat dictionary with keys like 'key.subkey'.
+
+    Returns:
+        A nested dictionary.
+    """
+    nested_params = {}
+    for key, value in flat_params.items():
+        parts = key.split('.')
+        d = nested_params
+        for part in parts[:-1]:
+            d = d.setdefault(part, {})
+        d[parts[-1]] = value
+    return nested_params
+
+
 def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> bool:
     """Iteratively validates candidate parameters against OOS data."""
     early_stop_trigger_count = 0
@@ -179,7 +204,8 @@ def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> bool:
 
         if _is_oos_passed(oos_summary):
             logging.info(f"OOS validation PASSED for attempt #{i+1}.")
-            _save_best_parameters(candidate['params'])
+            # Also pass the nested params to the save function
+            _save_best_parameters(nested_params)
             return True
         else:
             fail_reason = _get_oos_fail_reason(oos_summary)
