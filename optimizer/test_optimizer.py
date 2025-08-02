@@ -106,6 +106,7 @@ class TestObjective(unittest.TestCase):
         mock_summary = {
             'TotalTrades': 100,
             'SharpeRatio': 1.5,
+            'ProfitFactor': 1.6,
             'WinRate': 60.0,
             'MaxDrawdown': 1234.5,
             'PnlHistory': [10, -5, 10, -5, 10] # Results in a low relative drawdown
@@ -118,7 +119,13 @@ class TestObjective(unittest.TestCase):
 
         result = self.objective(trial)
 
-        self.assertEqual(result, (1.5, 60.0, 1234.5))
+        expected_sqn = 1.5 * (100 ** 0.5)
+        expected_pf = 1.6
+        expected_mdd = 1234.5
+
+        self.assertAlmostEqual(result[0], expected_sqn)
+        self.assertAlmostEqual(result[1], expected_pf)
+        self.assertEqual(result[2], expected_mdd)
 
     @patch('optimizer.objective.simulation.run_simulation')
     def test_objective_high_drawdown_penalty(self, mock_run_simulation):

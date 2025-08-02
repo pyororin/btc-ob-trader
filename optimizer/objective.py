@@ -69,11 +69,11 @@ class Objective:
             trial: The Optuna trial object.
 
         Returns:
-            A tuple of objective values (Sharpe Ratio, Win Rate, Max Drawdown)
+            A tuple of objective values (SQN, Profit Factor, Max Drawdown)
             for Optuna to optimize.
         """
         # This function returns a value that is guaranteed to be dominated by
-        # a trial with 0 trades (SR=0, WinRate=0, MaxDD=0). This prevents trials
+        # a trial with 0 trades (SQN=0, PF=0, MaxDD=high). This prevents trials
         # that are pruned from bloating the Pareto front.
         def get_dominated_penalty():
             return -1.0, 0.0, 1_000_000.0
@@ -108,30 +108,36 @@ class Objective:
              return get_dominated_penalty()
 
         # Calculate mean and std dev for the objectives across all jittered runs
-        sharpe_ratios, win_rates, max_drawdowns = [], [], []
+        sqns, profit_factors, max_drawdowns = [], [], []
         for res in jitter_results:
-            sharpe_ratios.append(res.get('SharpeRatio', 0.0))
-            win_rates.append(res.get('WinRate', 0.0))
+            sr = res.get('SharpeRatio', 0.0)
+            trades = res.get('TotalTrades', 0)
+            sqn = sr * np.sqrt(trades) if trades > 0 and sr is not None else 0.0
+            sqns.append(sqn)
+            profit_factors.append(res.get('ProfitFactor', 0.0))
             max_drawdowns.append(res.get('MaxDrawdown', 0.0))
 
-        mean_sr = np.mean(sharpe_ratios)
-        std_sr = np.std(sharpe_ratios)
-        mean_wr = np.mean(win_rates)
-        std_wr = np.std(win_rates)
+        mean_sqn = np.mean(sqns)
+        std_sqn = np.std(sqns)
+        mean_pf = np.mean(profit_factors)
+        std_pf = np.std(profit_factors)
         mean_mdd = np.mean(max_drawdowns)
         std_mdd = np.std(max_drawdowns)
 
         # The final objective is penalized by the standard deviation
         lambda_penalty = config.STABILITY_PENALTY_FACTOR
-        final_sr = mean_sr - (lambda_penalty * std_sr)
-        final_wr = mean_wr - (lambda_penalty * std_wr)
+        final_sqn = mean_sqn - (lambda_penalty * std_sqn)
+        final_pf = mean_pf - (lambda_penalty * std_pf)
         final_mdd = mean_mdd + (lambda_penalty * std_mdd) # Add penalty for instability
 
         # Store all calculated metrics in user_attrs for later analysis
         self._calculate_and_set_metrics(trial, summary) # Set for the original run
-        trial.set_user_attr("mean_sharpe_ratio", mean_sr)
-        trial.set_user_attr("stdev_sharpe_ratio", std_sr)
-        trial.set_user_attr("final_sharpe_ratio", final_sr)
+        trial.set_user_attr("mean_sqn", mean_sqn)
+        trial.set_user_attr("stdev_sqn", std_sqn)
+        trial.set_user_attr("final_sqn", final_sqn)
+        trial.set_user_attr("mean_profit_factor", mean_pf)
+        trial.set_user_attr("stdev_profit_factor", std_pf)
+        trial.set_user_attr("final_profit_factor", final_pf)
 
         # Pruning based on the original (non-jittered) result
 
@@ -155,11 +161,7 @@ class Objective:
         # may still prune based on the first objective if it's reported, but
         # we are not reporting intermediate values here.
 
-        sharpe_ratio = trial.user_attrs.get("sharpe_ratio", 0.0)
-        win_rate = trial.user_attrs.get("win_rate", 0.0)
-        max_drawdown = trial.user_attrs.get("max_drawdown", 0.0)
-
-        return final_sr, final_wr, final_mdd
+        return final_sqn, final_pf, final_mdd
 
     def _get_jittered_params(self, trial: optuna.Trial) -> dict:
         """

@@ -19,7 +19,7 @@
 - `config.py`: `optimizer_config.yaml`から設定を読み込み、サービス全体で利用する定数やパラメータ（DB接続情報、各種閾値など）を一元管理する。
 - `data.py`: `timescaledb`からのデータエクスポート、および最適化に使用するIn-Sample (IS)データと検証用のOut-of-Sample (OOS)データへの分割を担当する。
 - `simulation.py`: Go言語で実装されたバックテストエンジン（`cmd/bot/main.go --simulate`）をサブプロセスとして呼び出し、特定のパラメータセットでのシミュレーションを実行する。
-- `objective.py`: Optunaの`Trial`ごとに実行される目的関数を定義する。パラメータの提案、シミュレーションの実行、評価指標（シャープレシオ、ドローダウン等）の計算、および枝刈り（Pruning）ロジックを含む。
+- `objective.py`: Optunaの`Trial`ごとに実行される目的関数を定義する。パラメータの提案、シミュレーションの実行、評価指標（SQN, プロフィットファクター, ドローダウン等）の計算、および枝刈り（Pruning）ロジックを含む。
   > [!IMPORTANT]
   > シグナル生成は、複数の指標（OBI, OFI, CVDなど）を重み付けして算出される「複合スコア」にのみ基づいています。そのため、このモジュールでのパラメータ提案は、主に複合スコアに関連する重みや閾値に焦点を当てています。
 - `study.py`: Optunaの`Study`オブジェクトの作成、最適化の実行、完了後の結果分析（複合スコアでの再評価）、そしてOOS検証までの一連のフローを管理する。
@@ -57,7 +57,7 @@ services:
     -   `go run cmd/export/main.go`を実行し、ジョブで指定された期間の市場データをCSVにエクスポートします。
     -   データをIn-Sample (IS)とOut-of-Sample (OOS)に分割します。
 4.  **In-Sample (IS) 最適化 (`study.py`, `objective.py`)**:
-    -   `study.py`がOptunaの`Study`を新規作成します。最適化の目的は「シャープレシオの最大化」と「最大ドローダウンの最小化」の2つです。
+    -   `study.py`がOptunaの`Study`を新規作成します。最適化の目的は、スキャルピング戦略の評価に適した複合的な3つの指標、「SQN（System Quality Number）の最大化」、「プロフィットファクターの最大化」、「最大ドローダウンの最小化」です。
     -   設定された`n_trials`回数、`objective.py`の目的関数が呼び出されます。
     -   目的関数は、`trial.suggest_*`でパラメータを生成し、`simulation.py`経由でバックテストを実行し、結果を評価します。性能の悪い試行は枝刈りされます。
 5.  **結果分析と候補選定 (`study.py`, `analyzer.py`)**:

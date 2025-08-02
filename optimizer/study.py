@@ -34,7 +34,7 @@ def create_study() -> optuna.Study:
     return optuna.create_study(
         study_name=study_name,
         storage=config.STORAGE_URL,
-        directions=['maximize', 'maximize', 'minimize'],  # SR (max), WinRate (max), MaxDD (min)
+        directions=['maximize', 'maximize', 'minimize'],  # SQN (max), ProfitFactor (max), MaxDD (min)
         load_if_exists=True,
         pruner=pruner,
         sampler=sampler
