@@ -54,9 +54,11 @@ def nest_params(flat_params: dict) -> dict:
         'adaptive_reduction_step': ('adaptive_position_sizing', 'reduction_step'),
         'adaptive_min_ratio': ('adaptive_position_sizing', 'min_ratio'),
         # long
+        'long_obi_threshold': ('long', 'obi_threshold'),
         'long_tp': ('long', 'tp'),
         'long_sl': ('long', 'sl'),
         # short
+        'short_obi_threshold': ('short', 'obi_threshold'),
         'short_tp': ('short', 'tp'),
         'short_sl': ('short', 'sl'),
         # signal

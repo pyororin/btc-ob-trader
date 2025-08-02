@@ -210,8 +210,10 @@ class Objective:
         params['adaptive_min_ratio'] = trial.suggest_float('adaptive_min_ratio', 0.1, 0.8)
 
         # Long/Short Strategy
+        params['long_obi_threshold'] = trial.suggest_float('long_obi_threshold', 0.1, 1.0)
         params['long_tp'] = trial.suggest_int('long_tp', 50, 200)
         params['long_sl'] = trial.suggest_int('long_sl', -200, -50)
+        params['short_obi_threshold'] = trial.suggest_float('short_obi_threshold', 0.1, 1.0)
         params['short_tp'] = trial.suggest_int('short_tp', 50, 200)
         params['short_sl'] = trial.suggest_int('short_sl', -200, -50)
 

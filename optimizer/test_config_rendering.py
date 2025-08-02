@@ -37,6 +37,8 @@ class TestConfigRendering(unittest.TestCase):
             0.9,   # order_ratio
             0.8,   # adaptive_reduction_step
             0.4,   # adaptive_min_ratio
+            0.5,   # long_obi_threshold
+            0.6,   # short_obi_threshold
             1.5,   # obi_weight
             1.4,   # ofi_weight
             1.3,   # cvd_weight
@@ -86,8 +88,8 @@ class TestConfigRendering(unittest.TestCase):
             'adaptive_position_sizing': {
                 'enabled': True, 'num_trades': 10, 'reduction_step': 0.8, 'min_ratio': 0.4
             },
-            'long': {'obi_threshold': 0.0, 'tp': 100, 'sl': -100},
-            'short': {'obi_threshold': 0.0, 'tp': 110, 'sl': -110},
+            'long': {'obi_threshold': 0.5, 'tp': 100, 'sl': -100},
+            'short': {'obi_threshold': 0.6, 'tp': 110, 'sl': -110},
             'signal': {
                 'hold_duration_ms': 500, 'cvd_window_minutes': 1, 'obi_weight': 1.5,
                 'ofi_weight': 1.4, 'cvd_weight': 1.3, 'micro_price_weight': 1.2,
