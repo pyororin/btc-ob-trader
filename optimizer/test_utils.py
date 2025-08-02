@@ -145,5 +145,30 @@ class TestUtils(unittest.TestCase):
         self.maxDiff = None
         self.assertDictEqual(nested_params, expected_nested_params)
 
+    def test_nest_params_with_string_booleans(self):
+        """
+        Tests that boolean-like strings ('True', 'false', etc.) are correctly
+        sanitized to actual boolean types, and other strings are passed through.
+        """
+        flat_params = {
+            'adaptive_position_sizing_enabled': 'True', # Uppercase string
+            'slope_filter_enabled': 'false',           # Lowercase string
+            'dynamic_obi_enabled': True,               # Actual boolean
+            'twap_enabled': 'other_string'             # Non-boolean string
+        }
+
+        nested_params = nest_params(flat_params)
+
+        # Assert that valid boolean strings are converted to booleans
+        self.assertIs(nested_params['adaptive_position_sizing']['enabled'], True)
+        self.assertIs(nested_params['signal']['slope_filter']['enabled'], False)
+
+        # Assert that actual booleans are preserved
+        self.assertIs(nested_params['volatility']['dynamic_obi']['enabled'], True)
+
+        # Assert that non-boolean strings are passed through without modification
+        self.assertEqual(nested_params['twap']['enabled'], 'other_string')
+
+
 if __name__ == '__main__':
     unittest.main()
