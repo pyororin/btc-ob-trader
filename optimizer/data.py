@@ -36,7 +36,9 @@ def export_and_split_data(total_hours: float, oos_hours: float) -> Tuple[Union[P
     ]
 
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=config.APP_ROOT)
+        # Pass the current environment to the subprocess
+        process_env = os.environ.copy()
+        subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=config.APP_ROOT, env=process_env)
 
         full_dataset_path = _find_latest_csv(config.SIMULATION_DIR)
         if not full_dataset_path:
