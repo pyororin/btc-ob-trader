@@ -172,14 +172,17 @@ func loadFromFiles(appConfigPath, tradeConfigPath string) (*Config, error) {
 		return nil, err
 	}
 
-	// Load trade config
+	// Load trade config (optional)
 	var tradeCfg TradeConfig
-	tradeFile, err := os.ReadFile(tradeConfigPath)
-	if err != nil {
-		return nil, err
-	}
-	if err := yaml.Unmarshal(tradeFile, &tradeCfg); err != nil {
-		return nil, err
+	if tradeConfigPath != "" {
+		tradeFile, err := os.ReadFile(tradeConfigPath)
+		if err != nil {
+			// If the file is specified but not found, return an error.
+			return nil, err
+		}
+		if err := yaml.Unmarshal(tradeFile, &tradeCfg); err != nil {
+			return nil, err
+		}
 	}
 
 	cfg := &Config{

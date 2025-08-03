@@ -24,6 +24,30 @@ def create_job_file():
         json.dump(job_data, f)
     print(f"Created job file at {JOB_FILE}")
 
+def ensure_dummy_app_config():
+    """Creates a dummy app_config.yaml for the Go binary if it doesn't exist."""
+    go_app_config_path = APP_ROOT / 'config' / 'app_config.yaml'
+    if not go_app_config_path.parent.exists():
+        go_app_config_path.parent.mkdir(parents=True)
+
+    if not go_app_config_path.exists():
+        print(f"Creating dummy Go app config at {go_app_config_path}")
+        dummy_config = {
+            "log_level": "info",
+            "database": {
+                "host": "db_host_from_yaml",
+                "port": 5432,
+                "user": "user_from_yaml",
+                "password": "pw_from_yaml",
+                "name": "db_from_yaml",
+                "sslmode": "disable"
+            }
+        }
+        import yaml
+        with open(go_app_config_path, 'w') as f:
+            yaml.dump(dummy_config, f)
+
+
 def ensure_dummy_trade_config():
     """Creates a dummy trade config from the template if it doesn't exist."""
     from optimizer import config as optimizer_config
@@ -62,12 +86,13 @@ def ensure_dummy_trade_config():
 
 def run():
     """Runs the full optimization process for testing."""
-    # In this testing environment, service name resolution via Docker DNS seems unavailable.
-    # However, the timescaledb port is mapped to the host.
-    # We will try connecting via 'localhost' as the host machine.
-    db_host = os.environ.get('DB_HOST', 'localhost')
-    os.environ['DB_HOST'] = db_host
-    print(f"Set DB_HOST to {db_host} for testing.")
+    # The DB_HOST is set to 'timescaledb' via docker-compose.
+    # The test script should not override it to 'localhost'.
+    db_host = os.environ.get('DB_HOST')
+    if not db_host:
+        print("Warning: DB_HOST environment variable not set. It should be 'timescaledb'.")
+    else:
+        print(f"Using DB_HOST: {db_host}")
 
     # Ensure .env file exists and load it
     env_path = APP_ROOT / '.env'
@@ -100,7 +125,7 @@ def run():
         print("Error: Could not construct DATABASE_URL. Missing DB variables in .env")
         return
 
-
+    ensure_dummy_app_config()
     ensure_dummy_trade_config()
     create_job_file()
 

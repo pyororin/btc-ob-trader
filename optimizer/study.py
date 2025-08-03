@@ -310,6 +310,16 @@ def warm_start_with_recent_trials(study: optuna.Study, recent_days: int):
         logging.info(f"No recent trials (last {recent_days} days) found in study '{previous_study.study_name}'.")
         return
 
+    # Limit the number of trials for warm-start to avoid overwhelming the study.
+    if len(recent_trials) > config.WARM_START_MAX_TRIALS:
+        logging.info(
+            f"Found {len(recent_trials)} recent trials, which exceeds the limit of "
+            f"{config.WARM_START_MAX_TRIALS}. Truncating to the most recent trials."
+        )
+        # Sort by completion time, most recent first.
+        recent_trials.sort(key=lambda t: t.datetime_complete, reverse=True)
+        recent_trials = recent_trials[:config.WARM_START_MAX_TRIALS]
+
     # Add the filtered trials to the current study, converting them if necessary.
     logging.info(f"Adding {len(recent_trials)} recent trials to the current study for warm-start.")
 
