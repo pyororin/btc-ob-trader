@@ -49,22 +49,33 @@ class TestObjective(unittest.TestCase):
         Test the objective function when simulation returns successful results with trades.
         """
         # Arrange
+        # Because the jittered runs will all return the same mock value, the stdev will be 0.
+        # The final score will be the mean score, which is just the value from this summary.
         mock_summary = {
-            'TotalTrades': 50, 'SharpeRatio': 2.1, 'WinRate': 65.0, 'MaxDrawdown': 500.0,
-            'PnlHistory': [100, -50, 150]
+            'TotalTrades': 50,
+            'SharpeRatio': 2.1,
+            'ProfitFactor': 1.8,
+            'WinRate': 65.0,
+            'MaxDrawdown': 500.0,
+            'PnlHistory': [100, -50, 150] # Relative drawdown is low, no penalty
         }
         mock_run_simulation.return_value = mock_summary
+        config.MIN_TRADES_FOR_PRUNING = 10 # Ensure pruning is not triggered
 
         # Act
-        sharpe_ratio, win_rate, max_drawdown = self.objective(self.mock_trial)
+        sqn, pf, mdd = self.objective(self.mock_trial)
 
         # Assert
-        self.assertEqual(sharpe_ratio, 2.1)
-        self.assertEqual(win_rate, 65.0)
-        self.assertEqual(max_drawdown, 500.0)
-        # Check that the backing dictionary was populated correctly
+        expected_sqn = 2.1 * (50 ** 0.5)
+        self.assertAlmostEqual(sqn, expected_sqn)
+        self.assertEqual(pf, 1.8)
+        self.assertEqual(mdd, 500.0)
+
+        # Check that the backing dictionary was populated correctly for later analysis
         self.assertEqual(self.trial_user_attrs.get("trades"), 50)
         self.assertEqual(self.trial_user_attrs.get("sharpe_ratio"), 2.1)
+        self.assertEqual(self.trial_user_attrs.get("profit_factor"), 1.8)
+        self.assertAlmostEqual(self.trial_user_attrs.get("sqn"), expected_sqn)
 
     @patch('optimizer.objective.simulation.run_simulation')
     def test_objective_with_zero_trades(self, mock_run_simulation):
