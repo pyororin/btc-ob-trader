@@ -20,7 +20,7 @@ n_trials: 800
 # ウォームスタートで読み込む過去のTrialの最大数。
 # これを超える数のTrialが見つかった場合、最新のものからこの数だけが使われます。
 # 例: 250
-warm_start_max_trials: 200
+warm_start_max_trials: 100
 
 # --- 合格/不合格基準 ---
 
