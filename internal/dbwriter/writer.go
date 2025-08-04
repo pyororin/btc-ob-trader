@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.uber.org/zap"
 
 	"github.com/your-org/obi-scalp-bot/internal/config" // Ensure this path matches your go.mod module name
@@ -66,9 +66,17 @@ type BenchmarkValue struct {
 	Price float64   `db:"price"`
 }
 
-// Writer はTimescaleDBへのデータ書き込みを担当します。
-type Writer struct {
-	pool             *pgxpool.Pool
+// Pool is an interface that abstracts the pgxpool.Pool for testability.
+type Pool interface {
+	CopyFrom(ctx context.Context, tableName pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource) (int64, error)
+	Exec(context.Context, string, ...interface{}) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row
+	Close()
+}
+
+// TimescaleWriter はTimescaleDBへのデータ書き込みを担当します。
+type TimescaleWriter struct {
+	pool             Pool
 	logger           *zap.Logger
 	config           config.DBWriterConfig
 	orderBookBuffer  []OrderBookUpdate
@@ -79,41 +87,20 @@ type Writer struct {
 	shutdownChan     chan struct{}
 }
 
-// NewWriter は新しいWriterインスタンスを作成します。
-func NewWriter(ctx context.Context, dbConfig config.DatabaseConfig, writerConfig config.DBWriterConfig, logger *zap.Logger) (*Writer, error) {
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s&timezone=Asia/Tokyo",
-		dbConfig.User,
-		dbConfig.Password,
-		dbConfig.Host,
-		dbConfig.Port,
-		dbConfig.Name,
-		dbConfig.SSLMode,
-	)
-
-	poolConfig, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		logger.Error("Unable to parse database DSN", zap.Error(err), zap.String("dsn", dsn)) // Log DSN for debugging
-		return nil, fmt.Errorf("failed to parse DSN: %w", err)
-	}
-
-	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
-	if err != nil {
-		logger.Error("Unable to create connection pool", zap.Error(err))
-		return nil, fmt.Errorf("failed to create connection pool: %w", err)
-	}
-
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		logger.Warn("Failed to ping database, creating dummy writer", zap.Error(err))
-		// Return a "dummy" writer that does nothing if DB connection fails.
-		return &Writer{
-			pool:         nil, // Explicitly nil
+// NewTimescaleWriter は新しいTimescaleWriterインスタンスを作成します。
+// このコンストラクタは、外部から提供されたDB接続プールを使用します。
+func NewTimescaleWriter(pool Pool, writerConfig config.DBWriterConfig, logger *zap.Logger) (DBWriter, error) {
+	if pool == nil {
+		// If the pool is nil (e.g., in simulation mode), return a dummy writer.
+		logger.Info("pgxpool.Pool is nil, creating dummy DB writer.")
+		return &TimescaleWriter{
+			pool:         nil,
 			logger:       logger,
-			shutdownChan: make(chan struct{}), // Still need a valid channel
+			shutdownChan: make(chan struct{}),
 		}, nil
 	}
 
-	writer := &Writer{
+	writer := &TimescaleWriter{
 		pool:            pool,
 		logger:          logger,
 		config:          writerConfig,
@@ -145,7 +132,7 @@ func NewWriter(ctx context.Context, dbConfig config.DatabaseConfig, writerConfig
 }
 
 // Close はデータベース接続プールをクローズし、バッファをフラッシュします。
-func (w *Writer) Close() {
+func (w *TimescaleWriter) Close() {
 	if w.pool == nil {
 		w.logger.Info("Closing dummy DB writer.")
 		return
@@ -164,7 +151,7 @@ func (w *Writer) Close() {
 	}
 }
 
-func (w *Writer) run() {
+func (w *TimescaleWriter) run() {
 	if w.pool == nil {
 		return // Do not run for dummy writer
 	}
@@ -179,7 +166,7 @@ func (w *Writer) run() {
 }
 
 // SaveOrderBookUpdate は板情報更新をバッファに追加します。
-func (w *Writer) SaveOrderBookUpdate(obu OrderBookUpdate) {
+func (w *TimescaleWriter) SaveOrderBookUpdate(obu OrderBookUpdate) {
 	if w.pool == nil {
 		return
 	}
@@ -195,7 +182,7 @@ func (w *Writer) SaveOrderBookUpdate(obu OrderBookUpdate) {
 }
 
 // SaveTrade は約定情報をバッファに追加します。
-func (w *Writer) SaveTrade(trade Trade) {
+func (w *TimescaleWriter) SaveTrade(trade Trade) {
 	if w.pool == nil {
 		return
 	}
@@ -210,7 +197,7 @@ func (w *Writer) SaveTrade(trade Trade) {
 	}
 }
 
-func (w *Writer) flushBuffers() {
+func (w *TimescaleWriter) flushBuffers() {
 	if w.pool == nil {
 		return
 	}
@@ -234,7 +221,7 @@ func (w *Writer) flushBuffers() {
 
 }
 
-func (w *Writer) batchInsertOrderBookUpdates(ctx context.Context, updates []OrderBookUpdate) {
+func (w *TimescaleWriter) batchInsertOrderBookUpdates(ctx context.Context, updates []OrderBookUpdate) {
 	if w.pool == nil || len(updates) == 0 {
 		return
 	}
@@ -251,7 +238,7 @@ func (w *Writer) batchInsertOrderBookUpdates(ctx context.Context, updates []Orde
 	}
 }
 
-func (w *Writer) batchInsertTrades(ctx context.Context, trades []Trade) {
+func (w *TimescaleWriter) batchInsertTrades(ctx context.Context, trades []Trade) {
 	if w.pool == nil || len(trades) == 0 {
 		return
 	}
@@ -269,7 +256,7 @@ func (w *Writer) batchInsertTrades(ctx context.Context, trades []Trade) {
 
 
 // SaveBenchmarkValue はベンチマーク値をバッファに追加します。
-func (w *Writer) SaveBenchmarkValue(ctx context.Context, value BenchmarkValue) {
+func (w *TimescaleWriter) SaveBenchmarkValue(ctx context.Context, value BenchmarkValue) {
 	if w.pool == nil {
 		return
 	}
@@ -284,7 +271,7 @@ func (w *Writer) SaveBenchmarkValue(ctx context.Context, value BenchmarkValue) {
 	}
 }
 
-func (w *Writer) batchInsertBenchmarkValues(ctx context.Context, values []BenchmarkValue) {
+func (w *TimescaleWriter) batchInsertBenchmarkValues(ctx context.Context, values []BenchmarkValue) {
 	if w.pool == nil || len(values) == 0 {
 		return
 	}
@@ -326,7 +313,7 @@ func toTradeInterfaces(trades []Trade) [][]interface{} {
 }
 
 // SavePnLSummary は単一のPnLサマリーをデータベースに保存します。
-func (w *Writer) SavePnLSummary(ctx context.Context, pnl PnLSummary) error {
+func (w *TimescaleWriter) SavePnLSummary(ctx context.Context, pnl PnLSummary) error {
 	if w.pool == nil {
 		w.logger.Debug("Skipping PnL summary save for dummy writer", zap.Any("pnl", pnl))
 		return nil
@@ -348,7 +335,7 @@ func (w *Writer) SavePnLSummary(ctx context.Context, pnl PnLSummary) error {
 }
 
 // SaveTradePnL は個別の取引のPnLをデータベースに保存します。
-func (w *Writer) SaveTradePnL(ctx context.Context, tradePnl TradePnL) error {
+func (w *TimescaleWriter) SaveTradePnL(ctx context.Context, tradePnl TradePnL) error {
 	if w.pool == nil {
 		w.logger.Debug("Skipping trade PnL save for dummy writer", zap.Any("tradePnl", tradePnl))
 		return nil
