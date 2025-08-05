@@ -183,3 +183,82 @@ def _parse_timestamp(ts_str: str) -> datetime:
             continue
 
     raise ValueError(f"Could not parse timestamp: '{ts_str}' with any known format.")
+
+
+# --- Functions for the legacy daemon mode ---
+
+def export_and_split_data_for_daemon(total_hours: float, oos_hours: float) -> Tuple[Union[Path, None], Union[Path, None]]:
+    """
+    Exports data from the database and splits it into In-Sample (IS) and Out-of-Sample (OOS).
+    This function is used by the legacy daemon optimizer.
+    """
+    logging.info(f"Daemon mode: Exporting data for the last {total_hours} hours...")
+
+    # The daemon can use the main simulation directory directly
+    daemon_dir = config.SIMULATION_DIR
+    _cleanup_directory(daemon_dir)
+
+    import math
+    cmd = [
+        'go', 'run', 'cmd/export/main.go',
+        f'--hours-before={math.ceil(total_hours)}',
+        '--no-zip'
+    ]
+
+    try:
+        process_env = os.environ.copy()
+        subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=config.APP_ROOT, env=process_env)
+
+        full_dataset_path = _find_latest_csv(daemon_dir)
+        if not full_dataset_path:
+            logging.error("No CSV file found after export.")
+            return None, None
+
+        logging.info(f"Successfully exported data to {full_dataset_path}")
+
+        is_path, oos_path = _split_data_by_ratio(
+            full_dataset_path=full_dataset_path,
+            total_hours=total_hours,
+            oos_hours=oos_hours,
+            output_dir=daemon_dir,
+        )
+        return is_path, oos_path
+
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Failed to export data for daemon: {e.stderr}")
+        return None, None
+
+def _split_data_by_ratio(full_dataset_path: Path, total_hours: float, oos_hours: float, output_dir: Path) -> tuple[Path, Path]:
+    """
+    Splits a CSV file into In-Sample (IS) and Out-of-Sample (OOS) sets based on a time ratio.
+    """
+    is_ratio = (total_hours - oos_hours) / total_hours
+    is_path = output_dir / "is_data.csv"
+    oos_path = output_dir / "oos_data.csv"
+
+    with open(full_dataset_path, 'r') as f_full:
+        lines = f_full.readlines()
+
+    header = lines[0]
+    data_lines = lines[1:]
+
+    if not data_lines:
+        logging.warning("No data to split. Creating empty IS and OOS files.")
+        with open(is_path, 'w') as f_is, open(oos_path, 'w') as f_oos:
+            f_is.write(header)
+            f_oos.write(header)
+        return is_path, oos_path
+
+    # Fallback to simple line-based split, which is what the old version did
+    split_index = int(len(data_lines) * is_ratio)
+    with open(is_path, 'w') as f_is, open(oos_path, 'w') as f_oos:
+        f_is.write(header)
+        f_is.writelines(data_lines[:split_index])
+        f_oos.write(header)
+        f_oos.writelines(data_lines[split_index:])
+
+    is_lines = len((is_path).read_text().splitlines())
+    oos_lines = len((oos_path).read_text().splitlines())
+    logging.info(f"Split data for daemon into IS ({is_path}, {is_lines} lines) and OOS ({oos_path}, {oos_lines} lines)")
+
+    return is_path, oos_path

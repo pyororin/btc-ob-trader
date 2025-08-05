@@ -205,7 +205,116 @@ def _save_cycle_best_parameters(flat_params: dict, cycle_dir: Path):
     except Exception as e:
         logging.error(f"Failed to save cycle best parameters to {output_path}: {e}")
 
-# The warm_start_with_recent_trials function is removed as each WFO cycle
-# should be independent to avoid look-ahead bias from one cycle to the next.
-# If warm-starting is desired, it should be done carefully, e.g., only from
-# the immediately preceding cycle. For now, we simplify and remove it.
+
+# --- Functions for the legacy daemon mode ---
+
+def _save_global_best_parameters(flat_params: dict):
+    """Renders and saves the final trade configuration file for the live bot."""
+    try:
+        nested_params = nest_params(flat_params)
+        env = Environment(
+            loader=FileSystemLoader(searchpath=config.PARAMS_DIR),
+            finalize=finalize_for_yaml
+        )
+        template = env.get_template(config.CONFIG_TEMPLATE_PATH.name)
+        config_str = template.render(nested_params)
+
+        with open(config.BEST_CONFIG_OUTPUT_PATH, 'w') as f:
+            f.write(config_str)
+        logging.info(f"Successfully updated global trade config: {config.BEST_CONFIG_OUTPUT_PATH}")
+    except Exception as e:
+        logging.error(f"Failed to save the best parameter config file: {e}")
+
+def analyze_and_validate_for_daemon(study: optuna.Study, oos_csv_path: Path) -> bool:
+    """
+    Analyzes a study and saves the best config file if OOS validation passes.
+    This is the legacy function used by the daemon.
+    """
+    logging.info("Daemon mode: Analyzing results and performing OOS validation.")
+    completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    if not completed_trials:
+        logging.warning("No trials were completed successfully. Skipping OOS validation.")
+        return False
+
+    metrics_calculator = MetricsCalculator(config.OBJECTIVE_WEIGHTS, completed_trials)
+    scored_trials = sorted(
+        [(trial, metrics_calculator.calculate_score(trial)) for trial in completed_trials],
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    candidates = _get_oos_candidates(study, scored_trials)
+
+    for i, candidate in enumerate(candidates):
+        if i >= config.MAX_RETRY:
+            logging.warning(f"Reached max_retry limit of {config.MAX_RETRY}. Stopping OOS validation.")
+            break
+
+        logging.info(f"--- Running OOS Validation attempt #{i+1} (source: {candidate['source']}) ---")
+        nested_params = nest_params(candidate['params'])
+        oos_summary = run_simulation(nested_params, oos_csv_path)
+
+        if not isinstance(oos_summary, dict) or not oos_summary:
+            logging.warning("OOS simulation failed or returned empty results.")
+            continue
+
+        logging.info(
+            f"OOS Result: PF={oos_summary.get('ProfitFactor', 0.0):.2f}, "
+            f"SR={oos_summary.get('SharpeRatio', 0.0):.2f}, "
+            f"Trades={oos_summary.get('TotalTrades', 0)}"
+        )
+
+        if _is_oos_passed(oos_summary):
+            logging.info(f"OOS validation PASSED for attempt #{i+1}.")
+            _save_global_best_parameters(candidate['params'])
+            return True
+        else:
+            fail_reason = _get_oos_fail_reason(oos_summary)
+            logging.warning(f"OOS validation FAILED for attempt #{i+1} ({fail_reason}).")
+
+    logging.error("OOS validation failed for all attempted parameter sets.")
+    return False
+
+def warm_start_with_recent_trials(study: optuna.Study, recent_days: int):
+    """
+    Performs a warm-start by adding recent trials from previous studies.
+    Used by the daemon mode.
+    """
+    if not recent_days or recent_days <= 0:
+        logging.info("Warm-start is disabled (recent_days is not set).")
+        return
+
+    logging.info(f"Attempting warm-start with trials from the last {recent_days} days.")
+    # This implementation is simplified and assumes the main storage is used.
+    try:
+        all_summaries = optuna.get_all_study_summaries(storage=config.STORAGE_URL)
+        # Filter out the current study
+        completed_studies = [s for s in all_summaries if s.study_name != study.study_name]
+        if not completed_studies:
+            logging.info("No previous studies found for warm-start.")
+            return
+
+        completed_studies.sort(key=lambda s: s.datetime_start, reverse=True)
+        latest_study_summary = completed_studies[0]
+
+        previous_study = optuna.load_study(
+            study_name=latest_study_summary.study_name,
+            storage=config.STORAGE_URL
+        )
+
+        cutoff_dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=recent_days)
+        recent_trials = [
+            t for t in previous_study.trials
+            if t.state == optuna.trial.TrialState.COMPLETE and t.datetime_complete > cutoff_dt
+        ]
+
+        if len(recent_trials) > config.WARM_START_MAX_TRIALS:
+            recent_trials.sort(key=lambda t: t.datetime_complete, reverse=True)
+            recent_trials = recent_trials[:config.WARM_START_MAX_TRIALS]
+
+        if recent_trials:
+            logging.info(f"Adding {len(recent_trials)} recent trials to the current study for warm-start.")
+            study.add_trials(recent_trials)
+
+    except Exception as e:
+        logging.error(f"Could not perform warm-start: {e}", exc_info=False)
