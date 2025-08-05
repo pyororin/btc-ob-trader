@@ -13,7 +13,8 @@ class TestStudy(unittest.TestCase):
     @patch('optimizer.study.optuna.create_study')
     def test_create_study_multi_objective(self, mock_create_study):
         """Verify that create_study configures a multi-objective study correctly."""
-        create_study()
+        # Provide dummy arguments for storage_path and study_name
+        create_study("sqlite:///test.db", "test-study")
 
         # Check that optuna.create_study was called
         self.assertTrue(mock_create_study.called)
@@ -73,21 +74,22 @@ class TestStudy(unittest.TestCase):
         mock_previous_study.trials = [aware_trial, naive_trial, old_trial, incomplete_trial]
         mock_load_study.return_value = mock_previous_study
 
-        # 2. Setup the current study and mock its add_trial method
+        # 2. Setup the current study and mock its add_trials method
         current_study = optuna.create_study(directions=['maximize', 'maximize', 'minimize'])
-        current_study.add_trial = MagicMock()
+        current_study.add_trials = MagicMock()
 
         # 3. Run the function to be tested
         warm_start_with_recent_trials(current_study, recent_days=10)
 
         # 4. Assertions
-        # Should have been called twice (for the two recent, complete trials)
-        self.assertEqual(current_study.add_trial.call_count, 2)
+        # Check that add_trials was called once
+        current_study.add_trials.assert_called_once()
 
-        # Check that it was called with the correct trials
-        calls = current_study.add_trial.call_args_list
-        self.assertIn(call(aware_trial), calls)
-        self.assertIn(call(naive_trial), calls)
+        # Check that it was called with a list containing the two correct trials
+        called_trials = current_study.add_trials.call_args[0][0]
+        self.assertEqual(len(called_trials), 2)
+        self.assertIn(aware_trial, called_trials)
+        self.assertIn(naive_trial, called_trials)
 
 class TestObjective(unittest.TestCase):
     """Tests for the objective.py module."""

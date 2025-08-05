@@ -306,10 +306,18 @@ def warm_start_with_recent_trials(study: optuna.Study, recent_days: int):
         )
 
         cutoff_dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=recent_days)
-        recent_trials = [
-            t for t in previous_study.trials
-            if t.state == optuna.trial.TrialState.COMPLETE and t.datetime_complete is not None and t.datetime_complete > cutoff_dt
-        ]
+        recent_trials = []
+        for t in previous_study.trials:
+            if t.state != optuna.trial.TrialState.COMPLETE or t.datetime_complete is None:
+                continue
+
+            dt_complete = t.datetime_complete
+            if dt_complete.tzinfo is None:
+                # Optuna can store naive datetimes. Assume UTC.
+                dt_complete = dt_complete.replace(tzinfo=datetime.timezone.utc)
+
+            if dt_complete > cutoff_dt:
+                recent_trials.append(t)
 
         if len(recent_trials) > config.WARM_START_MAX_TRIALS:
             recent_trials.sort(key=lambda t: t.datetime_complete, reverse=True)
