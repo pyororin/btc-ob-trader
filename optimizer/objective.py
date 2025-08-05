@@ -200,6 +200,7 @@ class Objective:
         """
         Suggests a flat dictionary of parameters for a trial.
         This dictionary is then converted to a nested structure before simulation.
+        P1: Implemented log-uniform and conditional parameters.
         """
         params = {}
 
@@ -216,10 +217,11 @@ class Objective:
         # params['adaptive_min_ratio'] = trial.suggest_float('adaptive_min_ratio', 0.1, 0.8)
 
         # Long/Short Strategy
-        params['long_obi_threshold'] = trial.suggest_float('long_obi_threshold', 0.1, 1.0)
+        # P1: Use log scale for sensitive thresholds
+        params['long_obi_threshold'] = trial.suggest_float('long_obi_threshold', 0.1, 1.0, log=True)
         params['long_tp'] = trial.suggest_int('long_tp', 50, 200)
         params['long_sl'] = trial.suggest_int('long_sl', -200, -50)
-        params['short_obi_threshold'] = trial.suggest_float('short_obi_threshold', 0.1, 1.0)
+        params['short_obi_threshold'] = trial.suggest_float('short_obi_threshold', 0.1, 1.0, log=True)
         params['short_tp'] = trial.suggest_int('short_tp', 50, 200)
         params['short_sl'] = trial.suggest_int('short_sl', -200, -50)
 
@@ -237,11 +239,15 @@ class Objective:
         # params['slope_threshold'] = trial.suggest_float('slope_threshold', 0.0, 0.5)
 
         # Volatility
-        params['ewma_lambda'] = trial.suggest_float('ewma_lambda', 0.05, 0.3)
+        # P1: Use log scale for sensitive smoothing factor
+        params['ewma_lambda'] = trial.suggest_float('ewma_lambda', 0.01, 0.3, log=True)
+
+        # P1: Use conditional (hierarchical) parameters
         params['dynamic_obi_enabled'] = trial.suggest_categorical('dynamic_obi_enabled', [True, False])
-        params['volatility_factor'] = trial.suggest_float('volatility_factor', 0.5, 5.0)
-        params['min_threshold_factor'] = trial.suggest_float('min_threshold_factor', 0.5, 1.0)
-        params['max_threshold_factor'] = trial.suggest_float('max_threshold_factor', 1.0, 3.0)
+        if params['dynamic_obi_enabled']:
+            params['volatility_factor'] = trial.suggest_float('volatility_factor', 0.5, 5.0, log=True)
+            params['min_threshold_factor'] = trial.suggest_float('min_threshold_factor', 0.5, 1.0)
+            params['max_threshold_factor'] = trial.suggest_float('max_threshold_factor', 1.0, 3.0)
 
         # TWAP Execution (Fixed in template)
         # params['twap_enabled'] = trial.suggest_categorical('twap_enabled', [True, False])
