@@ -186,6 +186,23 @@ services:
         condition: service_healthy
     command: python -m optimizer.drift_monitor
 
+  wfo-runner:
+    build:
+      context: .
+      dockerfile: optimizer/Dockerfile.wfo
+    container_name: obi-scalp-wfo-runner
+    working_dir: /app
+    volumes:
+      - .:/app
+      - ./data/wfo_results:/app/data/wfo_results
+    env_file:
+      - .env
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    networks:
+      - bot_network
+
 networks:
   bot_network:
     driver: bridge

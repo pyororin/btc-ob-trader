@@ -28,7 +28,7 @@ func main() {
 	}
 	defer dbpool.Close()
 
-	repo := datastore.NewRepository(dbpool)
+	repo := datastore.NewTimescaleRepository(dbpool)
 	reportService := report.NewService(dbpool)
 
 	// --- Ticker for Periodic Report Generation ---
@@ -61,7 +61,7 @@ func main() {
 }
 
 // runReportGeneration fetches trades, analyzes them, and saves the report.
-func runReportGeneration(repo *datastore.Repository, reportService *report.Service, l logger.Logger) {
+func runReportGeneration(repo datastore.Repository, reportService *report.Service, l logger.Logger) {
 	ctx := context.Background()
 
 	// 1. Fetch the last processed trade ID
