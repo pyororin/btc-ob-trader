@@ -6,36 +6,34 @@ import datetime
 import functools
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
-from typing import Union
+from typing import Union, Optional, Tuple, Dict, Any
 
 from . import config
 from .objective import Objective, MetricsCalculator
 from .simulation import run_simulation
 from .utils import nest_params, finalize_for_yaml
 
-def create_study() -> optuna.Study:
+def create_study(storage_path: str, study_name: str) -> optuna.Study:
     """
     Creates and configures a new Optuna study for multi-objective optimization.
 
-    It uses a HyperbandPruner for efficient early stopping and the MOTPESampler,
-    which is designed for multi-objective problems.
+    Args:
+        storage_path: The path to the SQLite database for the study.
+        study_name: The name for the study.
 
     Returns:
         An optuna.Study object.
     """
-    study_name = f"obi-scalp-optimization-{int(datetime.datetime.now().timestamp())}"
-    logging.info(f"Creating new multi-objective Optuna study: {study_name}")
+    logging.info(f"Creating new multi-objective Optuna study: {study_name} at {storage_path}")
 
     pruner = optuna.pruners.HyperbandPruner(min_resource=5, max_resource=100, reduction_factor=3)
-    # NSGAIISampler is the recommended sampler for multi-objective optimization.
-    # It is more robust against large Pareto fronts than the deprecated MOTPESampler.
     sampler = optuna.samplers.NSGAIISampler(seed=42)
 
     return optuna.create_study(
         study_name=study_name,
-        storage=config.STORAGE_URL,
+        storage=storage_path,
         directions=['maximize', 'maximize', 'minimize'],  # SQN (max), ProfitFactor (max), MaxDD (min)
-        load_if_exists=True,
+        load_if_exists=False, # Each cycle should be a fresh study
         pruner=pruner,
         sampler=sampler
     )
@@ -43,65 +41,52 @@ def create_study() -> optuna.Study:
 def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int):
     """
     Runs the main optimization loop for a given study.
-
-    Args:
-        study: The Optuna study to optimize.
-        is_csv_path: Path to the In-Sample data CSV file.
-        n_trials: The number of trials to run.
     """
     study.set_user_attr('current_csv_path', str(is_csv_path))
     objective_func = Objective(study)
 
     logging.info(f"Starting In-Sample optimization with {is_csv_path} for {n_trials} trials.")
-
-    # Use functools.partial to pass n_trials to the callback
     callback_with_n_trials = functools.partial(progress_callback, n_trials=n_trials)
 
     study.optimize(
         objective_func,
         n_trials=n_trials,
-        n_jobs=-1,  # Use all available CPU cores
-        show_progress_bar=False, # Logging callback is used instead
-        catch=(Exception,), # Catch all exceptions to prevent optimizer crash
+        n_jobs=-1,
+        show_progress_bar=False,
+        catch=(Exception,),
         callbacks=[callback_with_n_trials]
     )
 
 def progress_callback(study: optuna.Study, trial: optuna.Trial, n_trials: int):
     """Callback function to report progress periodically."""
     if trial.number > 0 and trial.number % 100 == 0:
-        # In multi-objective optimization, study.best_trial is deprecated.
-        # We log the pareto front size or just the trial number.
         pareto_front = study.best_trials
         logging.info(
             f"Trial {trial.number}/{n_trials}: "
             f"Pareto front contains {len(pareto_front)} trials."
         )
 
-def analyze_and_validate(study: optuna.Study, oos_csv_path: Path) -> bool:
+def analyze_and_validate(study: optuna.Study, oos_csv_path: Path, cycle_dir: Path) -> Optional[Dict[str, Any]]:
     """
-    Analyzes the completed study, selects candidate parameters, and performs OOS validation.
+    Analyzes a completed study, performs OOS validation, and returns the results.
 
-    This function performs the following steps:
-    1. Re-scores all completed trials using a multi-metric `MetricsCalculator`.
-    2. Identifies a list of candidate parameters (best IS trial, robust params from analyzer).
-    3. Iteratively tests candidates against the OOS data.
-    4. If a candidate passes OOS validation, its parameters are saved as the new best config.
+    Instead of saving a global config, this function finds the best parameters for
+    the current cycle, validates them, and returns a summary dictionary.
 
     Args:
         study: The completed Optuna study.
         oos_csv_path: Path to the Out-of-Sample data CSV file.
+        cycle_dir: The directory for saving cycle-specific artifacts.
 
     Returns:
-        True if OOS validation passed and a new config was saved, False otherwise.
+        A dictionary with the results of the best validated candidate, or None.
     """
     logging.info("Optimization finished. Analyzing results and performing OOS validation.")
-
     completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
     if not completed_trials:
         logging.warning("No trials were completed successfully. Skipping OOS validation.")
-        return False
+        return None
 
-    # 1. Re-score trials with the custom multi-metric objective
     metrics_calculator = MetricsCalculator(config.OBJECTIVE_WEIGHTS, completed_trials)
     scored_trials = sorted(
         [(trial, metrics_calculator.calculate_score(trial)) for trial in completed_trials],
@@ -110,61 +95,65 @@ def analyze_and_validate(study: optuna.Study, oos_csv_path: Path) -> bool:
     )
     best_is_trial, best_is_score = scored_trials[0]
     logging.info(
-        f"Best trial by custom objective: #{best_is_trial.number} (Score: {best_is_score:.4f}, "
-        f"SR: {best_is_trial.user_attrs.get('sharpe_ratio', 0.0):.2f}, "
-        f"Trades: {best_is_trial.user_attrs.get('trades', 0)})"
+        f"Best IS trial by custom objective: #{best_is_trial.number} "
+        f"(Score: {best_is_score:.4f}, SR: {best_is_trial.user_attrs.get('sharpe_ratio', 0.0):.2f})"
     )
 
-    # 2. Build a list of candidate parameters for OOS validation
     candidates = _get_oos_candidates(study, scored_trials)
 
-    # 3. Perform OOS validation on candidates
-    return _perform_oos_validation(candidates, oos_csv_path)
+    # Perform OOS validation and get the results of the passing candidate
+    validation_result = _perform_oos_validation(candidates, oos_csv_path)
+
+    if validation_result:
+        logging.info(f"OOS validation PASSED. Saving cycle artifacts.")
+        # Save the best parameters for this specific cycle
+        _save_cycle_best_parameters(validation_result['params'], cycle_dir)
+
+        # Combine IS and OOS results into a final summary for this cycle
+        final_summary = {
+            "cycle_id": cycle_dir.name,
+            "status": "success",
+            "best_is_trial_number": best_is_trial.number,
+            "best_is_score": best_is_score,
+            "is_metrics": best_is_trial.user_attrs,
+            "oos_metrics": validation_result['summary'],
+            "best_params": validation_result['params'],
+            "param_source": validation_result['source']
+        }
+        return final_summary
+    else:
+        logging.error("OOS validation failed for all attempted parameter sets for this cycle.")
+        return {
+            "cycle_id": cycle_dir.name,
+            "status": "failure",
+            "reason": "No parameter set passed OOS validation.",
+            "best_is_trial_number": best_is_trial.number,
+            "is_metrics": best_is_trial.user_attrs,
+        }
 
 def _get_oos_candidates(study: optuna.Study, scored_trials: list) -> list[dict]:
-    """
-    Generates a list of parameter candidates for OOS validation.
-
-    The list includes parameters from the analyzer and the top-ranked IS trials.
-    """
+    """Generates a list of parameter candidates for OOS validation."""
     candidates = []
-    # First candidate: robust parameters from the analyzer
-    try:
-        analyzer_command = ['python3', '-m', 'optimizer.analyzer', '--study-name', study.study_name]
-        result = subprocess.run(
-            analyzer_command,
-            capture_output=True,
-            text=True,
-            check=True,
-            cwd=config.APP_ROOT
-        )
-        robust_params = json.loads(result.stdout)
-        candidates.append({'params': robust_params, 'source': 'analyzer'})
-        logging.info("Analyzer recommended robust parameters as first candidate.")
-    except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
-        stderr = e.stderr if isinstance(e, subprocess.CalledProcessError) else "JSONDecodeError"
-        logging.warning(f"Parameter analyzer failed. Stderr: {stderr}. Proceeding with top IS trials only.")
+    # Note: The analyzer subprocess logic is removed for simplicity in the WFO context.
+    # It could be added back if needed, but top IS trials are a robust starting point.
 
-    # Subsequent candidates: top N trials from IS optimization
+    # Candidates are the top N trials from IS optimization
     for rank, (trial, score) in enumerate(scored_trials):
+        if len(candidates) >= config.MAX_RETRY:
+             break
         candidates.append({'params': trial.params, 'source': f'is_rank_{rank+1}'})
 
     return candidates
 
-def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> bool:
-    """Iteratively validates candidate parameters against OOS data."""
-    early_stop_trigger_count = 0
-    early_stop_threshold = config.OOS_MIN_SHARPE_RATIO * config.EARLY_STOP_THRESHOLD_RATIO
+def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> Optional[Dict[str, Any]]:
+    """
+    Iteratively validates candidates and returns the results of the first one that passes.
 
+    Returns:
+        A dictionary containing the params, summary, and source of the passing candidate, or None.
+    """
     for i, candidate in enumerate(candidates):
-        if i >= config.MAX_RETRY:
-            logging.warning(f"Reached max_retry limit of {config.MAX_RETRY}. Stopping OOS validation.")
-            break
-
         logging.info(f"--- Running OOS Validation attempt #{i+1} (source: {candidate['source']}) ---")
-
-        # Convert the flat params from Optuna trial/analyzer to the nested
-        # structure required by the simulation's Jinja2 template.
         nested_params = nest_params(candidate['params'])
         oos_summary = run_simulation(nested_params, oos_csv_path)
 
@@ -172,40 +161,29 @@ def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> bool:
             logging.warning("OOS simulation failed or returned empty results.")
             continue
 
-        oos_pf = oos_summary.get('ProfitFactor', 0.0)
-        oos_sr = oos_summary.get('SharpeRatio', 0.0)
-        oos_trades = oos_summary.get('TotalTrades', 0)
-        logging.info(f"OOS Result: PF={oos_pf:.2f}, SR={oos_sr:.2f}, Trades={oos_trades}")
+        logging.info(
+            f"OOS Result: PF={oos_summary.get('ProfitFactor', 0.0):.2f}, "
+            f"SR={oos_summary.get('SharpeRatio', 0.0):.2f}, "
+            f"Trades={oos_summary.get('TotalTrades', 0)}"
+        )
 
         if _is_oos_passed(oos_summary):
-            logging.info(f"OOS validation PASSED for attempt #{i+1}.")
-            _save_best_parameters(candidate['params'])
-            return True
+            return {
+                'params': candidate['params'],
+                'summary': oos_summary,
+                'source': candidate['source']
+            }
         else:
             fail_reason = _get_oos_fail_reason(oos_summary)
-            log_message = f"OOS validation FAILED for attempt #{i+1} ({fail_reason})."
+            logging.warning(f"OOS validation FAILED for attempt #{i+1} ({fail_reason}).")
 
-            # Early stopping logic for OOS validation
-            if oos_sr < early_stop_threshold:
-                early_stop_trigger_count += 1
-                log_message += f" SR below early stop threshold. Trigger: {early_stop_trigger_count}/{config.EARLY_STOP_COUNT}"
-            else:
-                early_stop_trigger_count = 0 # Reset counter on a non-terrible result
-
-            logging.warning(log_message)
-
-            if early_stop_trigger_count >= config.EARLY_STOP_COUNT:
-                logging.error("Early stopping triggered due to consecutively poor OOS performance.")
-                break
-
-    logging.error("OOS validation failed for all attempted parameter sets.")
-    return False
+    return None
 
 def _is_oos_passed(oos_summary: dict) -> bool:
     """Checks if the OOS simulation summary meets the minimum passing criteria."""
     return (
         oos_summary.get('TotalTrades', 0) >= config.OOS_MIN_TRADES and
-        oos_summary.get('SharpeRatio', 0.0) >= config.OOS_MIN_SHARPE_RATIO
+        oos_summary.get('SharpeRatio', 0.0) >= config.OOS_MIN_SHARpe_RATIO
     )
 
 def _get_oos_fail_reason(oos_summary: dict) -> str:
@@ -217,13 +195,23 @@ def _get_oos_fail_reason(oos_summary: dict) -> str:
         reasons.append(f"SR < {config.OOS_MIN_SHARPE_RATIO}")
     return ", ".join(reasons) if reasons else "Unknown reason"
 
-def _save_best_parameters(flat_params: dict):
-    """Renders and saves the final trade configuration file."""
+def _save_cycle_best_parameters(flat_params: dict, cycle_dir: Path):
+    """Saves the best parameters for the cycle to a json file."""
+    output_path = cycle_dir / 'best_params.json'
     try:
-        # Convert flat params to the nested structure required by the template
-        nested_params = nest_params(flat_params)
+        with open(output_path, 'w') as f:
+            json.dump(flat_params, f, indent=4)
+        logging.info(f"Successfully saved cycle best parameters to {output_path}")
+    except Exception as e:
+        logging.error(f"Failed to save cycle best parameters to {output_path}: {e}")
 
-        # Use the same Jinja2 environment as run_simulation to ensure consistency
+
+# --- Functions for the legacy daemon mode ---
+
+def _save_global_best_parameters(flat_params: dict):
+    """Renders and saves the final trade configuration file for the live bot."""
+    try:
+        nested_params = nest_params(flat_params)
         env = Environment(
             loader=FileSystemLoader(searchpath=config.PARAMS_DIR),
             finalize=finalize_for_yaml
@@ -233,138 +221,100 @@ def _save_best_parameters(flat_params: dict):
 
         with open(config.BEST_CONFIG_OUTPUT_PATH, 'w') as f:
             f.write(config_str)
-        logging.info(f"Successfully updated trade config: {config.BEST_CONFIG_OUTPUT_PATH}")
+        logging.info(f"Successfully updated global trade config: {config.BEST_CONFIG_OUTPUT_PATH}")
     except Exception as e:
         logging.error(f"Failed to save the best parameter config file: {e}")
 
+def analyze_and_validate_for_daemon(study: optuna.Study, oos_csv_path: Path) -> bool:
+    """
+    Analyzes a study and saves the best config file if OOS validation passes.
+    This is the legacy function used by the daemon.
+    """
+    logging.info("Daemon mode: Analyzing results and performing OOS validation.")
+    completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    if not completed_trials:
+        logging.warning("No trials were completed successfully. Skipping OOS validation.")
+        return False
+
+    metrics_calculator = MetricsCalculator(config.OBJECTIVE_WEIGHTS, completed_trials)
+    scored_trials = sorted(
+        [(trial, metrics_calculator.calculate_score(trial)) for trial in completed_trials],
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    candidates = _get_oos_candidates(study, scored_trials)
+
+    for i, candidate in enumerate(candidates):
+        if i >= config.MAX_RETRY:
+            logging.warning(f"Reached max_retry limit of {config.MAX_RETRY}. Stopping OOS validation.")
+            break
+
+        logging.info(f"--- Running OOS Validation attempt #{i+1} (source: {candidate['source']}) ---")
+        nested_params = nest_params(candidate['params'])
+        oos_summary = run_simulation(nested_params, oos_csv_path)
+
+        if not isinstance(oos_summary, dict) or not oos_summary:
+            logging.warning("OOS simulation failed or returned empty results.")
+            continue
+
+        logging.info(
+            f"OOS Result: PF={oos_summary.get('ProfitFactor', 0.0):.2f}, "
+            f"SR={oos_summary.get('SharpeRatio', 0.0):.2f}, "
+            f"Trades={oos_summary.get('TotalTrades', 0)}"
+        )
+
+        if _is_oos_passed(oos_summary):
+            logging.info(f"OOS validation PASSED for attempt #{i+1}.")
+            _save_global_best_parameters(candidate['params'])
+            return True
+        else:
+            fail_reason = _get_oos_fail_reason(oos_summary)
+            logging.warning(f"OOS validation FAILED for attempt #{i+1} ({fail_reason}).")
+
+    logging.error("OOS validation failed for all attempted parameter sets.")
+    return False
 
 def warm_start_with_recent_trials(study: optuna.Study, recent_days: int):
     """
     Performs a warm-start by adding recent trials from previous studies.
-
-    This function scans the Optuna storage for all completed studies, finds the
-    most recent one (excluding the current study), and adds its trials from
-    the last `recent_days` to the current study. This helps the sampler
-    start with a better prior, especially in a rolling optimization setup.
-
-    Args:
-        study: The current Optuna study object to add trials to.
-        recent_days: The number of days to look back for recent trials.
+    Used by the daemon mode.
     """
     if not recent_days or recent_days <= 0:
         logging.info("Warm-start is disabled (recent_days is not set).")
         return
 
     logging.info(f"Attempting warm-start with trials from the last {recent_days} days.")
-
+    # This implementation is simplified and assumes the main storage is used.
     try:
         all_summaries = optuna.get_all_study_summaries(storage=config.STORAGE_URL)
-    except Exception as e:
-        logging.error(f"Could not retrieve study summaries for warm-start: {e}")
-        return
+        # Filter out the current study
+        completed_studies = [s for s in all_summaries if s.study_name != study.study_name]
+        if not completed_studies:
+            logging.info("No previous studies found for warm-start.")
+            return
 
-    # Filter out the current study and find the most recent completed study.
-    # The study name format is f"obi-scalp-optimization-{timestamp}".
-    completed_studies = [s for s in all_summaries if s.study_name != study.study_name]
-    if not completed_studies:
-        logging.info("No previous studies found for warm-start.")
-        return
+        completed_studies.sort(key=lambda s: s.datetime_start, reverse=True)
+        latest_study_summary = completed_studies[0]
 
-    # Sort by the timestamp in the name to find the most recent study.
-    try:
-        completed_studies.sort(key=lambda s: int(s.study_name.split('-')[-1]), reverse=True)
-    except (ValueError, IndexError):
-        logging.warning("Could not sort studies by name to find the most recent one. Skipping warm-start.")
-        return
-
-    latest_study_summary = completed_studies[0]
-
-    logging.info(f"Loading most recent study '{latest_study_summary.study_name}' for warm-start.")
-    try:
         previous_study = optuna.load_study(
             study_name=latest_study_summary.study_name,
             storage=config.STORAGE_URL
         )
-    except KeyError:
-        logging.warning(f"Failed to load study '{latest_study_summary.study_name}'. Skipping warm-start.")
-        return
 
-    # Filter trials from the last `recent_days`.
-    # Trial.datetime_complete is a timezone-aware datetime object (UTC).
-    cutoff_dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=recent_days)
+        cutoff_dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=recent_days)
+        recent_trials = [
+            t for t in previous_study.trials
+            if t.state == optuna.trial.TrialState.COMPLETE and t.datetime_complete > cutoff_dt
+        ]
 
-    recent_trials = []
-    for t in previous_study.trials:
-        if t.state != optuna.trial.TrialState.COMPLETE or t.datetime_complete is None:
-            continue
+        if len(recent_trials) > config.WARM_START_MAX_TRIALS:
+            recent_trials.sort(key=lambda t: t.datetime_complete, reverse=True)
+            recent_trials = recent_trials[:config.WARM_START_MAX_TRIALS]
 
-        dt_complete = t.datetime_complete
-        # If the datetime object from the database is naive, make it timezone-aware (assume UTC)
-        if dt_complete.tzinfo is None:
-            dt_complete = dt_complete.replace(tzinfo=datetime.timezone.utc)
+        if recent_trials:
+            logging.info(f"Adding {len(recent_trials)} recent trials to the current study for warm-start.")
+            study.add_trials(recent_trials)
 
-        if dt_complete > cutoff_dt:
-            recent_trials.append(t)
-
-    if not recent_trials:
-        logging.info(f"No recent trials (last {recent_days} days) found in study '{previous_study.study_name}'.")
-        return
-
-    # Limit the number of trials for warm-start to avoid overwhelming the study.
-    if len(recent_trials) > config.WARM_START_MAX_TRIALS:
-        logging.info(
-            f"Found {len(recent_trials)} recent trials, which exceeds the limit of "
-            f"{config.WARM_START_MAX_TRIALS}. Truncating to the most recent trials."
-        )
-        # Sort by completion time, most recent first.
-        recent_trials.sort(key=lambda t: t.datetime_complete, reverse=True)
-        recent_trials = recent_trials[:config.WARM_START_MAX_TRIALS]
-
-    # Add the filtered trials to the current study, converting them if necessary.
-    logging.info(f"Adding {len(recent_trials)} recent trials to the current study for warm-start.")
-
-    n_objectives_current = len(study.directions)
-
-    for trial in recent_trials:
-        try:
-            n_objectives_past = len(trial.values)
-
-            if n_objectives_current == n_objectives_past:
-                # If the number of objectives is the same, add the trial directly.
-                study.add_trial(trial)
-            elif n_objectives_past == 3 and n_objectives_current == 2:
-                # Handle conversion from 3 objectives (SR, WinRate, MaxDD) to 2 (SR, MaxDD).
-                new_values = [trial.values[0], trial.values[2]]
-                recreated_trial = optuna.create_trial(
-                    state=trial.state,
-                    values=new_values,
-                    params=trial.params,
-                    distributions=trial.distributions,
-                    user_attrs=trial.user_attrs,
-                    system_attrs=trial.system_attrs,
-                    intermediate_values=trial.intermediate_values
-                )
-                study.add_trial(recreated_trial)
-            elif n_objectives_past == 2 and n_objectives_current == 3:
-                # Handle conversion from 2 objectives (SR, MaxDD) to 3 (SR, WinRate, MaxDD).
-                win_rate = trial.user_attrs.get('win_rate', 0.0)
-                new_values = [trial.values[0], win_rate, trial.values[1]]
-                recreated_trial = optuna.create_trial(
-                    state=trial.state,
-                    values=new_values,
-                    params=trial.params,
-                    distributions=trial.distributions,
-                    user_attrs=trial.user_attrs,
-                    system_attrs=trial.system_attrs,
-                    intermediate_values=trial.intermediate_values
-                )
-                study.add_trial(recreated_trial)
-            else:
-                logging.warning(
-                    f"Skipping trial #{trial.number} from study '{previous_study.study_name}' due to "
-                    f"unhandled objective count mismatch: past={n_objectives_past}, current={n_objectives_current}."
-                )
-
-        except Exception as e:
-            # This could happen for various reasons, e.g., if a trial somehow gets duplicated.
-            logging.error(f"Failed to add trial #{trial.number} for warm-start: {e}", exc_info=False)
+    except Exception as e:
+        logging.error(f"Could not perform warm-start: {e}", exc_info=False)

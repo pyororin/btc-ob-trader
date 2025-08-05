@@ -89,3 +89,23 @@ objective_weights:
   max_drawdown: 1.0 # Note: The objective function inverts this, so higher is better.
   sqn: 0.5
   trades: 0.5
+
+# -----------------------------------------------------------------------------
+# Walk-Forward Optimization (WFO) Runner Settings
+# -----------------------------------------------------------------------------
+wfo_runner:
+  # Total time range for the entire walk-forward analysis
+  # (ISO 8601 format)
+  start_date: "2024-04-01T00:00:00Z"
+  end_date: "2024-07-01T00:00:00Z"
+
+  # Length of the In-Sample (training) window in days
+  is_window_days: 45
+
+  # Length of the Out-of-Sample (testing) window in days
+  oos_window_days: 15
+
+  # The number of days to move the window forward for each new cycle.
+  # If step_days == oos_window_days, the windows are sequential and non-overlapping (Tumbling Window).
+  # If step_days < oos_window_days, the windows will overlap (Rolling Window).
+  step_days: 15
