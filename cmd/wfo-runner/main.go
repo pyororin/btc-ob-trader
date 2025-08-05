@@ -174,8 +174,9 @@ func executeCycle(cycle WFOCycle, nTrials int) error {
 		"--n-trials", fmt.Sprintf("%d", nTrials),
 	)
 
-	// Set the working directory for the python script relative to the Go binary
-	cmd.Dir = "../../" // Run from the repo root
+	// The wfo-runner is executed with /app as its working directory (from docker-compose.yml).
+	// The python script will inherit this working directory, which is the repository root.
+	// This ensures that the optimizer module and its config files are found correctly.
 
 	// Capture output for logging
 	output, err := cmd.CombinedOutput()
