@@ -174,8 +174,10 @@ func executeCycle(cycle WFOCycle, nTrials int) error {
 		"--n-trials", fmt.Sprintf("%d", nTrials),
 	)
 
-	// Set the working directory for the python script relative to the Go binary
-	cmd.Dir = "../../" // Run from the repo root
+	// Set the working directory for the python script.
+	// The Dockerfile sets the WORKDIR to /app, which is the repository root.
+	// The wfo-runner binary is executed from there, so the Python script
+	// will inherit the correct working directory.
 
 	// Capture output for logging
 	output, err := cmd.CombinedOutput()
