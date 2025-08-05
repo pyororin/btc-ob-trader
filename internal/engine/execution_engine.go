@@ -133,10 +133,10 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 			return nil, &RiskCheckError{Message: errMsg}
 		}
 	} else if orderType == "sell" {
-		maxBtcPosition := btcBalance * cfg.Trade.Risk.MaxPositionRatio
-		logger.Infof("[Live] Risk Check (BTC): Order Amount=%.8f, Max Position=%.8f", amount, maxBtcPosition)
-		if amount > maxBtcPosition {
-			errMsg := fmt.Sprintf("risk check failed: sell order amount %.8f exceeds max BTC position %.8f", amount, maxBtcPosition)
+		// For sell orders, the maximum amount that can be sold is the available BTC balance.
+		logger.Infof("[Live] Risk Check (BTC): Order Amount=%.8f, Available Balance=%.8f", amount, btcBalance)
+		if amount > btcBalance {
+			errMsg := fmt.Sprintf("risk check failed: sell order amount %.8f exceeds available BTC balance %.8f", amount, btcBalance)
 			logger.Errorf("[Live] %s", errMsg)
 			return nil, &RiskCheckError{Message: errMsg}
 		}
