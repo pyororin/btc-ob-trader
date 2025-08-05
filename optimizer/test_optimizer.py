@@ -26,7 +26,7 @@ class TestStudy(unittest.TestCase):
         self.assertIsInstance(kwargs['sampler'], optuna.samplers.NSGAIISampler)
 
         # Check the directions
-        expected_directions = ['maximize', 'maximize', 'minimize']
+        expected_directions = ['maximize', 'maximize', 'maximize']
         self.assertEqual(kwargs['directions'], expected_directions)
 
     @patch('optimizer.study.optuna.load_study')
@@ -127,7 +127,7 @@ class TestObjective(unittest.TestCase):
 
         self.assertAlmostEqual(result[0], expected_sqn)
         self.assertAlmostEqual(result[1], expected_pf)
-        self.assertEqual(result[2], expected_mdd)
+        self.assertEqual(result[2], -expected_mdd)
 
     @patch('optimizer.objective.simulation.run_simulation')
     def test_objective_high_drawdown_penalty(self, mock_run_simulation):
@@ -150,7 +150,7 @@ class TestObjective(unittest.TestCase):
         # Check if the dominated penalty values are returned
         self.assertEqual(result[0], -1.0)
         self.assertEqual(result[1], 0.0)
-        self.assertEqual(result[2], 1_000_000.0)
+        self.assertEqual(result[2], -1_000_000.0)
 
     @patch('optimizer.objective.simulation.run_simulation')
     def test_objective_penalized_low_trades(self, mock_run_simulation):
@@ -171,7 +171,7 @@ class TestObjective(unittest.TestCase):
         result = self.objective(trial)
         self.assertEqual(result[0], -1.0)
         self.assertEqual(result[1], 0.0)
-        self.assertEqual(result[2], 1_000_000.0)
+        self.assertEqual(result[2], -1_000_000.0)
 
     def test_objective_no_sim_path(self):
         """Test that a penalty is returned if the simulation path is missing."""
@@ -184,7 +184,7 @@ class TestObjective(unittest.TestCase):
         result = objective_no_path(trial)
         self.assertEqual(result[0], -1.0)
         self.assertEqual(result[1], 0.0)
-        self.assertEqual(result[2], 1_000_000.0)
+        self.assertEqual(result[2], -1_000_000.0)
 
 if __name__ == '__main__':
     unittest.main()

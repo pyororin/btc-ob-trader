@@ -69,7 +69,7 @@ class TestObjective(unittest.TestCase):
         expected_sqn = 2.1 * (50 ** 0.5)
         self.assertAlmostEqual(sqn, expected_sqn)
         self.assertEqual(pf, 1.8)
-        self.assertEqual(mdd, 500.0)
+        self.assertEqual(mdd, -500.0)
 
         # Check that the backing dictionary was populated correctly for later analysis
         self.assertEqual(self.trial_user_attrs.get("trades"), 50)
@@ -94,7 +94,11 @@ class TestObjective(unittest.TestCase):
         result = self.objective(self.mock_trial)
 
         # Assert
-        self.assertEqual(result, self.get_penalty_value())
+        # The penalty now returns a large negative number for the 3rd objective
+        # because the direction is 'maximize'.
+        self.assertEqual(result[0], -1.0)
+        self.assertEqual(result[1], 0.0)
+        self.assertEqual(result[2], -1_000_000.0)
         # Check that attributes were still set before penalty was returned
         self.assertEqual(self.trial_user_attrs.get("trades"), 0)
 
@@ -111,7 +115,9 @@ class TestObjective(unittest.TestCase):
         result = self.objective(self.mock_trial)
 
         # Assert
-        self.assertEqual(result, self.get_penalty_value())
+        self.assertEqual(result[0], -1.0)
+        self.assertEqual(result[1], 0.0)
+        self.assertEqual(result[2], -1_000_000.0)
 
     @patch('optimizer.objective.simulation.run_simulation')
     def test_objective_with_high_drawdown_penalty(self, mock_run_simulation):
@@ -129,7 +135,9 @@ class TestObjective(unittest.TestCase):
         result = self.objective(self.mock_trial)
 
         # Assert
-        self.assertEqual(result, self.get_penalty_value())
+        self.assertEqual(result[0], -1.0)
+        self.assertEqual(result[1], 0.0)
+        self.assertEqual(result[2], -1_000_000.0)
         # Check that relative_drawdown was calculated and was the cause of the penalty
         self.assertGreater(self.trial_user_attrs.get("relative_drawdown"), 0.25)
 
