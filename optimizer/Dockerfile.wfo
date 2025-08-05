@@ -29,7 +29,10 @@ WORKDIR /app
 COPY optimizer/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 4. Copy all source code
+# 4. Set PYTHONPATH so the interpreter can find the 'optimizer' module
+ENV PYTHONPATH /app
+
+# 5. Copy all source code
 # This is necessary because both the Go runner and the Python optimizer need access to the codebase.
 COPY . .
 
