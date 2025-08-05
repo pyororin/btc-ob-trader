@@ -76,6 +76,13 @@ ANALYZER_CONFIG = CONFIG.get('analyzer', {})
 TOP_TRIALS_QUANTILE = ANALYZER_CONFIG.get('top_trials_quantile', 0.1)
 MIN_TRIALS_FOR_ANALYSIS = ANALYZER_CONFIG.get('min_trials_for_analysis', 10)
 
+# Coarse-to-Fine Search Settings
+COARSE_TO_FINE_CONFIG = CONFIG.get('coarse_to_fine', {})
+CTF_ENABLED = COARSE_TO_FINE_CONFIG.get('enabled', False)
+CTF_COARSE_TRIALS = COARSE_TO_FINE_CONFIG.get('coarse_trials', 300)
+CTF_FINE_TRIALS = COARSE_TO_FINE_CONFIG.get('fine_trials', 200)
+CTF_TOP_TRIALS_QUANTILE_FOR_KDE = COARSE_TO_FINE_CONFIG.get('top_trials_quantile_for_kde', 0.2)
+
 # Stability Analysis Settings
 STABILITY_CONFIG = CONFIG.get('stability_analysis', {})
 STABILITY_CHECK_N_RUNS = STABILITY_CONFIG.get('n_runs', 5)

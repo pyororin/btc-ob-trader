@@ -80,6 +80,14 @@ analyzer:
   # For example, 0.1 means the top 10% of trials will be analyzed.
   top_trials_quantile: 0.1
 
+# --- Coarse-to-Fine Search Settings ---
+coarse_to_fine:
+  enabled: true
+  coarse_trials: 300
+  fine_trials: 200
+  # The quantile of top trials from the coarse phase to use for building the KDE sampler.
+  top_trials_quantile_for_kde: 0.2
+
 # --- Objective Function Weights ---
 # The weights for the components of the custom objective function.
 # These values determine the importance of each metric in the final score.

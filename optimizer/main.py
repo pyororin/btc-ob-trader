@@ -51,7 +51,7 @@ def run_wfo_cycle(
         storage_path = f"sqlite:///{cycle_dir / 'optuna-study.db'}"
         optuna_study = study.create_study(storage_path=storage_path, study_name=study_name)
 
-        study.run_optimization(optuna_study, is_csv_path, n_trials)
+        study.run_optimization(optuna_study, is_csv_path, n_trials, storage_path)
 
         summary = study.analyze_and_validate(optuna_study, oos_csv_path, cycle_dir)
 
@@ -112,7 +112,7 @@ def run_daemon_job(job: dict):
         # Re-enabling it would cause errors due to incompatible trial data from older studies.
         # study.warm_start_with_recent_trials(optuna_study, recent_days)
 
-        study.run_optimization(optuna_study, is_csv_path, n_trials)
+        study.run_optimization(optuna_study, is_csv_path, n_trials, storage_path)
 
         study.analyze_and_validate_for_daemon(optuna_study, oos_csv_path)
 
