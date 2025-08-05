@@ -12,14 +12,17 @@ from . import config
 from .objective import Objective, MetricsCalculator
 from .simulation import run_simulation
 from .utils import nest_params, finalize_for_yaml
+from .sampler import KDESampler
 
-def create_study(storage_path: str, study_name: str) -> optuna.Study:
+
+def create_study(storage_path: str, study_name: str, sampler: Optional[optuna.samplers.BaseSampler] = None) -> optuna.Study:
     """
     Creates and configures a new Optuna study for multi-objective optimization.
 
     Args:
         storage_path: The path to the SQLite database for the study.
         study_name: The name for the study.
+        sampler: An optional sampler to use. If None, NSGAIISampler is used.
 
     Returns:
         An optuna.Study object.
@@ -27,25 +30,27 @@ def create_study(storage_path: str, study_name: str) -> optuna.Study:
     logging.info(f"Creating new multi-objective Optuna study: {study_name} at {storage_path}")
 
     pruner = optuna.pruners.HyperbandPruner(min_resource=5, max_resource=100, reduction_factor=3)
-    sampler = optuna.samplers.NSGAIISampler(seed=42)
+
+    if sampler is None:
+        sampler = optuna.samplers.NSGAIISampler(seed=42)
 
     return optuna.create_study(
         study_name=study_name,
         storage=storage_path,
         directions=['maximize', 'maximize', 'maximize'],  # SQN (max), ProfitFactor (max), -MaxDD (max)
-        load_if_exists=False, # Each cycle should be a fresh study
+        load_if_exists=False,
         pruner=pruner,
         sampler=sampler
     )
 
-def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int):
-    """
-    Runs the main optimization loop for a given study.
-    """
+def _run_single_phase_optimization(
+    study: optuna.Study, is_csv_path: Path, n_trials: int, phase_name: str
+):
+    """Helper function to run one phase of optimization."""
     study.set_user_attr('current_csv_path', str(is_csv_path))
     objective_func = Objective(study)
 
-    logging.info(f"Starting In-Sample optimization with {is_csv_path} for {n_trials} trials.")
+    logging.info(f"Starting {phase_name} optimization with {is_csv_path} for {n_trials} trials.")
     callback_with_n_trials = functools.partial(progress_callback, n_trials=n_trials)
 
     study.optimize(
@@ -56,6 +61,64 @@ def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int):
         catch=(Exception,),
         callbacks=[callback_with_n_trials]
     )
+
+def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int):
+    """
+    Runs the main optimization loop for a given study.
+    If Coarse-to-Fine (CTF) is enabled, it runs a two-phase optimization.
+    Otherwise, it runs a single-phase optimization.
+    """
+    if not config.CTF_ENABLED:
+        _run_single_phase_optimization(study, is_csv_path, n_trials, "single-phase")
+        return
+
+    # --- Phase 1: Coarse Search ---
+    logging.info("--- Starting Coarse-to-Fine Optimization: Phase 1 (Coarse Search) ---")
+    _run_single_phase_optimization(study, is_csv_path, config.CTF_COARSE_TRIALS, "coarse-phase")
+
+    completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    if not completed_trials:
+        logging.warning("Coarse search phase completed with no successful trials. Skipping fine search.")
+        return
+
+    # --- Phase 2: Fine Search ---
+    logging.info("--- Starting Coarse-to-Fine Optimization: Phase 2 (Fine Search) ---")
+
+    # Select top trials to build the KDE sampler
+    metrics_calculator = MetricsCalculator(config.OBJECTIVE_WEIGHTS, completed_trials)
+    scored_trials = sorted(
+        [(trial, metrics_calculator.calculate_score(trial)) for trial in completed_trials],
+        key=lambda x: x[1],
+        reverse=True
+    )
+    n_top_trials = int(len(scored_trials) * config.CTF_TOP_TRIALS_QUANTILE_FOR_KDE)
+    top_trials = [t for t, score in scored_trials[:n_top_trials]]
+
+    if not top_trials:
+        logging.warning("No top trials found after coarse search. Skipping fine search.")
+        return
+
+    logging.info(f"Building KDE sampler from top {len(top_trials)} trials.")
+    kde_sampler = KDESampler(coarse_trials=top_trials, seed=42)
+
+    # Create a new study for the fine search phase
+    fine_study_name = f"{study.study_name}-fine"
+    fine_study = create_study(
+        storage_path=study.storage.url,
+        study_name=fine_study_name,
+        sampler=kde_sampler
+    )
+
+    _run_single_phase_optimization(fine_study, is_csv_path, config.CTF_FINE_TRIALS, "fine-phase")
+
+    # The original study object is now replaced by the fine_study object
+    # to allow the rest of the pipeline to analyze the results of the fine phase.
+    # We need to copy the trials from the fine_study to the original study object.
+    # This is a bit of a hack, but it's the easiest way to integrate with the existing pipeline.
+    # A better solution would be to refactor the pipeline to handle multiple studies.
+    # For now, we will just enqueue the trials from the fine study into the original study.
+    for trial in fine_study.trials:
+        study.add_trial(trial)
 
 def progress_callback(study: optuna.Study, trial: optuna.Trial, n_trials: int):
     """Callback function to report progress periodically."""
