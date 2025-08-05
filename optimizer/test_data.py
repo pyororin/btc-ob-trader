@@ -30,7 +30,7 @@ class TestDataSplitter(unittest.TestCase):
         self.config_patcher.stop()
         shutil.rmtree(self.test_dir)
 
-    @patch('optimizer.data._cleanup_simulation_directory')
+    @patch('optimizer.data._cleanup_directory')
     @patch('optimizer.data.subprocess.run')
     @patch('optimizer.data._find_latest_csv')
     def test_export_and_split_data_with_ceil(self, mock_find_csv, mock_subprocess_run, mock_cleanup):
@@ -49,7 +49,9 @@ class TestDataSplitter(unittest.TestCase):
         # Ratio: 8/10 = 0.8
         total_hours = 10 / 60  # 0.1666... hours
         oos_hours = 2 / 60   # 0.0333... hours
-        export_and_split_data(total_hours, oos_hours)
+        # This test targets the legacy daemon function
+        from .data import export_and_split_data_for_daemon
+        export_and_split_data_for_daemon(total_hours, oos_hours)
 
         # --- Assertions ---
         # 1. Assert that the Go exporter was called with the ceiled value (1 hour)
