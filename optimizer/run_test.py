@@ -2,7 +2,7 @@ import json
 import time
 import os
 from pathlib import Path
-from optimizer.main import main_loop as optimizer_main
+from optimizer.main import run_daemon_job
 
 # --- Configuration ---
 APP_ROOT = Path('/app')
@@ -127,20 +127,23 @@ def run():
 
     ensure_dummy_app_config()
     ensure_dummy_trade_config()
-    create_job_file()
+
+    # Create the job data and call run_daemon_job directly
+    job_data = {
+        "trigger_type": "manual_test",
+        "window_is_hours": 4,
+        "window_oos_hours": 1,
+        "timestamp": int(time.time())
+    }
 
     try:
-        print("Starting optimizer...")
-        # We need to run the optimizer in a way that we can capture its logs
-        # and it stops after one job. The current optimizer loops forever.
-        # For this test, we will trust the logs from the optimizer's main function.
-        optimizer_main(run_once=True)
+        print("Starting optimizer job...")
+        run_daemon_job(job_data)
     except Exception as e:
         print(f"An error occurred during optimization: {e}")
     finally:
-        if JOB_FILE.exists():
-            os.remove(JOB_FILE)
-            print("Cleaned up job file.")
+        # No need to manage the job file anymore as we are not using the main_loop
+        print("Test job finished.")
 
 if __name__ == "__main__":
     run()

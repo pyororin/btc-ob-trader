@@ -108,7 +108,9 @@ def run_daemon_job(job: dict):
         )
 
         recent_days = job.get('recent_days_warm_start', 1)
-        study.warm_start_with_recent_trials(optuna_study, recent_days)
+        # Warm-start is disabled because the parameter space has been updated.
+        # Re-enabling it would cause errors due to incompatible trial data from older studies.
+        # study.warm_start_with_recent_trials(optuna_study, recent_days)
 
         study.run_optimization(optuna_study, is_csv_path, n_trials)
 
