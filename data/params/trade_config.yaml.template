@@ -174,4 +174,4 @@ risk:
   # max_position_ratio: 利用可能残高に対する許容される最大ポジションサイズの割合。
   # 1.0 は、残高の100%までポジションを持つことを意味します。
   # これにより、所持金を超える取引を防ぎます。
-  max_position_ratio: 0.9
+  max_position_ratio: 1.0
