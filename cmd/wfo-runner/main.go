@@ -166,7 +166,7 @@ func executeCycle(cycle WFOCycle, nTrials int) error {
 	// The Python script needs time in 'YYYY-MM-DD HH:MM:SS' format
 	const timeFmt = "2006-01-02 15:04:05"
 
-	cmd := exec.Command("python3", "-m", "optimizer.main",
+	cmd := exec.Command("/opt/venv/bin/python3", "-m", "optimizer.main",
 		"--is-start-time", cycle.IsStart.Format(timeFmt),
 		"--is-end-time", cycle.IsEnd.Format(timeFmt),
 		"--oos-end-time", cycle.OosEnd.Format(timeFmt),
