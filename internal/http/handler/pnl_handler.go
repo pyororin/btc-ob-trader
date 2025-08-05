@@ -10,11 +10,11 @@ import (
 
 // PnlHandler はPnL関連のHTTPリクエストを処理します。
 type PnlHandler struct {
-	repo *datastore.Repository
+	repo datastore.Repository
 }
 
 // NewPnlHandler は新しいPnlHandlerを作成します。
-func NewPnlHandler(repo *datastore.Repository) *PnlHandler {
+func NewPnlHandler(repo datastore.Repository) *PnlHandler {
 	return &PnlHandler{repo: repo}
 }
 

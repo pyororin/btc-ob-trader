@@ -1,13 +1,97 @@
 package signal
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/your-org/obi-scalp-bot/internal/config"
+	"github.com/your-org/obi-scalp-bot/internal/datastore"
+	"github.com/your-org/obi-scalp-bot/internal/indicator"
 	"github.com/your-org/obi-scalp-bot/pkg/cvd"
 )
+
+func TestSignalEngine_Evaluate_WithFixture(t *testing.T) {
+	// This test uses a real data fixture to test the signal engine's behavior
+	// over a sequence of market events.
+
+	weights := map[string]float64{
+		"obi":        0.6,
+		"ofi":        0.1,
+		"cvd":        0.2,
+		"microprice": 0.1,
+	}
+	// Use a low threshold to ensure signals are generated from the fixture data
+	engine := newTestSignalEngine(100, 0.2, weights)
+
+	// Path to the test data - relative to the signal package
+	csvPath, err := filepath.Abs("../datastore/testdata/order_book_updates_20250803-140150.csv")
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	eventCh, errCh := datastore.StreamMarketEventsFromCSV(ctx, csvPath)
+
+	orderBook := indicator.NewOrderBook()
+	var signalsGenerated int
+
+	for {
+		select {
+		case marketEvent, ok := <-eventCh:
+			if !ok {
+				goto EndLoop
+			}
+
+			var obiResult indicator.OBIResult
+			var bestBidSize, bestAskSize float64
+
+			switch event := marketEvent.(type) {
+			case datastore.OrderBookEvent:
+				orderBook.ApplyUpdate(event.OrderBookData)
+				res, valid := orderBook.CalculateOBI(indicator.OBILevels...)
+				if !valid {
+					continue
+				}
+				obiResult = res
+				bestBidSize, bestAskSize = orderBook.GetBestBidAskSize()
+			case datastore.TradeEvent:
+				// Trades don't update the book directly in this stream,
+				// but we can use the last known OBI result.
+			}
+
+			if obiResult.BestBid <= 0 || obiResult.BestAsk <= 0 {
+				continue
+			}
+
+			midPrice := (obiResult.BestAsk + obiResult.BestBid) / 2
+			engine.UpdateMarketData(marketEvent.GetTime(), midPrice, obiResult.BestBid, obiResult.BestAsk, bestBidSize, bestAskSize, nil)
+
+			if signal := engine.Evaluate(marketEvent.GetTime(), obiResult.OBI8); signal != nil {
+				signalsGenerated++
+				t.Logf("Generated signal: %s at %s (OBI: %.4f)", signal.Type, marketEvent.GetTime(), obiResult.OBI8)
+			}
+
+		case err := <-errCh:
+			if err != nil {
+				t.Fatalf("Error streaming market events: %v", err)
+			}
+			goto EndLoop
+		case <-ctx.Done():
+			goto EndLoop
+		}
+	}
+EndLoop:
+
+	// Assert that at least one signal was generated during the run.
+	// This is a basic sanity check. More specific assertions could be added
+	// if the expected behavior on the fixture data was known precisely.
+	assert.Greater(t, signalsGenerated, 0, "Expected at least one signal to be generated from the fixture data")
+	t.Logf("Finished processing fixture. Total signals generated: %d", signalsGenerated)
+}
 
 func newTestSignalEngine(holdDurationMs int, compositeThreshold float64, weights map[string]float64) *SignalEngine {
 	tradeCfg := &config.TradeConfig{

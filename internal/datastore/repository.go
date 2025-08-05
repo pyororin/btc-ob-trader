@@ -4,19 +4,35 @@ import (
 	"context"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/shopspring/decimal"
 )
 
-
-// Repository handles database operations for fetching backtest data.
-type Repository struct {
-	db *pgxpool.Pool
+// Repository defines the interface for database operations for fetching backtest data.
+type Repository interface {
+	FetchTradesForReportSince(ctx context.Context, lastTradeID int64) ([]Trade, error)
+	FetchLatestPnlReportTradeID(ctx context.Context) (int64, error)
+	DeleteOldPnlReports(ctx context.Context, maxAgeHours int) (int64, error)
+	FetchLatestPerformanceMetrics(ctx context.Context) (*PerformanceMetrics, error)
 }
 
-// NewRepository creates a new Repository.
-func NewRepository(db *pgxpool.Pool) *Repository {
-	return &Repository{db: db}
+// Pool is an interface that abstracts the pgxpool.Pool for testability.
+// It includes only the methods used by the TimescaleRepository.
+type Pool interface {
+	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row
+	Exec(ctx context.Context, sql string, arguments ...interface{}) (pgconn.CommandTag, error)
+}
+
+// TimescaleRepository handles database operations for fetching backtest data.
+type TimescaleRepository struct {
+	db Pool
+}
+
+// NewTimescaleRepository creates a new TimescaleRepository.
+func NewTimescaleRepository(db Pool) Repository {
+	return &TimescaleRepository{db: db}
 }
 
 // Trade はデータベースからの取引を表します。
@@ -32,7 +48,7 @@ type Trade struct {
 }
 
 // FetchTradesForReportSince は指定された trade_id 以降の自分自身のトレードのみを取得します。
-func (r *Repository) FetchTradesForReportSince(ctx context.Context, lastTradeID int64) ([]Trade, error) {
+func (r *TimescaleRepository) FetchTradesForReportSince(ctx context.Context, lastTradeID int64) ([]Trade, error) {
 	query := `
 		SELECT time, pair, side, price, size, transaction_id, is_cancelled, is_my_trade
 		FROM trades
@@ -58,7 +74,7 @@ func (r *Repository) FetchTradesForReportSince(ctx context.Context, lastTradeID 
 }
 
 // FetchLatestPnlReportTradeID は pnl_reports テーブルから最新の last_trade_id を取得します。
-func (r *Repository) FetchLatestPnlReportTradeID(ctx context.Context) (int64, error) {
+func (r *TimescaleRepository) FetchLatestPnlReportTradeID(ctx context.Context) (int64, error) {
 	query := `
 		SELECT last_trade_id
 		FROM pnl_reports
@@ -74,7 +90,7 @@ func (r *Repository) FetchLatestPnlReportTradeID(ctx context.Context) (int64, er
 }
 
 // DeleteOldPnlReports は指定した期間より古いPnLレポートを削除します。
-func (r *Repository) DeleteOldPnlReports(ctx context.Context, maxAgeHours int) (int64, error) {
+func (r *TimescaleRepository) DeleteOldPnlReports(ctx context.Context, maxAgeHours int) (int64, error) {
 	threshold := time.Now().Add(-time.Duration(maxAgeHours) * time.Hour)
 	query := `
         DELETE FROM pnl_reports
@@ -95,7 +111,7 @@ type PerformanceMetrics struct {
 }
 
 // FetchLatestPerformanceMetrics は最新のパフォーマンス指標を取得します。
-func (r *Repository) FetchLatestPerformanceMetrics(ctx context.Context) (*PerformanceMetrics, error) {
+func (r *TimescaleRepository) FetchLatestPerformanceMetrics(ctx context.Context) (*PerformanceMetrics, error) {
 	query := `
         SELECT
             sharpe_ratio,

@@ -11,12 +11,12 @@ import (
 // Service はベンチマークの計算と記録を担当します。
 type Service struct {
 	logger    *zap.Logger
-	dbWriter  *dbwriter.Writer
+	dbWriter  dbwriter.DBWriter
 	startTime time.Time
 }
 
 // NewService は新しいベンチマークサービスを作成します。
-func NewService(logger *zap.Logger, dbWriter *dbwriter.Writer) *Service {
+func NewService(logger *zap.Logger, dbWriter dbwriter.DBWriter) *Service {
 	return &Service{
 		logger:    logger.Named("benchmark"),
 		dbWriter:  dbWriter,
