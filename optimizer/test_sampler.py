@@ -10,13 +10,17 @@ from .sampler import KDESampler
 def create_mock_trial(params: Dict[str, Any], trial_number: int) -> FrozenTrial:
     """Helper function to create a mock FrozenTrial."""
     distributions = {}
+    # Define the full search space, including the conditional parameter
+    full_search_space_template = {
+        'x': FloatDistribution(low=0.0, high=10.0),
+        'y': IntDistribution(low=0, high=10),
+        'z': CategoricalDistribution(choices=['a', 'b', 'c']),
+        'volatility_factor': FloatDistribution(low=0.5, high=5.0),
+    }
     for key, value in params.items():
-        if isinstance(value, float):
-            distributions[key] = FloatDistribution(low=0.0, high=10.0)
-        elif isinstance(value, int):
-            distributions[key] = IntDistribution(low=0, high=10)
-        elif isinstance(value, str):
-            distributions[key] = CategoricalDistribution(choices=['a', 'b', 'c'])
+        # Use the predefined distribution for the parameter
+        if key in full_search_space_template:
+            distributions[key] = full_search_space_template[key]
 
     return FrozenTrial(
         number=trial_number,
@@ -37,15 +41,18 @@ def create_mock_trial(params: Dict[str, Any], trial_number: int) -> FrozenTrial:
 class TestKDESampler(unittest.TestCase):
 
     def setUp(self):
-        """Set up a list of mock trials for testing."""
+        """Set up a list of mock trials for testing, including conditional params."""
         self.mock_trials: List[FrozenTrial] = [
-            create_mock_trial({'x': 1.0, 'y': 2, 'z': 'a'}, 0),
-            create_mock_trial({'x': 1.2, 'y': 3, 'z': 'b'}, 1),
-            create_mock_trial({'x': 0.8, 'y': 1, 'z': 'a'}, 2),
-            create_mock_trial({'x': 1.5, 'y': 2, 'z': 'c'}, 3),
-            create_mock_trial({'x': 0.5, 'y': 4, 'z': 'b'}, 4),
+            create_mock_trial({'x': 1.0, 'y': 2, 'z': 'a', 'volatility_factor': 1.5}, 0),
+            create_mock_trial({'x': 1.2, 'y': 3, 'z': 'b'}, 1), # volatility_factor is missing
+            create_mock_trial({'x': 0.8, 'y': 1, 'z': 'a', 'volatility_factor': 2.0}, 2),
+            create_mock_trial({'x': 1.5, 'y': 2, 'z': 'c'}, 3), # volatility_factor is missing
+            create_mock_trial({'x': 0.5, 'y': 4, 'z': 'b', 'volatility_factor': 1.0}, 4),
         ]
-        self.search_space = self.mock_trials[0].distributions
+        # Infer the full search space from the union of all trial distributions
+        self.search_space = {}
+        for t in self.mock_trials:
+            self.search_space.update(t.distributions)
 
     def test_init_with_trials(self):
         """Test that the sampler can be initialized with mock trials."""
@@ -97,6 +104,20 @@ class TestKDESampler(unittest.TestCase):
             self.assertLessEqual(y_sample, y_dist.high)
 
             self.assertIn(z_sample, z_dist.choices)
+
+    def test_handles_conditional_parameter_sampling(self):
+        """Test that the sampler does not raise a KeyError for conditional parameters."""
+        sampler = KDESampler(coarse_trials=self.mock_trials, seed=42)
+        study = optuna.create_study(sampler=sampler)
+
+        # This will call sample_independent for all parameters in the search space,
+        # including the conditional 'volatility_factor'.
+        # The test passes if no KeyError is raised.
+        try:
+            study.ask(self.search_space)
+        except KeyError as e:
+            self.fail(f"KDESampler raised a KeyError for a conditional parameter: {e}")
+
 
 if __name__ == '__main__':
     unittest.main()

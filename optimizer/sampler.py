@@ -38,8 +38,14 @@ class KDESampler(BaseSampler):
         self._categorical_models = self._fit_categorical()
 
     def _infer_search_space(self) -> Dict[str, BaseDistribution]:
-        """Infers the search space from the first trial."""
-        return self._coarse_trials[0].distributions
+        """
+        Infers the search space by taking the union of distributions from all coarse trials.
+        This is crucial for handling conditional parameters that may not be present in every trial.
+        """
+        search_space: Dict[str, BaseDistribution] = {}
+        for trial in self._coarse_trials:
+            search_space.update(trial.distributions)
+        return search_space
 
     def _fit_kde(self) -> Optional[KernelDensity]:
         """Fits a KDE model to the numerical parameters of the coarse trials."""
@@ -47,15 +53,38 @@ class KDESampler(BaseSampler):
             return None
 
         points = []
+        # We only use trials that contain ALL numerical parameters defined in the full search space.
+        # For conditional parameters, we will use a default value (e.g., the mean of observed values)
+        # for trials where the parameter is not present. This is a simplification.
+        # A more advanced approach could model the conditional distribution itself.
+
+        # Calculate mean for each numerical param to use as a fill value
+        param_means = {}
+        for param_name in self._numerical_params:
+            values = [t.params[param_name] for t in self._coarse_trials if param_name in t.params]
+            if values:
+                param_means[param_name] = np.mean(values)
+            else:
+                # If a parameter is never present, we can't model it.
+                # We can use the distribution's midpoint as a fallback.
+                dist = self._search_space[param_name]
+                if isinstance(dist, (FloatDistribution, IntDistribution)):
+                    param_means[param_name] = (dist.low + dist.high) / 2.0
+                else: # Should not happen
+                    param_means[param_name] = 0.0
+
+
         for trial in self._coarse_trials:
-            # Note: We assume all trials have the same numerical parameters.
-            # We filter out trials where a numerical parameter might be missing (shouldn't happen in a well-defined study)
-            if all(p in trial.params for p in self._numerical_params):
-                points.append([trial.params[p] for p in self._numerical_params])
+            point = []
+            for param_name in self._numerical_params:
+                # Use the parameter's value if present, otherwise use the calculated mean
+                value = trial.params.get(param_name, param_means.get(param_name))
+                point.append(value)
+            points.append(point)
 
         if not points:
-             logging.warning("No valid numerical data points found for fitting KDE.")
-             return None
+            logging.warning("No valid numerical data points found for fitting KDE.")
+            return None
 
         # Simple bandwidth selection, can be improved with GridSearchCV if needed
         n_samples, n_features = np.array(points).shape
