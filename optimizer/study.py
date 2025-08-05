@@ -62,7 +62,7 @@ def _run_single_phase_optimization(
         callbacks=[callback_with_n_trials]
     )
 
-def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int):
+def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int, storage_path: str):
     """
     Runs the main optimization loop for a given study.
     If Coarse-to-Fine (CTF) is enabled, it runs a two-phase optimization.
@@ -104,7 +104,7 @@ def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int):
     # Create a new study for the fine search phase
     fine_study_name = f"{study.study_name}-fine"
     fine_study = create_study(
-        storage_path=study.storage.url,
+        storage_path=storage_path,
         study_name=fine_study_name,
         sampler=kde_sampler
     )
