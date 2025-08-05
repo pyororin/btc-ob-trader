@@ -60,7 +60,7 @@ func main() {
 	log.Println("--- Starting Walk-Forward Optimization (WFO) Runner ---")
 
 	// 1. Load Configuration
-	cfg, err := loadConfig("../../config/optimizer_config.yaml")
+	cfg, err := loadConfig("config/optimizer_config.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}

@@ -2,7 +2,7 @@
 # The WFO runner is a Go application that orchestrates the optimization process by
 # calling the Python-based optimizer script for each cycle. Therefore, this image
 # needs to contain both the Go toolchain (to build the runner) and a Python
-g# environment (to run the optimizer script).
+# environment (to run the optimizer script).
 
 FROM python:3.9-slim
 
