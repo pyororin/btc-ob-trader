@@ -305,7 +305,7 @@ def warm_start_with_recent_trials(study: optuna.Study, recent_days: int):
         cutoff_dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=recent_days)
         recent_trials = [
             t for t in previous_study.trials
-            if t.state == optuna.trial.TrialState.COMPLETE and t.datetime_complete > cutoff_dt
+            if t.state == optuna.trial.TrialState.COMPLETE and t.datetime_complete is not None and t.datetime_complete > cutoff_dt
         ]
 
         if len(recent_trials) > config.WARM_START_MAX_TRIALS:
