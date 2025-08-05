@@ -76,7 +76,9 @@ class Objective:
         # a trial with 0 trades (SQN=0, PF=0, MaxDD=high). This prevents trials
         # that are pruned from bloating the Pareto front.
         def get_dominated_penalty():
-            return -1.0, 0.0, 1_000_000.0
+            # For the 3rd objective (MaxDD), a large negative value is unattractive
+            # because the direction is now 'maximize'.
+            return -1.0, 0.0, -1_000_000.0
 
         flat_params = self._suggest_parameters(trial)
         params = nest_params(flat_params)
@@ -161,7 +163,8 @@ class Objective:
         # may still prune based on the first objective if it's reported, but
         # we are not reporting intermediate values here.
 
-        return final_sqn, final_pf, final_mdd
+        # Return negative MDD because we want to maximize it (equivalent to minimizing MDD)
+        return final_sqn, final_pf, -final_mdd
 
     def _get_jittered_params(self, trial: optuna.Trial) -> dict:
         """
