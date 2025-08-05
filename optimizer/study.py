@@ -32,7 +32,7 @@ def create_study(storage_path: str, study_name: str) -> optuna.Study:
     return optuna.create_study(
         study_name=study_name,
         storage=storage_path,
-        directions=['maximize', 'maximize', 'minimize'],  # SQN (max), ProfitFactor (max), MaxDD (min)
+        directions=['maximize', 'maximize', 'maximize'],  # SQN (max), ProfitFactor (max), -MaxDD (max)
         load_if_exists=False, # Each cycle should be a fresh study
         pruner=pruner,
         sampler=sampler
