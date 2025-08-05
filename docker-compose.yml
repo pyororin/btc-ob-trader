@@ -194,6 +194,7 @@ services:
     working_dir: /app
     volumes:
       - .:/app
+      - ./data/params:/data/params
       - ./data/wfo_results:/app/data/wfo_results
     env_file:
       - .env
