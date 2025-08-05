@@ -199,6 +199,7 @@ services:
       - .env
     environment:
       - DB_HOST=timescaledb
+      - PYTHONPATH=/app
     depends_on:
       timescaledb:
         condition: service_healthy

@@ -174,7 +174,7 @@ run-wfo: ## Run a full Walk-Forward Optimization analysis.
 	@echo "Starting Walk-Forward Optimization (WFO) Runner..."
 	@echo "This will take a long time to complete."
 	@mkdir -p ./data/wfo_results
-	$(DOCKER_CMD) run --rm --no-deps wfo-runner
+	$(DOCKER_CMD) run --rm wfo-runner
 	@echo "WFO run finished. Results are stored in the 'wfo_results' table in the database."
 
 # ==============================================================================
