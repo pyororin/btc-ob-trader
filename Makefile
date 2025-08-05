@@ -1,3 +1,11 @@
+# Default docker command
+DOCKER_CMD = docker compose
+
+# If JULES_ENV is set, use sudo
+ifeq ($(JULES_ENV),true)
+  DOCKER_CMD = sudo docker compose
+endif
+
 -include .env
 export
 
@@ -22,7 +30,7 @@ help:
 # ==============================================================================
 up: ## Start all services including the bot, optimizer, and drift monitor.
 	@echo "Starting all services (bot, optimizer, drift-monitor)..."
-	sudo docker compose up -d --build bot drift-monitor optimizer grafana adminer report-generator
+	$(DOCKER_CMD) up -d --build bot drift-monitor optimizer grafana adminer report-generator
 	$(MAKE) migrate
 
 update: ## Pull the latest changes and restart the bot, optimizer, and drift-monitor services.
@@ -30,11 +38,11 @@ update: ## Pull the latest changes and restart the bot, optimizer, and drift-mon
 	git pull
 	$(MAKE) build
 	@echo "Rebuilding and restarting services: bot, optimizer, drift-monitor..."
-	sudo docker compose up -d --build bot drift-monitor optimizer grafana adminer report-generator
+	$(DOCKER_CMD) up -d --build bot drift-monitor optimizer grafana adminer report-generator
 
 migrate: ## Run database migrations
 	@echo "Running database migrations..."
-	sudo docker compose exec -T timescaledb sh -c '\
+	$(DOCKER_CMD) exec -T timescaledb sh -c '\
 	for dir in /docker-entrypoint-initdb.d/01_schema; do \
 		for f in $$dir/*.sql; do \
 			if [ -f "$$f" ]; then \
@@ -46,23 +54,23 @@ migrate: ## Run database migrations
 
 monitor: ## Start monitoring services (DB, Grafana) without the bot.
 	@echo "Starting monitoring services (TimescaleDB, Grafana)..."
-	sudo docker compose up -d timescaledb grafana
+	$(DOCKER_CMD) up -d timescaledb grafana
 
 down: ## Stop and remove all application stack containers.
 	@echo "Stopping application stack..."
-	sudo docker compose down
+	$(DOCKER_CMD) down
 
 logs: ## Follow logs from the bot, optimizer, and drift-monitor services.
 	@echo "Following logs for 'bot', 'optimizer', and 'drift-monitor' services..."
-	sudo docker compose logs -f bot optimizer drift-monitor
+	$(DOCKER_CMD) logs -f bot optimizer drift-monitor
 
 shell: ## Access a shell inside the running bot container.
 	@echo "Accessing shell in 'bot' container..."
-	sudo docker compose exec bot /bin/sh
+	$(DOCKER_CMD) exec bot /bin/sh
 
 clean: ## Stop, remove containers, and remove volumes.
 	@echo "Stopping application stack and removing volumes..."
-	sudo docker compose down -v --remove-orphans
+	$(DOCKER_CMD) down -v --remove-orphans
 
 # ==============================================================================
 # SIMULATE
@@ -81,7 +89,7 @@ simulate: ## Run a backtest using trade data from a local CSV file.
 		unzip -o $(CSV_PATH) -d ./simulation; \
 		UNZIPPED_CSV_PATH=/simulation/$$(basename $(CSV_PATH) .zip).csv; \
 		echo "Using unzipped file: $$UNZIPPED_CSV_PATH"; \
-		sudo docker compose run --rm --no-deps \
+		$(DOCKER_CMD) run --rm --no-deps \
 			-v $$(pwd)/simulation:/simulation \
 			bot-simulate \
 			--simulate --config=config/app_config.yaml \
@@ -89,7 +97,7 @@ simulate: ## Run a backtest using trade data from a local CSV file.
 	else \
 		HOST_CSV_PATH=$$(realpath $(CSV_PATH)); \
 		CONTAINER_CSV_PATH=/simulation/$$(basename $(CSV_PATH)); \
-		sudo docker compose run --rm --no-deps \
+		$(DOCKER_CMD) run --rm --no-deps \
 			-v $$HOST_CSV_PATH:$$CONTAINER_CSV_PATH \
 			-v $$(pwd)/simulation:/simulation \
 			bot-simulate \
@@ -115,7 +123,7 @@ export-sim-data: ## Export order book data. Use HOURS_BEFORE or START_TIME/END_T
 		FLAGS="$$FLAGS --no-zip"; \
 	fi; \
 	echo "Running export with flags: $$FLAGS"; \
-	sudo docker compose run --rm \
+	$(DOCKER_CMD) run --rm \
 		-v $$(pwd)/simulation:/app/simulation \
 		-e DB_USER=$(DB_USER) \
 		-e DB_PASSWORD=$(DB_PASSWORD) \
@@ -136,9 +144,9 @@ report: ## Generate and display a PnL report from the latest simulation CSV.
 		exit 1; \
 	fi; \
 	echo "Running simulation on $$SIM_CSV_PATH..."; \
-	sudo docker compose up -d --wait report-generator; \
+	$(DOCKER_CMD) up -d --wait report-generator; \
 	SIM_OUTPUT=$$(make simulate CSV_PATH=$$SIM_CSV_PATH); \
-	echo "$${SIM_OUTPUT}" | sudo docker compose exec -T report-generator build/report
+	echo "$${SIM_OUTPUT}" | $(DOCKER_CMD) exec -T report-generator build/report
 
 optimize: ## Manually trigger a 'scheduled' optimization run.
 	@echo "Manually triggering a 'scheduled' optimization run..."
@@ -151,7 +159,7 @@ optimize: ## Manually trigger a 'scheduled' optimization run.
 	@echo '{"trigger_type": "manual", "window_is_hours": 4, "window_oos_hours": 1, "timestamp": '$(shell date +%s)'}' > ./data/params/optimization_job.json
 	@echo "Job file created. Tailing optimizer logs..."
 	@echo "Press Ctrl+C to stop tailing."
-	@sudo docker compose logs -f optimizer
+	@$(DOCKER_CMD) logs -f optimizer
 
 force_optimize: ## Force a new optimization run by removing any existing job file.
 	@echo "Forcibly starting a new optimization run..."
@@ -166,14 +174,14 @@ run-wfo: ## Run a full Walk-Forward Optimization analysis.
 	@echo "Starting Walk-Forward Optimization (WFO) Runner..."
 	@echo "This will take a long time to complete."
 	@mkdir -p ./data/wfo_results
-	sudo docker compose run --rm --no-deps wfo-runner
+	$(DOCKER_CMD) run --rm wfo-runner
 	@echo "WFO run finished. Results are stored in the 'wfo_results' table in the database."
 
 # ==============================================================================
 # GO BUILDS & TESTS
 # ==============================================================================
 # Define a helper to run commands inside a temporary Go builder container
-DOCKER_RUN_GO = sudo docker compose run --rm --service-ports --entrypoint "" builder
+DOCKER_RUN_GO = $(DOCKER_CMD) run --rm --service-ports --entrypoint "" builder
 
 test: ## Run standard Go tests (excluding DB-dependent tests).
 	@echo "Running standard Go tests..."
@@ -205,7 +213,7 @@ build: ## Build the Go application binary inside the container.
 
 build-image: ## Build the Docker image for the bot.
 	@echo "Building Docker image..."
-	sudo docker build -t obi-scalp-bot-image:latest .
+	docker build -t obi-scalp-bot-image:latest .
 
 # ==============================================================================
 # GRAFANA DASHBOARDS
