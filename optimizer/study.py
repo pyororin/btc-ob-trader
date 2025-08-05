@@ -290,12 +290,15 @@ def warm_start_with_recent_trials(study: optuna.Study, recent_days: int):
         all_summaries = optuna.get_all_study_summaries(storage=config.STORAGE_URL)
         # Filter out the current study
         completed_studies = [s for s in all_summaries if s.study_name != study.study_name]
-        if not completed_studies:
-            logging.info("No previous studies found for warm-start.")
+
+        # Filter out studies that have not started (datetime_start is None)
+        started_studies = [s for s in completed_studies if s.datetime_start is not None]
+        if not started_studies:
+            logging.info("No previous started studies found for warm-start.")
             return
 
-        completed_studies.sort(key=lambda s: s.datetime_start, reverse=True)
-        latest_study_summary = completed_studies[0]
+        started_studies.sort(key=lambda s: s.datetime_start, reverse=True)
+        latest_study_summary = started_studies[0]
 
         previous_study = optuna.load_study(
             study_name=latest_study_summary.study_name,
