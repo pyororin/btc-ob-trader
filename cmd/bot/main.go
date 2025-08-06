@@ -563,10 +563,19 @@ func processSignalsAndExecute(injector *do.Injector, obiCalculator *indicator.OB
 						}
 
 						if orderAmount >= 0.001 {
+							tradeParams := engine.TradeParams{
+								Pair:      currentCfg.Trade.Pair,
+								OrderType: orderType,
+								Rate:      finalPrice,
+								Amount:    orderAmount,
+								PostOnly:  false,
+								TP:        tradingSignal.TakeProfit,
+								SL:        tradingSignal.StopLoss,
+							}
 							if bool(currentCfg.Trade.Twap.Enabled) && orderAmount > currentCfg.Trade.Twap.MaxOrderSizeBtc {
-								go executeTwapOrder(ctx, execEngine, currentCfg.Trade.Pair, orderType, finalPrice, orderAmount)
+								go executeTwapOrder(ctx, execEngine, tradeParams)
 							} else {
-								execEngine.PlaceOrder(ctx, currentCfg.Trade.Pair, orderType, finalPrice, orderAmount, false)
+								execEngine.PlaceOrder(ctx, tradeParams)
 							}
 						}
 					}
@@ -577,12 +586,13 @@ func processSignalsAndExecute(injector *do.Injector, obiCalculator *indicator.OB
 }
 
 // ... (executeTwapOrder remains the same)
-func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, pair, orderType string, price, totalAmount float64) {
+func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, baseParams engine.TradeParams) {
 	if liveEngine, ok := execEngine.(*engine.LiveExecutionEngine); ok {
 		defer liveEngine.SetPartialExitStatus(false)
 	}
 
 	cfg := config.GetConfig()
+	totalAmount := baseParams.Amount
 	numOrders := int(math.Floor(totalAmount / cfg.Trade.Twap.MaxOrderSizeBtc))
 	lastOrderSize := totalAmount - float64(numOrders)*cfg.Trade.Twap.MaxOrderSizeBtc
 	chunkSize := cfg.Trade.Twap.MaxOrderSizeBtc
@@ -594,11 +604,13 @@ func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, pa
 	for i := 0; i < numOrders; i++ {
 		select {
 		case <-ctx.Done():
-			logger.Warnf("TWAP execution cancelled for order type %s.", orderType)
+			logger.Warnf("TWAP execution cancelled for order type %s.", baseParams.OrderType)
 			return
 		default:
 			logger.Infof("TWAP chunk %d/%d: Placing order for %.8f BTC.", i+1, numOrders, chunkSize)
-			_, err := execEngine.PlaceOrder(ctx, pair, orderType, price, chunkSize, false)
+			chunkParams := baseParams
+			chunkParams.Amount = chunkSize
+			_, err := execEngine.PlaceOrder(ctx, chunkParams)
 			if err != nil {
 				logger.Warnf("Error in TWAP chunk %d: %v. Aborting.", i+1, err)
 				return
@@ -611,11 +623,13 @@ func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, pa
 	if lastOrderSize > 1e-8 { // Avoid placing virtually zero-sized orders
 		select {
 		case <-ctx.Done():
-			logger.Warnf("TWAP execution cancelled before placing the last chunk for order type %s.", orderType)
+			logger.Warnf("TWAP execution cancelled before placing the last chunk for order type %s.", baseParams.OrderType)
 			return
 		default:
 			logger.Infof("TWAP last chunk: Placing order for %.8f BTC.", lastOrderSize)
-			_, err := execEngine.PlaceOrder(ctx, pair, orderType, price, lastOrderSize, false)
+			lastChunkParams := baseParams
+			lastChunkParams.Amount = lastOrderSize
+			_, err := execEngine.PlaceOrder(ctx, lastChunkParams)
 			if err != nil {
 				logger.Warnf("Error in TWAP last chunk: %v. Aborting.", err)
 			} else {
@@ -792,7 +806,16 @@ func runSimulation(ctx context.Context, f *flags, sigs chan<- os.Signal, summary
 						orderType = "sell"
 					}
 					if orderType != "" {
-						_, err := replayEngine.PlaceOrder(ctx, cfg.Trade.Pair, orderType, tradingSignal.EntryPrice, cfg.Trade.OrderAmount, false)
+						tradeParams := engine.TradeParams{
+							Pair:      cfg.Trade.Pair,
+							OrderType: orderType,
+							Rate:      tradingSignal.EntryPrice,
+							Amount:    cfg.Trade.OrderAmount,
+							PostOnly:  false,
+							TP:        tradingSignal.TakeProfit,
+							SL:        tradingSignal.StopLoss,
+						}
+						_, err := replayEngine.PlaceOrder(ctx, tradeParams)
 						if err != nil && !f.jsonOutput {
 							logger.Warnf("Replay engine failed to place order: %v", err)
 						}
@@ -1385,7 +1408,13 @@ func orderMonitor(ctx context.Context, execEngine engine.ExecutionEngine, client
 					}
 					currentCfg := config.GetConfig()
 					logger.Infof("Re-placing order for pair %s, type %s, new rate %.2f, amount %.8f", order.Pair, order.OrderType, newRate, pendingAmount)
-					_, err = execEngine.PlaceOrder(ctx, currentCfg.Trade.Pair, order.OrderType, newRate, pendingAmount, false)
+					params := engine.TradeParams{
+						Pair:      currentCfg.Trade.Pair,
+						OrderType: order.OrderType,
+						Rate:      newRate,
+						Amount:    pendingAmount,
+					}
+					_, err = execEngine.PlaceOrder(ctx, params)
 					if err != nil {
 						logger.Warnf("Failed to re-place order after adjustment for original ID %d: %v", order.ID, err)
 					} else {
@@ -1429,7 +1458,13 @@ func positionMonitor(ctx context.Context, execEngine engine.ExecutionEngine, ord
 
 			if exitOrder := liveEngine.CheckAndTriggerPartialExit(midPrice); exitOrder != nil {
 				currentCfg := config.GetConfig()
-				go executeTwapOrder(ctx, execEngine, currentCfg.Trade.Pair, exitOrder.OrderType, exitOrder.Price, exitOrder.Size)
+				params := engine.TradeParams{
+					Pair:      currentCfg.Trade.Pair,
+					OrderType: exitOrder.OrderType,
+					Rate:      exitOrder.Price,
+					Amount:    exitOrder.Size,
+				}
+				go executeTwapOrder(ctx, execEngine, params)
 			}
 		}
 	}
