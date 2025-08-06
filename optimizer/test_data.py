@@ -65,21 +65,23 @@ class TestDataSplitter(unittest.TestCase):
         self.assertTrue(is_path.exists())
         self.assertTrue(oos_path.exists())
 
-        # The split should be after the 8th data line (index 7)
-        # 1 header line + 8 data lines = 9 lines in IS file
-        # 1 header line + 2 data lines = 3 lines in OOS file
+        # With the new timestamp-based logic, the split should happen 2 minutes
+        # before the last timestamp (12:09:00).
+        # Split time = 12:07:00.
+        # IS data: < 12:07:00 (7 data lines: 12:00 to 12:06)
+        # OOS data: >= 12:07:00 (3 data lines: 12:07, 12:08, 12:09)
         with open(is_path, 'r') as f:
             is_lines = f.readlines()
         with open(oos_path, 'r') as f:
             oos_lines = f.readlines()
 
-        self.assertEqual(len(is_lines), 9) # Header + 8 data lines
-        self.assertEqual(len(oos_lines), 3) # Header + 2 data lines
+        self.assertEqual(len(is_lines), 8)  # Header + 7 data lines
+        self.assertEqual(len(oos_lines), 4)  # Header + 3 data lines
 
         # Check the last line of IS data
-        self.assertIn("2025-01-01T12:07:00+00:00", is_lines[-1])
+        self.assertIn("2025-01-01T12:06:00+00:00", is_lines[-1])
         # Check the first line of OOS data
-        self.assertIn("2025-01-01T12:08:00+00:00", oos_lines[1])
+        self.assertIn("2025-01-01T12:07:00+00:00", oos_lines[1])
 
 class TestTimestampParser(unittest.TestCase):
 

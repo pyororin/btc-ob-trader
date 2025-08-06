@@ -3,7 +3,7 @@ import subprocess
 import shutil
 import os
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Union, Tuple
 
 from . import config
@@ -230,9 +230,10 @@ def export_and_split_data_for_daemon(total_hours: float, oos_hours: float) -> Tu
 
 def _split_data_by_ratio(full_dataset_path: Path, total_hours: float, oos_hours: float, output_dir: Path) -> tuple[Path, Path]:
     """
-    Splits a CSV file into In-Sample (IS) and Out-of-Sample (OOS) sets based on a time ratio.
+    Splits a CSV file into In-Sample (IS) and Out-of-Sample (OOS) sets.
+    The OOS set is defined as the last `oos_hours` of the data.
+    The `total_hours` parameter is ignored, kept for compatibility.
     """
-    is_ratio = (total_hours - oos_hours) / total_hours
     is_path = output_dir / "is_data.csv"
     oos_path = output_dir / "oos_data.csv"
 
@@ -249,13 +250,41 @@ def _split_data_by_ratio(full_dataset_path: Path, total_hours: float, oos_hours:
             f_oos.write(header)
         return is_path, oos_path
 
-    # Fallback to simple line-based split, which is what the old version did
-    split_index = int(len(data_lines) * is_ratio)
+    try:
+        # Determine the split time based on the timestamp of the last data line
+        last_line_ts_str = data_lines[-1].split(',')[0]
+        last_ts = _parse_timestamp(last_line_ts_str)
+        split_time = last_ts - timedelta(hours=oos_hours)
+        logging.info(f"Calculated split time for daemon mode: {split_time.isoformat()}")
+
+    except (ValueError, IndexError) as e:
+        logging.error(f"Could not determine split time from data due to error: {e}. Aborting split.")
+        # Create empty files to prevent downstream errors
+        with open(is_path, 'w') as f_is, open(oos_path, 'w') as f_oos:
+            f_is.write(header)
+            f_oos.write(header)
+        return is_path, oos_path
+
+    # Split data based on the calculated timestamp
     with open(is_path, 'w') as f_is, open(oos_path, 'w') as f_oos:
         f_is.write(header)
-        f_is.writelines(data_lines[:split_index])
         f_oos.write(header)
-        f_oos.writelines(data_lines[split_index:])
+        split_found = False
+        for line in data_lines:
+            try:
+                current_time_str = line.split(',')[0]
+                current_time = _parse_timestamp(current_time_str)
+                if current_time < split_time:
+                    f_is.write(line)
+                else:
+                    f_oos.write(line)
+                    split_found = True
+            except (ValueError, IndexError) as e:
+                logging.warning(f"Skipping line due to parse error: {e}. Line: '{line.strip()}'")
+                continue
+
+        if not split_found:
+            logging.warning(f"Split time {split_time.isoformat()} was after all data points. OOS will be empty.")
 
     is_lines = len((is_path).read_text().splitlines())
     oos_lines = len((oos_path).read_text().splitlines())
