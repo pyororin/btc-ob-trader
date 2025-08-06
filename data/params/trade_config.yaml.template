@@ -57,9 +57,6 @@ adaptive_position_sizing:
 
 # long: ロング（買い）エントリーの戦略設定。
 long:
-  # obi_threshold: [現在未使用] このパラメータは現在、シグナル生成ロジックでは使用されていません。
-  # シグナルは `signal` セクションの複合スコア (`composite_threshold`) に基づいて生成されます。
-  obi_threshold: {{ long.obi_threshold }}
   # tp: 利食い（Take Profit）を行う価格幅を円で指定します。
   # エントリー価格からこの値幅分、価格が上昇した場合に利食い注文が執行されます。
   tp: {{ long.tp }}
@@ -70,9 +67,6 @@ long:
 
 # short: ショート（売り）エントリーの戦略設定。
 short:
-  # obi_threshold: [現在未使用] このパラメータは現在、シグナル生成ロジックでは使用されていません。
-  # シグナルは `signal` セクションの複合スコア (`composite_threshold`) に基づいて生成されます。
-  obi_threshold: {{ short.obi_threshold }}
   # tp: 利食い（Take Profit）を行う価格幅を円で指定します。
   # エントリー価格からこの値幅分、価格が下落した場合に利食い注文が執行されます。
   tp: {{ short.tp }}

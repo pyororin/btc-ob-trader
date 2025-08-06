@@ -217,11 +217,8 @@ class Objective:
         # params['adaptive_min_ratio'] = trial.suggest_float('adaptive_min_ratio', 0.1, 0.8)
 
         # Long/Short Strategy
-        # P1: Use log scale for sensitive thresholds
-        params['long_obi_threshold'] = trial.suggest_float('long_obi_threshold', 0.2, 0.4, log=False)
         params['long_tp'] = trial.suggest_int('long_tp', 50, 200)
         params['long_sl'] = trial.suggest_int('long_sl', -200, -50)
-        params['short_obi_threshold'] = trial.suggest_float('short_obi_threshold', 0.2, 0.4, log=False)
         params['short_tp'] = trial.suggest_int('short_tp', 50, 200)
         params['short_sl'] = trial.suggest_int('short_sl', -200, -50)
 
@@ -231,7 +228,7 @@ class Objective:
         params['ofi_weight'] = trial.suggest_float('ofi_weight', 0.5, 2.0)
         params['cvd_weight'] = trial.suggest_float('cvd_weight', 0.0, 1.0)
         params['micro_price_weight'] = trial.suggest_float('micro_price_weight', 0.0, 0.5)
-        params['composite_threshold'] = trial.suggest_float('composite_threshold', 0.2, 1.2)
+        params['composite_threshold'] = trial.suggest_float('composite_threshold', 0.1, 0.5)
 
         # Signal Slope Filter (Fixed in template)
         # params['slope_filter_enabled'] = trial.suggest_categorical('slope_filter_enabled', [True, False])
