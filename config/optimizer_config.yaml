@@ -32,11 +32,11 @@ oos_min_sharpe_ratio: 0.5
 # --- リトライ & 早期停止基準 ---
 # OOS評価で不合格だった場合に、IS(In-Sample)の上位から何位までのパラメータを試すかの最大数。
 # 例: 5
-max_retry: 20
+max_retry: 5
 
 # OOS評価のシャープレシオが著しく低い結果が連続した場合に、リトライを早期停止する回数。
 # 例: 2
-early_stop_count: 20
+early_stop_count: 5
 
 # 早期停止のトリガーとなるシャープレシオの閾値の割合。
 # (OOS_MIN_SHARPE_RATIO * この値) を下回る結果が続くと早期停止します。
