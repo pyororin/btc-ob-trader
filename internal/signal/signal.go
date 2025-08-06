@@ -317,75 +317,51 @@ func (e *SignalEngine) calculateOBISlope() float64 {
 	return slope
 }
 
-// Helper function (can be moved to a common utility if used elsewhere)
-// Consider precision if converting float64 to string for decimal.
-// For now, this is a placeholder. A more robust conversion might be needed.
-// This float64ToString is not defined in indicator pkg. It's a conceptual placeholder.
-// Let's assume direct decimal.NewFromFloat for now, and if precision issues arise, address them.
-// For OFI, direct NewFromFloat should be fine if input floats are already clean.
-// The OFICalculator was designed with decimal.Decimal.
-// Let's remove the placeholder `indicator.Float64ToString` and use `decimal.NewFromFloat` directly.
-// The `UpdateMarketData` will use `decimal.NewFromFloat` for OFI parameters.
+// GetCurrentLongOBIThreshold returns the current dynamic threshold for a long signal.
+func (e *SignalEngine) GetCurrentLongOBIThreshold() float64 {
+	baseThreshold := e.config.CompositeThreshold
+	if !bool(e.config.DynamicOBIConf.Enabled) {
+		return baseThreshold
+	}
 
-// The `indicator.Float64ToString` was a misinterpretation.
-// `decimal.NewFromFloat(value)` is the correct way.
-// Re-adjusting the UpdateMarketData for OFI part.
-// The previous change to UpdateMarketData already used decimal.NewFromFloat indirectly via indicator.Float64ToString.
-// Let's ensure it's clean.
-// The OFI calculator expects decimal.Decimal. The inputs `bestBid`, etc. are float64.
-// So, conversion is `dBestBid := decimal.NewFromFloat(bestBid)`
-// This has been done in the diff by using `decimal.NewFromString(indicator.Float64ToString(bestBid))`
-// which is more complex than `decimal.NewFromFloat(bestBid)`.
-// Let's simplify that part of the diff.
+	volatility := e.volatilityCalc.GetEWMStandardDeviation()
+	dynamicThreshold := baseThreshold + (volatility * e.config.DynamicOBIConf.VolatilityFactor)
 
-// Corrected OFI part in UpdateMarketData in the diff that will be generated:
-//	decBestBid := decimal.NewFromFloat(bestBid)
-//	decBestAsk := decimal.NewFromFloat(bestAsk)
-//	decBestBidSize := decimal.NewFromFloat(bestBidSize)
-//	decBestAskSize := decimal.NewFromFloat(bestAskSize)
-//
-//	_ = e.ofiCalc.UpdateAndCalculateOFI(
-//		decBestBid, decBestAsk,
-//		decBestBidSize, decBestAskSize,
-//	)
-// This correction will be applied in the actual diff generation.
-// The current diff uses `NewFromString(indicator.Float64ToString(floatVal))`.
-// I will fix this in the actual application of the change.
-// The `replace_with_git_merge_diff` tool will receive the corrected version.
-// The `indicator.Float64ToString` helper does not exist, so it must be `decimal.NewFromFloat`.
-// The provided diff has this structure:
-// decBestBid, _ := decimal.NewFromString(indicator.Float64ToString(bestBid))
-// This needs to be changed to:
-// decBestBid := decimal.NewFromFloat(bestBid)
-// (and similarly for other decimal conversions for OFI).
-// The `shopspring/decimal` package should be imported.
-// The provided diff already imports `shopspring/decimal`.
-// The tool will apply the diff as is for now, and if there's a compile error due to `indicator.Float64ToString`
-// I will fix it in the next step. For now, I'll assume it's a placeholder that was intended to be `decimal.NewFromFloat`.
+	minThreshold := baseThreshold * e.config.DynamicOBIConf.MinThresholdFactor
+	if dynamicThreshold < minThreshold {
+		dynamicThreshold = minThreshold
+	}
 
-// The provided diff is:
-// +	"github.com/shopspring/decimal"
-// ...
-// +	decBestBid, _ := decimal.NewFromString(indicator.Float64ToString(bestBid))
-// This `indicator.Float64ToString` is the issue. I will proceed with this diff and fix this specific conversion
-// in a subsequent step if the linter/compiler complains, or ideally, preemptively fix it if I can modify the diff content directly.
-// Since I cannot modify the diff content directly before the tool call, I will make a note to fix this after this step.
-// For now, I will assume the tool applies the diff and I'll address `indicator.Float64ToString` immediately after.
+	maxThreshold := baseThreshold * e.config.DynamicOBIConf.MaxThresholdFactor
+	if dynamicThreshold > maxThreshold {
+		dynamicThreshold = maxThreshold
+	}
 
-// The user instruction implies that Jules should make a best effort to ensure CI passes.
-// So, I should fix the `indicator.Float64ToString` part.
-// The `replace_with_git_merge_diff` tool takes the code block as is.
-// I will modify the SEARCH/REPLACE block to use `decimal.NewFromFloat()`
+	return dynamicThreshold
+}
 
-// Corrected version for the diff:
-// Replace:
-// +	decBestBid, _ := decimal.NewFromString(indicator.Float64ToString(bestBid))
-// +	decBestAsk, _ := decimal.NewFromString(indicator.Float64ToString(bestAsk))
-// +	decBestBidSize, _ := decimal.NewFromString(indicator.Float64ToString(bestBidSize))
-// +	decBestAskSize, _ := decimal.NewFromString(indicator.Float64ToString(bestAskSize))
-// With:
-// +	decBestBid := decimal.NewFromFloat(bestBid)
-// +	decBestAsk := decimal.NewFromFloat(bestAsk)
-// +	decBestBidSize := decimal.NewFromFloat(bestBidSize)
-// +	decBestAskSize := decimal.NewFromFloat(bestAskSize)
-// This change will be incorporated into the diff provided to the tool.
+// GetCurrentShortOBIThreshold returns the current dynamic threshold for a short signal.
+func (e *SignalEngine) GetCurrentShortOBIThreshold() float64 {
+	// For short signals, the threshold is negative.
+	baseThreshold := -e.config.CompositeThreshold
+	if !bool(e.config.DynamicOBIConf.Enabled) {
+		return baseThreshold
+	}
+
+	// Volatility should make the threshold further from zero (i.e., more negative).
+	volatility := e.volatilityCalc.GetEWMStandardDeviation()
+	dynamicThreshold := baseThreshold - (volatility * e.config.DynamicOBIConf.VolatilityFactor)
+
+	// Clamp the threshold. Note that min/max logic is inverted for negative numbers.
+	minThreshold := baseThreshold * e.config.DynamicOBIConf.MaxThresholdFactor // e.g., -0.1 * 1.5 = -0.15 (more negative)
+	if dynamicThreshold < minThreshold {
+		dynamicThreshold = minThreshold
+	}
+
+	maxThreshold := baseThreshold * e.config.DynamicOBIConf.MinThresholdFactor // e.g., -0.1 * 0.8 = -0.08 (less negative)
+	if dynamicThreshold > maxThreshold {
+		dynamicThreshold = maxThreshold
+	}
+
+	return dynamicThreshold
+}
