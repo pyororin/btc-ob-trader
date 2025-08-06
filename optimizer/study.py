@@ -172,6 +172,10 @@ def analyze_and_validate(study: optuna.Study, oos_csv_path: Path, cycle_dir: Pat
         # Save the best parameters for this specific cycle
         _save_cycle_best_parameters(validation_result['params'], cycle_dir)
 
+        # Also update the global configuration file
+        logging.info("Updating global trade_config.yaml with the best parameters from this cycle.")
+        _save_global_best_parameters(validation_result['params'])
+
         # Combine IS and OOS results into a final summary for this cycle
         final_summary = {
             "cycle_id": cycle_dir.name,
