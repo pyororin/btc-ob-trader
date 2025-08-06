@@ -80,6 +80,6 @@ def run_optimization(study: optuna.Study, csv_path: str, n_trials: int, storage_
         n_trials: The number of trials to run.
         storage_path: The path to the Optuna storage.
     """
-    study.set_user_attr('current_csv_path', csv_path)
+    study.set_user_attr('current_csv_path', str(csv_path))
     objective = Objective(study)
     study.optimize(objective, n_trials=n_trials)
