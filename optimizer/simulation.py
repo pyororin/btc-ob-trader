@@ -58,6 +58,7 @@ def run_simulation(params: dict, sim_csv_path: Path) -> dict:
         ]
 
         # 3. Execute the command
+        logging.debug(f"Running simulation command: {' '.join(command)}")
         result = subprocess.run(
             command,
             capture_output=True,
@@ -67,7 +68,9 @@ def run_simulation(params: dict, sim_csv_path: Path) -> dict:
         )
 
         # 4. Parse the JSON output from stdout
-        return json.loads(result.stdout)
+        output_json = json.loads(result.stdout)
+        logging.debug(f"Simulation result JSON: {json.dumps(output_json)}")
+        return output_json
 
     except subprocess.CalledProcessError as e:
         logging.error(f"Simulation failed for config {temp_config_file}: {e.stderr}")

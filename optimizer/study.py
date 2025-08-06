@@ -208,7 +208,12 @@ def _get_oos_candidates(study: optuna.Study, scored_trials: list) -> list[dict]:
     for rank, (trial, score) in enumerate(scored_trials):
         if len(candidates) >= config.MAX_RETRY:
              break
-        candidates.append({'params': trial.params, 'source': f'is_rank_{rank+1}'})
+        # Pass the full trial object to access user_attrs later
+        candidates.append({
+            'trial': trial,
+            'params': trial.params,
+            'source': f'is_rank_{rank+1}'
+        })
 
     return candidates
 
@@ -317,7 +322,17 @@ def analyze_and_validate_for_daemon(study: optuna.Study, oos_csv_path: Path) -> 
             logging.warning(f"Reached max_retry limit of {config.MAX_RETRY}. Stopping OOS validation.")
             break
 
-        logging.info(f"--- Running OOS Validation attempt #{i+1} (source: {candidate['source']}) ---")
+        # --- Enhanced Logging for OOS Validation ---
+        is_trial = candidate['trial']
+        logging.info(
+            f"--- Running OOS Validation attempt #{i+1} (source: {candidate['source']}) ---\n"
+            f"  IS Performance (Trial #{is_trial.number}): "
+            f"SQN={is_trial.user_attrs.get('sqn', 0.0):.2f}, "
+            f"PF={is_trial.user_attrs.get('profit_factor', 0.0):.2f}, "
+            f"Trades={is_trial.user_attrs.get('trades', 0)}, "
+            f"RelDD={is_trial.user_attrs.get('relative_drawdown', 0.0):.2%}"
+        )
+
         nested_params = nest_params(candidate['params'])
         oos_summary = run_simulation(nested_params, oos_csv_path)
 

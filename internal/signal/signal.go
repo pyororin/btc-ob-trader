@@ -2,7 +2,6 @@
 package signal
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -198,16 +197,25 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 		}
 	}
 
+	// Determine the effective threshold for the current signal direction
+	var effectiveThreshold float64
+	if compositeScore > 0 {
+		effectiveThreshold = e.GetCurrentLongOBIThreshold()
+	} else {
+		effectiveThreshold = e.GetCurrentShortOBIThreshold()
+	}
+
 	rawSignal := SignalNone
-	if compositeScore >= e.config.CompositeThreshold {
+	if compositeScore > 0 && compositeScore >= effectiveThreshold {
 		rawSignal = SignalLong
-	} else if compositeScore <= -e.config.CompositeThreshold {
+	} else if compositeScore < 0 && compositeScore <= effectiveThreshold {
 		rawSignal = SignalShort
 	}
 
 	// Apply slope filter
+	slope := 0.0
 	if bool(e.slopeFilterConfig.Enabled) && rawSignal != SignalNone {
-		slope := e.calculateOBISlope()
+		slope = e.calculateOBISlope()
 		if rawSignal == SignalLong && slope < e.slopeFilterConfig.Threshold {
 			rawSignal = SignalNone
 		}
@@ -216,8 +224,16 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 		}
 	}
 
-	logger.Debugf("Score: %.4f, Thr: %.4f, RawSignal: %s, CurrentSignal: %s, OBI: %.4f, OFI: %.4f, CVD: %.4f, MicroPriceDiff: %.4f",
-		compositeScore, e.config.CompositeThreshold, rawSignal, e.currentSignal, obiValue, e.ofiValue, e.cvdValue, microPriceDiff)
+	// --- Enhanced Logging ---
+	logger.Infof(
+		"SignalEval: Score=%.4f | Thr=%.4f | Signal=%s | OBI=%.4f (w:%.2f) OFI=%.4f (w:%.2f) CVD=%.4f (w:%.2f) MPD=%.4f (w:%.2f) | Regime=%s (H:%.2f) Slope=%.2f",
+		compositeScore, effectiveThreshold, rawSignal,
+		obiValue, e.config.OBIWeight,
+		e.ofiValue, e.config.OFIWeight,
+		e.cvdValue, e.config.CVDWeight,
+		microPriceDiff, e.config.MicroPriceWeight,
+		e.currentRegime, e.hurstExponent, slope,
+	)
 
 	if rawSignal != e.currentSignal {
 		if e.config.SignalHoldDuration > 0 {
@@ -257,11 +273,17 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 			e.lastSignal = e.currentSignal
 			e.lastSignalTime = currentTime
 
-			logMessage := fmt.Sprintf("Signal %s confirmed. OBI: %.4f", e.currentSignal, obiValue)
-			if e.config.SignalHoldDuration > 0 {
-				logMessage += fmt.Sprintf(", Held for: %v", holdDuration)
+			// --- Enhanced Logging for Signal Confirmation ---
+			confirmationReason := "HoldDurationMet"
+			if e.config.SignalHoldDuration == 0 {
+				confirmationReason = "NoHoldDuration"
+			} else if isStableSignal {
+				confirmationReason = "StableSignalOverride"
 			}
-			logger.Debug(logMessage)
+			logger.Infof(
+				"SignalConfirmed: Type=%s | Reason=%s | Score=%.4f | OBI=%.4f | HoldTime=%v",
+				e.currentSignal, confirmationReason, compositeScore, obiValue, holdDuration,
+			)
 
 			// Calculate TP/SL prices based on currentMidPrice at signal confirmation
 			var tpPrice, slPrice float64

@@ -132,6 +132,14 @@ class Objective:
         final_pf = mean_pf - (lambda_penalty * std_pf)
         final_mdd = mean_mdd + (lambda_penalty * std_mdd) # Add penalty for instability
 
+        # --- Enhanced Logging for Stability ---
+        logging.info(
+            f"Trial {trial.number} Stability Analysis: "
+            f"SQN(μ={mean_sqn:.2f}, σ={std_sqn:.2f}, final={final_sqn:.2f}), "
+            f"PF(μ={mean_pf:.2f}, σ={std_pf:.2f}, final={final_pf:.2f}), "
+            f"MDD(μ={mean_mdd:.2f}, σ={std_mdd:.2f}, final={final_mdd:.2f})"
+        )
+
         # Store all calculated metrics in user_attrs for later analysis
         self._calculate_and_set_metrics(trial, summary) # Set for the original run
         trial.set_user_attr("mean_sqn", mean_sqn)
@@ -146,7 +154,7 @@ class Objective:
         # Pruning based on minimum trade count
         total_trades = trial.user_attrs.get("trades", 0)
         if total_trades < config.MIN_TRADES_FOR_PRUNING:
-            logging.debug(f"Trial {trial.number} has {total_trades} trades (min: {config.MIN_TRADES_FOR_PRUNING}). Returning penalty.")
+            logging.info(f"Trial {trial.number}: Penalized due to low trade count. Trades={total_trades}, MinTrades={config.MIN_TRADES_FOR_PRUNING}.")
             return get_dominated_penalty()
 
         # Soft constraint for high drawdown
@@ -154,7 +162,7 @@ class Objective:
         DD_PENALTY_THRESHOLD = 0.25
         relative_drawdown = trial.user_attrs.get("relative_drawdown", 1.0)
         if relative_drawdown > DD_PENALTY_THRESHOLD:
-            logging.debug(f"Trial {trial.number} penalized for high relative drawdown: {relative_drawdown:.2%}")
+            logging.info(f"Trial {trial.number}: Penalized due to high relative drawdown. Drawdown={relative_drawdown:.2%}, Threshold={DD_PENALTY_THRESHOLD:.2%}.")
             # Return values that are very unattractive for the optimizer
             return get_dominated_penalty()
 
