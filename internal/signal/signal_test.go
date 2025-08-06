@@ -96,14 +96,12 @@ EndLoop:
 func newTestSignalEngine(holdDurationMs int, compositeThreshold float64, weights map[string]float64) *SignalEngine {
 	tradeCfg := &config.TradeConfig{
 		Long: config.StrategyConf{
-			OBIThreshold: 0.5,
-			TP:           0.1,
-			SL:           -0.1,
+			TP: 0.1,
+			SL: -0.1,
 		},
 		Short: config.StrategyConf{
-			OBIThreshold: -0.5,
-			TP:           0.1,
-			SL:           -0.1,
+			TP: 0.1,
+			SL: -0.1,
 		},
 		Signal: config.SignalConfig{
 			HoldDurationMs:     holdDurationMs,
@@ -172,7 +170,83 @@ func TestSignalEngine_Evaluate_CompositeSignal(t *testing.T) {
 	if assert.NotNil(t, signal) {
 		assert.Equal(t, SignalShort, signal.Type)
 	}
+}
 
+func TestSignalEngine_DynamicOBIThreshold(t *testing.T) {
+	weights := map[string]float64{"obi": 1.0, "ofi": 0.0, "cvd": 0.0, "microprice": 0.0}
+	engine := newTestSignalEngine(0, 0.1, weights)
+
+	// Setup Dynamic OBI config
+	engine.config.DynamicOBIConf = config.DynamicOBIConf{
+		Enabled:          config.FlexBool(true),
+		VolatilityFactor: 0.5,
+		MinThresholdFactor: 0.8, // 80% of base
+		MaxThresholdFactor: 1.5, // 150% of base
+	}
+
+	baseLongThreshold := 0.1
+	baseShortThreshold := -0.1
+
+	t.Run("dynamic OBI disabled", func(t *testing.T) {
+		engine.config.DynamicOBIConf.Enabled = false
+		defer func() { engine.config.DynamicOBIConf.Enabled = true }()
+		assert.Equal(t, baseLongThreshold, engine.GetCurrentLongOBIThreshold())
+		assert.Equal(t, baseShortThreshold, engine.GetCurrentShortOBIThreshold())
+	})
+
+	t.Run("volatility is zero", func(t *testing.T) {
+		engine.volatilityCalc.Update(100) // First update, vol is 0
+		assert.Equal(t, baseLongThreshold, engine.GetCurrentLongOBIThreshold(), "with zero volatility, threshold should be the base value")
+		assert.Equal(t, baseShortThreshold, engine.GetCurrentShortOBIThreshold(), "with zero volatility, threshold should be the base value")
+	})
+
+	t.Run("volatility is positive", func(t *testing.T) {
+		// Simulate some price movement to generate volatility
+		engine.volatilityCalc.Update(100)
+		engine.volatilityCalc.Update(101)
+		engine.volatilityCalc.Update(102)
+		vol := engine.volatilityCalc.GetEWMStandardDeviation()
+		require.Greater(t, vol, 0.0)
+
+		expectedLong := baseLongThreshold + (vol * engine.config.DynamicOBIConf.VolatilityFactor)
+		expectedShort := baseShortThreshold - (vol * engine.config.DynamicOBIConf.VolatilityFactor)
+
+		assert.InDelta(t, expectedLong, engine.GetCurrentLongOBIThreshold(), 1e-9)
+		assert.InDelta(t, expectedShort, engine.GetCurrentShortOBIThreshold(), 1e-9)
+	})
+
+	t.Run("clamped by min threshold", func(t *testing.T) {
+		// Set a negative volatility factor to test the lower bound
+		engine.config.DynamicOBIConf.VolatilityFactor = -10.0
+		defer func() { engine.config.DynamicOBIConf.VolatilityFactor = 0.5 }()
+
+		engine.volatilityCalc.Update(100)
+		engine.volatilityCalc.Update(101)
+		vol := engine.volatilityCalc.GetEWMStandardDeviation()
+		require.Greater(t, vol, 0.0)
+
+		minLong := baseLongThreshold * engine.config.DynamicOBIConf.MinThresholdFactor
+		maxShort := baseShortThreshold * engine.config.DynamicOBIConf.MinThresholdFactor // e.g., -0.1 * 0.8 = -0.08
+
+		assert.Equal(t, minLong, engine.GetCurrentLongOBIThreshold(), "long threshold should be clamped at its minimum")
+		assert.Equal(t, maxShort, engine.GetCurrentShortOBIThreshold(), "short threshold should be clamped at its maximum (closest to zero)")
+	})
+
+	t.Run("clamped by max threshold", func(t *testing.T) {
+		engine.config.DynamicOBIConf.VolatilityFactor = 10.0
+		defer func() { engine.config.DynamicOBIConf.VolatilityFactor = 0.5 }()
+
+		engine.volatilityCalc.Update(100)
+		engine.volatilityCalc.Update(101)
+		vol := engine.volatilityCalc.GetEWMStandardDeviation()
+		require.Greater(t, vol, 0.0)
+
+		maxLong := baseLongThreshold * engine.config.DynamicOBIConf.MaxThresholdFactor
+		minShort := baseShortThreshold * engine.config.DynamicOBIConf.MaxThresholdFactor // e.g., -0.1 * 1.5 = -0.15
+
+		assert.Equal(t, maxLong, engine.GetCurrentLongOBIThreshold(), "long threshold should be clamped at its maximum")
+		assert.Equal(t, minShort, engine.GetCurrentShortOBIThreshold(), "short threshold should be clamped at its minimum (furthest from zero)")
+	})
 }
 
 func TestSignalEngine_CVDAndTimeWindow(t *testing.T) {
