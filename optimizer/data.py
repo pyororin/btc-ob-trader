@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Union, Tuple
+from dateutil.parser import parse as dateutil_parse
 
 from . import config
 
@@ -148,41 +149,21 @@ def _split_data_by_timestamp(full_dataset_path: Path, split_time_str: str, cycle
 def _parse_timestamp(ts_str: str) -> datetime:
     """
     Parses a timestamp string into a timezone-aware datetime object.
-    Supports multiple common formats.
+    Uses the robust dateutil parser and ensures the final object is timezone-aware.
     """
-    original_ts = ts_str.strip()
-
-    # Handle ISO 8601 format, which is the most common
     try:
-        # Replace space with T for full ISO 8601 compatibility
-        if ' ' in original_ts and 'T' not in original_ts:
-            original_ts = original_ts.replace(' ', 'T', 1)
-        # Handle timezone info like Z, +00:00, -07:00
-        if original_ts.endswith('Z'):
-             original_ts = original_ts[:-1] + '+00:00'
+        # Use dateutil parser which is very flexible
+        parsed_dt = dateutil_parse(ts_str.strip())
 
-        parsed_dt = datetime.fromisoformat(original_ts)
-        if parsed_dt.tzinfo is None:
-            # If no timezone is specified, assume UTC as per standard practice
+        # If the parsed datetime object is naive (no timezone), assume UTC.
+        if parsed_dt.tzinfo is None or parsed_dt.tzinfo.utcoffset(parsed_dt) is None:
             return parsed_dt.replace(tzinfo=timezone.utc)
+
         return parsed_dt
-    except ValueError:
-        # Fallback to strptime for other formats if fromisoformat fails
-        pass
-
-    formats_to_try = [
-        '%Y-%m-%d %H:%M:%S',
-        '%Y-%m-%d %H:%M:%S.%f',
-    ]
-    for fmt in formats_to_try:
-        try:
-            parsed = datetime.strptime(original_ts, fmt)
-            # Assume UTC if naive
-            return parsed.replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-
-    raise ValueError(f"Could not parse timestamp: '{ts_str}' with any known format.")
+    except ValueError as e:
+        logging.error(f"Timestamp parsing failed for string: '{ts_str}' with error: {e}")
+        # Re-raise with a more informative message
+        raise ValueError(f"Could not parse timestamp: '{ts_str}' with dateutil.") from e
 
 
 # --- Functions for the legacy daemon mode ---
