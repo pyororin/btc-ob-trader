@@ -19,27 +19,28 @@ class TestConfigRendering(unittest.TestCase):
         trial = MagicMock(spec=optuna.Trial)
 
         # This list of side effects corresponds to the *active* list of parameters
-        # in objective.py's _suggest_parameters method. It must be kept in sync.
+        # in objective.py's _suggest_parameters method.
         trial.suggest_int.side_effect = [
             80,    # spread_limit
             100,   # long_tp
             -100,  # long_sl
-            100,   # short_tp
-            -100,  # short_sl
+            110,   # short_tp
+            -110,  # short_sl
         ]
         trial.suggest_float.side_effect = [
+            # Note: long_obi_threshold and short_obi_threshold are removed
+            1.5,   # obi_weight
+            1.4,   # ofi_weight
+            1.3,   # cvd_weight
             0.4,   # micro_price_weight
-            2.0,   # volatility_factor
+            1.1,   # composite_threshold
+            0.2,   # ewma_lambda
+            3.0,   # volatility_factor
+            0.7,   # min_threshold_factor
+            2.5,   # max_threshold_factor
         ]
         trial.suggest_categorical.side_effect = [
-            1.2,   # obi_weight
-            1.2,   # ofi_weight
-            0.5,   # cvd_weight
-            0.3,   # composite_threshold
-            0.1,   # ewma_lambda
             True,  # dynamic_obi_enabled
-            0.75,  # min_threshold_factor
-            2.0,   # max_threshold_factor
         ]
 
         # 2. Instantiate Objective and suggest parameters
@@ -71,18 +72,18 @@ class TestConfigRendering(unittest.TestCase):
                 'enabled': False, 'num_trades': 10, 'reduction_step': 0.8, 'min_ratio': 0.5
             },
             'long': {'tp': 100, 'sl': -100},
-            'short': {'tp': 100, 'sl': -100},
+            'short': {'tp': 110, 'sl': -110},
             'signal': {
-                'hold_duration_ms': 500, 'cvd_window_minutes': 1, 'obi_weight': 1.2,
-                'ofi_weight': 1.2, 'cvd_weight': 0.5, 'micro_price_weight': 0.4,
-                'composite_threshold': 0.3,
+                'hold_duration_ms': 500, 'cvd_window_minutes': 1, 'obi_weight': 1.5,
+                'ofi_weight': 1.4, 'cvd_weight': 1.3, 'micro_price_weight': 0.4,
+                'composite_threshold': 1.1,
                 'slope_filter': {'enabled': False, 'period': 44, 'threshold': 0.7}
             },
             'volatility': {
-                'ewma_lambda': 0.1,
+                'ewma_lambda': 0.2,
                 'dynamic_obi': {
-                    'enabled': True, 'volatility_factor': 2.0,
-                    'min_threshold_factor': 0.75, 'max_threshold_factor': 2.0
+                    'enabled': True, 'volatility_factor': 3.0,
+                    'min_threshold_factor': 0.7, 'max_threshold_factor': 2.5
                 }
             },
             'twap': {
