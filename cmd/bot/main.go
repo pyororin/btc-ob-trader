@@ -760,7 +760,16 @@ func runSimulation(ctx context.Context, f *flags, sigs chan<- os.Signal, summary
 						orderType = "sell"
 					}
 					if orderType != "" {
-						_, err := replayEngine.PlaceOrder(ctx, cfg.Trade.Pair, orderType, tradingSignal.EntryPrice, cfg.Trade.OrderAmount, false)
+							tradeParams := engine.TradeParams{
+								Pair:      cfg.Trade.Pair,
+								OrderType: orderType,
+								Rate:      tradingSignal.EntryPrice,
+								Amount:    cfg.Trade.OrderAmount,
+								PostOnly:  false,
+								TP:        tradingSignal.TakeProfit,
+								SL:        tradingSignal.StopLoss,
+							}
+							_, err := replayEngine.PlaceOrder(ctx, tradeParams)
 						if err != nil && !f.jsonOutput {
 							logger.Warnf("Replay engine failed to place order: %v", err)
 						}
@@ -982,7 +991,16 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 						orderType = "sell"
 					}
 					if orderType != "" {
-						replayEngine.PlaceOrder(ctx, simConfig.Trade.Pair, orderType, tradingSignal.EntryPrice, simConfig.Trade.OrderAmount, false)
+						tradeParams := engine.TradeParams{
+							Pair:      simConfig.Trade.Pair,
+							OrderType: orderType,
+							Rate:      tradingSignal.EntryPrice,
+							Amount:    simConfig.Trade.OrderAmount,
+							PostOnly:  false,
+							TP:        tradingSignal.TakeProfit,
+							SL:        tradingSignal.StopLoss,
+						}
+						replayEngine.PlaceOrder(ctx, tradeParams)
 					}
 				}
 
@@ -1006,7 +1024,16 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 						orderType = "sell"
 					}
 					if orderType != "" {
-						replayEngine.PlaceOrder(ctx, simConfig.Trade.Pair, orderType, tradingSignal.EntryPrice, simConfig.Trade.OrderAmount, false)
+						tradeParams := engine.TradeParams{
+							Pair:      simConfig.Trade.Pair,
+							OrderType: orderType,
+							Rate:      tradingSignal.EntryPrice,
+							Amount:    simConfig.Trade.OrderAmount,
+							PostOnly:  false,
+							TP:        tradingSignal.TakeProfit,
+							SL:        tradingSignal.StopLoss,
+						}
+						replayEngine.PlaceOrder(ctx, tradeParams)
 					}
 				}
 			}

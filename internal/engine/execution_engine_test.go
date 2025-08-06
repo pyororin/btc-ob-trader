@@ -173,13 +173,15 @@ func TestExecutionEngine_PlaceOrder_Success(t *testing.T) {
 	execEngine := NewLiveExecutionEngine(ccClient, nil, nil)
 
 	// Test normal order
-	resp, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, false)
+	params := TradeParams{Pair: "btc_jpy", OrderType: "buy", Rate: 5000000, Amount: 0.01, PostOnly: false}
+	resp, err := execEngine.PlaceOrder(context.Background(), params)
 	require.NoError(t, err)
 	require.True(t, resp.Success, "PlaceOrder success was false. API Error: %s %s", resp.Error, resp.ErrorDescription)
 	assert.Equal(t, orderID, resp.ID)
 
 	// Test post_only order
-	respPostOnly, errPostOnly := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, true)
+	postOnlyParams := TradeParams{Pair: "btc_jpy", OrderType: "buy", Rate: 5000000, Amount: 0.01, PostOnly: true}
+	respPostOnly, errPostOnly := execEngine.PlaceOrder(context.Background(), postOnlyParams)
 	require.NoError(t, errPostOnly)
 	require.True(t, respPostOnly.Success, "PlaceOrder (postOnly) success was false. API Error: %s %s", respPostOnly.Error, respPostOnly.ErrorDescription)
 	assert.Equal(t, "post_only", respPostOnly.TimeInForce)
@@ -237,7 +239,8 @@ func TestExecutionEngine_PlaceOrder_SuccessAfterMultiplePolls(t *testing.T) {
 	}
 	execEngine := NewLiveExecutionEngine(ccClient, mockWriter, nil)
 
-	resp, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5100000, 0.01, false)
+	params := TradeParams{Pair: "btc_jpy", OrderType: "buy", Rate: 5100000, Amount: 0.01, PostOnly: false}
+	resp, err := execEngine.PlaceOrder(context.Background(), params)
 	require.NoError(t, err)
 	require.True(t, resp.Success)
 	assert.Equal(t, orderID, resp.ID)
@@ -306,7 +309,8 @@ func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 	execEngine := NewLiveExecutionEngine(ccClient, nil, nil)
 
 	// The amount passed to PlaceOrder is 0.2. The test should verify that this is the amount requested.
-	_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.2, false)
+	params := TradeParams{Pair: "btc_jpy", OrderType: "buy", Rate: 5000000, Amount: 0.2, PostOnly: false}
+	_, err := execEngine.PlaceOrder(context.Background(), params)
 	require.NoError(t, err)
 
 	expectedAmount := 0.2
@@ -425,7 +429,8 @@ func TestExecutionEngine_PlaceOrder_Timeout(t *testing.T) {
 
 	execEngine := NewLiveExecutionEngine(ccClient, nil, nil)
 
-	_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, false)
+	params := TradeParams{Pair: "btc_jpy", OrderType: "buy", Rate: 5000000, Amount: 0.01}
+	_, err := execEngine.PlaceOrder(context.Background(), params)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "timed out and was cancelled")
 }
@@ -483,6 +488,121 @@ func Atoi64(s string) (int64, error) {
 
 func TestMain(m *testing.M) {
 	m.Run()
+}
+
+type mockOrderBook struct {
+	bestBid float64
+	bestAsk float64
+}
+
+func (m *mockOrderBook) BestBid() float64 {
+	return m.bestBid
+}
+
+func (m *mockOrderBook) BestAsk() float64 {
+	return m.bestAsk
+}
+
+func (m *mockOrderBook) UpdateBestPrice(bid, ask float64) {
+	m.bestBid = bid
+	m.bestAsk = ask
+}
+
+func TestReplayExecutionEngine_TPSL(t *testing.T) {
+	t.Run("Long position hits Take Profit", func(t *testing.T) {
+		mockBook := &mockOrderBook{bestBid: 100, bestAsk: 101}
+		engine := NewReplayExecutionEngine(mockBook)
+
+		// Open long position
+		entryParams := TradeParams{Pair: "btc_jpy", OrderType: "buy", Rate: 101, Amount: 1.0, TP: 105, SL: 95}
+		_, err := engine.PlaceOrder(context.Background(), entryParams)
+		require.NoError(t, err)
+		positionSize, _ := engine.position.Get()
+		assert.Equal(t, 1.0, positionSize)
+
+		// Price moves up to hit TP
+		mockBook.UpdateBestPrice(105, 106)
+
+		// A new signal comes in, which should trigger the TP check first
+		_, err = engine.PlaceOrder(context.Background(), TradeParams{OrderType: "buy"})
+		require.NoError(t, err)
+
+		// Assert position is closed
+		positionSize, _ = engine.position.Get()
+		assert.Equal(t, 0.0, positionSize, "Position should be closed after TP hit")
+		require.Len(t, engine.ExecutedTrades, 2)
+		assert.Equal(t, "sell", engine.ExecutedTrades[1].Side)
+		assert.Equal(t, 105.0, engine.ExecutedTrades[1].Price)
+	})
+
+	t.Run("Long position hits Stop Loss", func(t *testing.T) {
+		mockBook := &mockOrderBook{bestBid: 100, bestAsk: 101}
+		engine := NewReplayExecutionEngine(mockBook)
+
+		// Open long position
+		entryParams := TradeParams{Pair: "btc_jpy", OrderType: "buy", Rate: 101, Amount: 1.0, TP: 105, SL: 95}
+		_, err := engine.PlaceOrder(context.Background(), entryParams)
+		require.NoError(t, err)
+		positionSize, _ := engine.position.Get()
+		assert.Equal(t, 1.0, positionSize)
+
+		// Price moves down to hit SL
+		mockBook.UpdateBestPrice(95, 96)
+		_, err = engine.PlaceOrder(context.Background(), TradeParams{OrderType: "buy"})
+		require.NoError(t, err)
+
+		positionSize, _ = engine.position.Get()
+		assert.Equal(t, 0.0, positionSize, "Position should be closed after SL hit")
+		require.Len(t, engine.ExecutedTrades, 2)
+		assert.Equal(t, "sell", engine.ExecutedTrades[1].Side)
+		assert.Equal(t, 95.0, engine.ExecutedTrades[1].Price)
+	})
+
+	t.Run("Short position hits Take Profit", func(t *testing.T) {
+		mockBook := &mockOrderBook{bestBid: 100, bestAsk: 101}
+		engine := NewReplayExecutionEngine(mockBook)
+
+		// Open short position
+		entryParams := TradeParams{Pair: "btc_jpy", OrderType: "sell", Rate: 100, Amount: 1.0, TP: 95, SL: 105}
+		_, err := engine.PlaceOrder(context.Background(), entryParams)
+		require.NoError(t, err)
+		positionSize, _ := engine.position.Get()
+		assert.Equal(t, -1.0, positionSize)
+
+		// Price moves down to hit TP
+		mockBook.UpdateBestPrice(94, 95)
+		_, err = engine.PlaceOrder(context.Background(), TradeParams{OrderType: "sell"})
+		require.NoError(t, err)
+
+		positionSize, _ = engine.position.Get()
+		assert.Equal(t, 0.0, positionSize, "Position should be closed after TP hit")
+		require.Len(t, engine.ExecutedTrades, 2)
+		assert.Equal(t, "buy", engine.ExecutedTrades[1].Side)
+		assert.Equal(t, 95.0, engine.ExecutedTrades[1].Price)
+	})
+
+	t.Run("Short position hits Stop Loss", func(t *testing.T) {
+		mockBook := &mockOrderBook{bestBid: 100, bestAsk: 101}
+		engine := NewReplayExecutionEngine(mockBook)
+
+		// Open short position
+		entryParams := TradeParams{Pair: "btc_jpy", OrderType: "sell", Rate: 100, Amount: 1.0, TP: 95, SL: 105}
+		_, err := engine.PlaceOrder(context.Background(), entryParams)
+		require.NoError(t, err)
+		positionSize, _ := engine.position.Get()
+		assert.Equal(t, -1.0, positionSize)
+
+		// Price moves up to hit SL
+		mockBook.UpdateBestPrice(104, 105)
+		_, err = engine.PlaceOrder(context.Background(), TradeParams{OrderType: "sell"})
+		require.NoError(t, err)
+
+		positionSize, _ = engine.position.Get()
+		assert.Equal(t, 0.0, positionSize, "Position should be closed after SL hit")
+		require.Len(t, engine.ExecutedTrades, 2)
+		assert.Equal(t, "buy", engine.ExecutedTrades[1].Side)
+		assert.Equal(t, 105.0, engine.ExecutedTrades[1].Price)
+	})
 }
 
 func TestExecutionEngine_AdaptivePositionSizing(t *testing.T) {
@@ -551,7 +671,8 @@ func TestExecutionEngine_AdaptivePositionSizing(t *testing.T) {
 	t.Run("size reduction after losses", func(t *testing.T) {
 		execEngine.UpdateRecentPnLsForTest(t, []float64{-100, -100, -100, -100, -100})
 		execEngine.adjustRatios() // Manually trigger adjustment for test
-		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 10.0, false)
+		params := TradeParams{Pair: "btc_jpy", OrderType: "buy", Rate: 5000000, Amount: 10.0}
+		_, err := execEngine.PlaceOrder(context.Background(), params)
 		require.NoError(t, err)
 
 		mu.Lock()
@@ -567,11 +688,13 @@ func TestExecutionEngine_AdaptivePositionSizing(t *testing.T) {
 	t.Run("size reset after profits", func(t *testing.T) {
 		execEngine.UpdateRecentPnLsForTest(t, []float64{-100, -100, -100, -100, -100})
 		execEngine.adjustRatios() // Manually trigger adjustment for test
-		_, _ = execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 10.0, false)
+		params1 := TradeParams{Pair: "btc_jpy", OrderType: "buy", Rate: 5000000, Amount: 10.0}
+		_, _ = execEngine.PlaceOrder(context.Background(), params1)
 
 		execEngine.UpdateRecentPnLsForTest(t, []float64{200, 200, 200, 200, 200})
 		execEngine.adjustRatios() // Manually trigger adjustment for test
-		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 10.0, false)
+		params2 := TradeParams{Pair: "btc_jpy", OrderType: "buy", Rate: 5000000, Amount: 10.0}
+		_, err := execEngine.PlaceOrder(context.Background(), params2)
 		require.NoError(t, err)
 
 		mu.Lock()
@@ -722,8 +845,8 @@ func TestExecutionEngine_RiskManagement(t *testing.T) {
 	t.Run("stops order on max drawdown breach", func(t *testing.T) {
 		execEngine := setupEngine()
 		execEngine.SetRealizedPnLForTest(t, -110000) // 11% drawdown on 1M capital
-
-		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.01, false)
+		params := TradeParams{Pair: "btc_jpy", OrderType: "buy", Rate: 5000000, Amount: 0.01}
+		_, err := execEngine.PlaceOrder(context.Background(), params)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "risk check failed: current drawdown")
@@ -733,8 +856,8 @@ func TestExecutionEngine_RiskManagement(t *testing.T) {
 	t.Run("stops order on max position breach for buy order", func(t *testing.T) {
 		execEngine := setupEngine()
 		execEngine.SetPositionForTest(t, 0.1, 5000000) // Position value is 500,000 JPY (50% of 1M balance)
-
-		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "buy", 5000000, 0.001, false)
+		params := TradeParams{Pair: "btc_jpy", OrderType: "buy", Rate: 5000000, Amount: 0.001}
+		_, err := execEngine.PlaceOrder(context.Background(), params)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "risk check failed: prospective JPY position value")
@@ -745,7 +868,8 @@ func TestExecutionEngine_RiskManagement(t *testing.T) {
 		atomic.StoreInt32(&newOrderRequestCount, 0)
 		execEngine := setupEngine()
 		// Balance is 1.0 BTC, trying to sell 1.1 BTC
-		_, err := execEngine.PlaceOrder(context.Background(), "btc_jpy", "sell", 5000000, 1.1, false)
+		params := TradeParams{Pair: "btc_jpy", OrderType: "sell", Rate: 5000000, Amount: 1.1}
+		_, err := execEngine.PlaceOrder(context.Background(), params)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "risk check failed: sell order amount 1.10000000 exceeds available BTC balance 1.00000000")
@@ -763,7 +887,8 @@ func TestExecutionEngine_RiskManagement(t *testing.T) {
 
 		// This will time out because the mock server doesn't confirm the order, which is expected.
 		// The important part is that the order was placed (newOrderRequestCount == 1).
-		_, err := execEngine.PlaceOrder(ctx, "btc_jpy", "buy", 5000000, 0.01, false)
+		params := TradeParams{Pair: "btc_jpy", OrderType: "buy", Rate: 5000000, Amount: 0.01}
+		_, err := execEngine.PlaceOrder(ctx, params)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "timed out")
