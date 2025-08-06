@@ -1,5 +1,7 @@
+import optuna
 from typing import Dict, Any
 from optuna.distributions import BaseDistribution, FloatDistribution, IntDistribution, CategoricalDistribution
+from .objective import Objective
 
 def get_param_space(use_sensitive_config: bool = False) -> Dict[str, BaseDistribution]:
     """
@@ -67,3 +69,17 @@ def get_param_space(use_sensitive_config: bool = False) -> Dict[str, BaseDistrib
             "regime_threshold": FloatDistribution(0.0, 1.0),
         }
     return param_space
+
+def run_optimization(study: optuna.Study, csv_path: str, n_trials: int, storage_path: str):
+    """
+    Runs the hyperparameter optimization using the given study and data.
+
+    Args:
+        study: The Optuna study object.
+        csv_path: The path to the simulation data CSV file.
+        n_trials: The number of trials to run.
+        storage_path: The path to the Optuna storage.
+    """
+    study.set_user_attr('current_csv_path', csv_path)
+    objective = Objective(study)
+    study.optimize(objective, n_trials=n_trials)
