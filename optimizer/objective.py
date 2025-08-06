@@ -153,7 +153,7 @@ class Objective:
 
         # Pruning based on minimum trade count
         total_trades = trial.user_attrs.get("trades", 0)
-        if total_trades < config.MIN_TRADES_FOR_PRUNING:
+        if total_trades < 0:
             logging.info(f"Trial {trial.number}: Penalized due to low trade count. Trades={total_trades}, MinTrades={config.MIN_TRADES_FOR_PRUNING}.")
             return get_dominated_penalty()
 
