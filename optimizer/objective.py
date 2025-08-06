@@ -201,62 +201,38 @@ class Objective:
         Suggests a flat dictionary of parameters for a trial.
         This dictionary is then converted to a nested structure before simulation.
         P1: Implemented log-uniform and conditional parameters.
+        P2: Coarsened the search space to prevent overfitting.
         """
         params = {}
 
         # Basic Trading
-        params['spread_limit'] = trial.suggest_int('spread_limit', 20, 80)
-        # The following are now fixed in the template file
-        # params['lot_max_ratio'] = trial.suggest_float('lot_max_ratio', 0.8, 1.0)
-        # params['order_ratio'] = trial.suggest_float('order_ratio', 0.8, 1.0)
-
-        # Adaptive Position Sizing (Fixed in template)
-        # params['adaptive_position_sizing_enabled'] = trial.suggest_categorical('adaptive_position_sizing_enabled', [True, False])
-        # params['adaptive_num_trades'] = trial.suggest_int('adaptive_num_trades', 3, 20)
-        # params['adaptive_reduction_step'] = trial.suggest_float('adaptive_reduction_step', 0.5, 1.0)
-        # params['adaptive_min_ratio'] = trial.suggest_float('adaptive_min_ratio', 0.1, 0.8)
+        params['spread_limit'] = trial.suggest_int('spread_limit', 20, 80, step=10)
 
         # Long/Short Strategy
-        params['long_tp'] = trial.suggest_int('long_tp', 50, 200)
-        params['long_sl'] = trial.suggest_int('long_sl', -200, -50)
-        params['short_tp'] = trial.suggest_int('short_tp', 50, 200)
-        params['short_sl'] = trial.suggest_int('short_sl', -200, -50)
+        params['long_tp'] = trial.suggest_int('long_tp', 50, 200, step=25)
+        params['long_sl'] = trial.suggest_int('long_sl', -200, -50, step=25)
+        params['short_tp'] = trial.suggest_int('short_tp', 50, 200, step=25)
+        params['short_sl'] = trial.suggest_int('short_sl', -200, -50, step=25)
 
         # Signal Filters
-        # params['hold_duration_ms'] is fixed in the template
-        params['obi_weight'] = trial.suggest_float('obi_weight', 0.5, 2.0)
-        params['ofi_weight'] = trial.suggest_float('ofi_weight', 0.5, 2.0)
-        params['cvd_weight'] = trial.suggest_float('cvd_weight', 0.0, 1.0)
-        params['micro_price_weight'] = trial.suggest_float('micro_price_weight', 0.0, 0.5)
-        params['composite_threshold'] = trial.suggest_float('composite_threshold', 0.1, 0.5)
-
-        # Signal Slope Filter (Fixed in template)
-        # params['slope_filter_enabled'] = trial.suggest_categorical('slope_filter_enabled', [True, False])
-        # params['slope_period'] = trial.suggest_int('slope_period', 3, 50)
-        # params['slope_threshold'] = trial.suggest_float('slope_threshold', 0.0, 0.5)
+        # Discretized weights to prevent overfitting to fine-grained float values.
+        params['obi_weight'] = trial.suggest_categorical('obi_weight', [0.5, 0.8, 1.0, 1.2, 1.5])
+        params['ofi_weight'] = trial.suggest_categorical('ofi_weight', [0.5, 0.8, 1.0, 1.2, 1.5])
+        params['cvd_weight'] = trial.suggest_categorical('cvd_weight', [0.0, 0.2, 0.5, 0.8, 1.0])
+        params['micro_price_weight'] = trial.suggest_float('micro_price_weight', 0.0, 0.5, step=0.1)
+        params['composite_threshold'] = trial.suggest_categorical('composite_threshold', [0.1, 0.2, 0.3, 0.4, 0.5])
 
         # Volatility
-        # P1: Use log scale for sensitive smoothing factor
-        params['ewma_lambda'] = trial.suggest_float('ewma_lambda', 0.01, 0.3, log=True)
+        # Using categorical for lambda to test specific, common smoothing factors.
+        params['ewma_lambda'] = trial.suggest_categorical('ewma_lambda', [0.05, 0.1, 0.15, 0.2])
 
-        # P1: Use conditional (hierarchical) parameters
+        # Conditional parameters with a narrowed and coarsened search space.
         params['dynamic_obi_enabled'] = trial.suggest_categorical('dynamic_obi_enabled', [True, False])
         if params['dynamic_obi_enabled']:
-            params['volatility_factor'] = trial.suggest_float('volatility_factor', 0.5, 5.0, log=True)
-            params['min_threshold_factor'] = trial.suggest_float('min_threshold_factor', 0.5, 1.0)
-            params['max_threshold_factor'] = trial.suggest_float('max_threshold_factor', 1.0, 3.0)
-
-        # TWAP Execution (Fixed in template)
-        # params['twap_enabled'] = trial.suggest_categorical('twap_enabled', [True, False])
-        # params['twap_max_order_size_btc'] = trial.suggest_float('twap_max_order_size_btc', 0.01, 0.1)
-        # params['twap_interval_seconds'] = trial.suggest_int('twap_interval_seconds', 1, 10)
-        # params['twap_partial_exit_enabled'] = trial.suggest_categorical('twap_partial_exit_enabled', [True, False])
-        # params['twap_profit_threshold'] = trial.suggest_float('twap_profit_threshold', 0.1, 2.0)
-        # params['twap_exit_ratio'] = trial.suggest_float('twap_exit_ratio', 0.1, 1.0)
-
-        # Risk Management (Fixed in template)
-        # params['risk_max_drawdown_percent'] = trial.suggest_int('risk_max_drawdown_percent', 15, 25)
-        # params['risk_max_position_ratio'] = trial.suggest_float('risk_max_position_ratio', 0.5, 0.9)
+            # Narrowed range and added a step to reduce overfitting risk.
+            params['volatility_factor'] = trial.suggest_float('volatility_factor', 1.0, 3.0, step=0.5)
+            params['min_threshold_factor'] = trial.suggest_categorical('min_threshold_factor', [0.5, 0.75, 1.0])
+            params['max_threshold_factor'] = trial.suggest_categorical('max_threshold_factor', [1.0, 1.5, 2.0, 2.5])
 
         return params
 
