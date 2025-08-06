@@ -507,28 +507,31 @@ func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, ord
 	var executedPrice float64
 	var executed bool
 
+	// More realistic market order simulation.
+	// A market buy order executes at the best ask price if liquidity exists.
+	// A market sell order executes at the best bid price if liquidity exists.
 	if orderType == "buy" {
-		if rate >= bestAsk && bestAsk > 0 {
+		if bestAsk > 0 {
 			executed = true
 			executedPrice = bestAsk
-			logger.Debugf("[%s] Buy order matched: Rate %.2f >= BestAsk %.2f. Executing at %.2f", mode, rate, bestAsk, executedPrice)
+			logger.Debugf("[%s] Buy order matched against BestAsk: %.2f. Executing at %.2f", mode, bestAsk, executedPrice)
 		} else {
-			logger.Debugf("[%s] Buy order NOT matched: Rate %.2f < BestAsk %.2f. Order would be on book.", mode, rate, bestAsk)
+			logger.Debugf("[%s] Buy order NOT matched: No ask price available.", mode)
 		}
 	} else if orderType == "sell" {
-		if rate <= bestBid && bestBid > 0 {
+		if bestBid > 0 {
 			executed = true
 			executedPrice = bestBid
-			logger.Debugf("[%s] Sell order matched: Rate %.2f <= BestBid %.2f. Executing at %.2f", mode, rate, bestBid, executedPrice)
+			logger.Debugf("[%s] Sell order matched against BestBid: %.2f. Executing at %.2f", mode, bestBid, executedPrice)
 		} else {
-			logger.Debugf("[%s] Sell order NOT matched: Rate %.2f > BestBid %.2f. Order would be on book.", mode, rate, bestBid)
+			logger.Debugf("[%s] Sell order NOT matched: No bid price available.", mode)
 		}
 	}
 
 	if !executed {
 		return &coincheck.OrderResponse{
 			Success: false,
-			Error:   fmt.Sprintf("order not executed: rate=%.2f, best_bid=%.2f, best_ask=%.2f", rate, bestBid, bestAsk),
+			Error:   fmt.Sprintf("order not executed: no liquidity available. best_bid=%.2f, best_ask=%.2f", bestBid, bestAsk),
 		}, nil
 	}
 
