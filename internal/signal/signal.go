@@ -51,8 +51,6 @@ func (s SignalType) String() string {
 
 // EngineConfig encapsulates configuration for the SignalEngine.
 type EngineConfig struct {
-	LongOBIBaseThreshold  float64
-	ShortOBIBaseThreshold float64
 	SignalHoldDuration    time.Duration
 	DynamicOBIConf        config.DynamicOBIConf
 	CVDWindow             time.Duration
@@ -85,8 +83,6 @@ type SignalEngine struct {
 	lastSignalTime           time.Time
 	currentSignal            SignalType
 	currentSignalSince       time.Time
-	currentLongOBIThreshold  float64
-	currentShortOBIThreshold float64
 	currentMidPrice          float64
 	longTP                   float64
 	longSL                   float64
@@ -114,8 +110,6 @@ func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
 	cvdWindow := time.Duration(tradeCfg.Signal.CVDWindowMinutes) * time.Minute
 
 	engineCfg := EngineConfig{
-		LongOBIBaseThreshold:  tradeCfg.Long.OBIThreshold,
-		ShortOBIBaseThreshold: tradeCfg.Short.OBIThreshold,
 		SignalHoldDuration:    signalHoldDuration,
 		DynamicOBIConf:        tradeCfg.Volatility.DynamicOBI,
 		CVDWindow:             cvdWindow,
@@ -133,8 +127,6 @@ func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
 		cvdCalc:                  cvd.NewCVDCalculator(cvdWindow),
 		lastSignal:               SignalNone,
 		currentSignal:            SignalNone,
-		currentLongOBIThreshold:  engineCfg.LongOBIBaseThreshold,
-		currentShortOBIThreshold: engineCfg.ShortOBIBaseThreshold,
 		longTP:                   tradeCfg.Long.TP,
 		longSL:                   tradeCfg.Long.SL,
 		shortTP:                  tradeCfg.Short.TP,
@@ -176,21 +168,8 @@ func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, 
 		}
 	}
 
-	// Update Volatility and dynamic OBI thresholds
-	if bool(e.config.DynamicOBIConf.Enabled) {
-		_, stdDev := e.volatilityCalc.Update(e.currentMidPrice)
-		longAdjustment := e.config.DynamicOBIConf.VolatilityFactor * stdDev
-		adjustedLongThreshold := e.config.LongOBIBaseThreshold * (1 + longAdjustment)
-		minLong := e.config.LongOBIBaseThreshold * e.config.DynamicOBIConf.MinThresholdFactor
-		maxLong := e.config.LongOBIBaseThreshold * e.config.DynamicOBIConf.MaxThresholdFactor
-		e.currentLongOBIThreshold = math.Max(minLong, math.Min(adjustedLongThreshold, maxLong))
-
-		shortAdjustment := e.config.DynamicOBIConf.VolatilityFactor * stdDev
-		adjustedShortThreshold := e.config.ShortOBIBaseThreshold * (1 + shortAdjustment)
-		minShort := e.config.ShortOBIBaseThreshold * e.config.DynamicOBIConf.MinThresholdFactor
-		maxShort := e.config.ShortOBIBaseThreshold * e.config.DynamicOBIConf.MaxThresholdFactor
-		e.currentShortOBIThreshold = math.Max(minShort, math.Min(adjustedShortThreshold, maxShort))
-	}
+	// Update Volatility
+	e.volatilityCalc.Update(e.currentMidPrice)
 
 	// Update indicators
 	e.microPrice = indicator.CalculateMicroPrice(bestBid, bestAsk, bestBidSize, bestAskSize)
@@ -218,17 +197,6 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 		if len(e.obiHistory) > e.slopeFilterConfig.Period {
 			e.obiHistory = e.obiHistory[1:]
 		}
-	}
-
-	longThreshold := e.currentLongOBIThreshold
-	shortThreshold := e.currentShortOBIThreshold
-	switch e.currentRegime {
-	case RegimeTrending:
-		longThreshold *= 0.9
-		shortThreshold *= 0.9
-	case RegimeMeanReverting:
-		longThreshold *= 1.1
-		shortThreshold *= 1.1
 	}
 
 	rawSignal := SignalNone
@@ -322,16 +290,6 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 	}
 	logger.Debugf("Signal %s not held long enough. Current hold: %v, Required: %v", e.currentSignal, holdDuration, e.config.SignalHoldDuration)
 	return nil // Active and stable, but not yet persisted long enough.
-}
-
-// GetCurrentLongOBIThreshold returns the current (potentially dynamic) OBI threshold for long signals.
-func (e *SignalEngine) GetCurrentLongOBIThreshold() float64 {
-	return e.currentLongOBIThreshold
-}
-
-// GetCurrentShortOBIThreshold returns the current (potentially dynamic) OBI threshold for short signals.
-func (e *SignalEngine) GetCurrentShortOBIThreshold() float64 {
-	return e.currentShortOBIThreshold
 }
 
 // calculateOBISlope calculates the slope of the OBI history using linear regression.

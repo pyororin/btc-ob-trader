@@ -139,7 +139,6 @@ type DBWriterConfig struct {
 
 // StrategyConf holds configuration for long/short strategies.
 type StrategyConf struct {
-	OBIThreshold float64 `yaml:"obi_threshold"`
 	TP           float64 `yaml:"tp"` // Take Profit
 	SL           float64 `yaml:"sl"` // Stop Loss
 }
