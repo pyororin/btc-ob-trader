@@ -28,9 +28,21 @@ func (e *RiskCheckError) Error() string {
 	return e.Message
 }
 
+// TradeParams defines parameters for placing an order.
+type TradeParams struct {
+	Pair      string
+	OrderType string
+	Rate      float64
+	Amount    float64
+	PostOnly  bool
+	// TP and SL are absolute price values. They are primarily for the replay engine.
+	TP float64
+	SL float64
+}
+
 // ExecutionEngine defines the interface for order execution.
 type ExecutionEngine interface {
-	PlaceOrder(ctx context.Context, pair string, orderType string, rate float64, amount float64, postOnly bool) (*coincheck.OrderResponse, error)
+	PlaceOrder(ctx context.Context, params TradeParams) (*coincheck.OrderResponse, error)
 	CancelOrder(ctx context.Context, orderID int64) (*coincheck.CancelResponse, error)
 	GetBalance() (*coincheck.BalanceResponse, error)
 }
@@ -77,8 +89,8 @@ func NewLiveExecutionEngine(client *coincheck.Client, dbWriter dbwriter.DBWriter
 }
 
 // PlaceOrder places a new order on the exchange and monitors for execution.
-func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, orderType string, rate float64, amount float64, postOnly bool) (*coincheck.OrderResponse, error) {
-	logger.Infof("PlaceOrder called with: pair=%s, orderType=%s, rate=%.2f, amount=%.8f, postOnly=%t", pair, orderType, rate, amount, postOnly)
+func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, params TradeParams) (*coincheck.OrderResponse, error) {
+	logger.Infof("PlaceOrder called with: pair=%s, orderType=%s, rate=%.2f, amount=%.8f, postOnly=%t", params.Pair, params.OrderType, params.Rate, params.Amount, params.PostOnly)
 	cfg := config.GetConfig() // Get latest config on every order
 	if !cfg.EnableTrade {
 		logger.Errorf("[Live] Trading is disabled. Skipping order placement.")
@@ -105,11 +117,12 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 
 	// Max drawdown check
 	currentDrawdown := -e.pnlCalculator.GetRealizedPnL()
-	maxDrawdown := jpyBalance * (cfg.Trade.Risk.MaxDrawdownPercent / 100.0)
-	logger.Infof("[Live] Risk Check: Current Drawdown=%.2f, Max Drawdown=%.2f", currentDrawdown, maxDrawdown)
-	if currentDrawdown > maxDrawdown {
-		errMsg := fmt.Sprintf("risk check failed: current drawdown %.2f exceeds max drawdown %.2f", currentDrawdown, maxDrawdown)
-		logger.Errorf("[Live] %s", errMsg)
+	maxDrawdownAllowed := jpyBalance * (cfg.Trade.Risk.MaxDrawdownPercent / 100.0)
+	logger.Infof("[RiskCheck] Drawdown Check: Current Drawdown = %.2f JPY, Max Allowed = %.2f JPY (%.2f%% of %.2f JPY balance)",
+		currentDrawdown, maxDrawdownAllowed, cfg.Trade.Risk.MaxDrawdownPercent, jpyBalance)
+	if currentDrawdown > maxDrawdownAllowed {
+		errMsg := fmt.Sprintf("risk check failed: current drawdown %.2f exceeds max allowed drawdown %.2f", currentDrawdown, maxDrawdownAllowed)
+		logger.Warnf("[RiskCheck] ORDER REJECTED: %s", errMsg)
 		return nil, &RiskCheckError{Message: errMsg}
 	}
 
@@ -120,24 +133,25 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 		return nil, fmt.Errorf("failed to parse BTC balance for risk check: %w", err)
 	}
 
-	if orderType == "buy" {
+	if params.OrderType == "buy" {
 		positionSize, avgEntryPrice := e.position.Get()
 		currentPositionValue := math.Abs(positionSize * avgEntryPrice)
-		orderValue := amount * rate
+		orderValue := params.Amount * params.Rate
 		prospectivePositionValue := currentPositionValue + orderValue
-		maxPositionValue := jpyBalance * cfg.Trade.Risk.MaxPositionRatio
-		logger.Infof("[Live] Risk Check (JPY): Prospective Position Value=%.2f, Max Position Value=%.2f", prospectivePositionValue, maxPositionValue)
-		if prospectivePositionValue > maxPositionValue {
-			errMsg := fmt.Sprintf("risk check failed: prospective JPY position value %.2f exceeds max JPY position value %.2f", prospectivePositionValue, maxPositionValue)
-			logger.Errorf("[Live] %s", errMsg)
+		maxPositionValueAllowed := jpyBalance * cfg.Trade.Risk.MaxPositionRatio
+		logger.Infof("[RiskCheck] Position Size Check (Buy): Prospective Value = %.2f JPY, Max Allowed = %.2f JPY (%.2f%% of %.2f JPY balance)",
+			prospectivePositionValue, maxPositionValueAllowed, cfg.Trade.Risk.MaxPositionRatio*100, jpyBalance)
+		if prospectivePositionValue > maxPositionValueAllowed {
+			errMsg := fmt.Sprintf("risk check failed: prospective JPY position value %.2f exceeds max allowed JPY position value %.2f", prospectivePositionValue, maxPositionValueAllowed)
+			logger.Warnf("[RiskCheck] ORDER REJECTED: %s", errMsg)
 			return nil, &RiskCheckError{Message: errMsg}
 		}
-	} else if orderType == "sell" {
+	} else if params.OrderType == "sell" {
 		// For sell orders, the maximum amount that can be sold is the available BTC balance.
-		logger.Infof("[Live] Risk Check (BTC): Order Amount=%.8f, Available Balance=%.8f", amount, btcBalance)
-		if amount > btcBalance {
-			errMsg := fmt.Sprintf("risk check failed: sell order amount %.8f exceeds available BTC balance %.8f", amount, btcBalance)
-			logger.Errorf("[Live] %s", errMsg)
+		logger.Infof("[RiskCheck] Position Size Check (Sell): Order Amount = %.8f BTC, Available Balance = %.8f BTC", params.Amount, btcBalance)
+		if params.Amount > btcBalance {
+			errMsg := fmt.Sprintf("risk check failed: sell order amount %.8f exceeds available BTC balance %.8f", params.Amount, btcBalance)
+			logger.Warnf("[RiskCheck] ORDER REJECTED: %s", errMsg)
 			return nil, &RiskCheckError{Message: errMsg}
 		}
 	}
@@ -146,12 +160,12 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 
 	// Place the order
 	req := coincheck.OrderRequest{
-		Pair:      pair,
-		OrderType: orderType,
-		Rate:      rate,
-		Amount:    amount,
+		Pair:      params.Pair,
+		OrderType: params.OrderType,
+		Rate:      params.Rate,
+		Amount:    params.Amount,
 	}
-	if postOnly {
+	if params.PostOnly {
 		req.TimeInForce = "post_only"
 	}
 
@@ -200,10 +214,10 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 			if e.dbWriter != nil {
 				trade := dbwriter.Trade{
 					Time:          time.Now().UTC(),
-					Pair:          pair,
-					Side:          orderType,
-					Price:         rate,
-					Size:          amount,
+					Pair:          params.Pair,
+					Side:          params.OrderType,
+					Price:         params.Rate,
+					Size:          params.Amount,
 					TransactionID: orderResp.ID, // Use order ID as a reference
 					IsCancelled:   true,
 					IsMyTrade:     true,
@@ -281,7 +295,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 						pnlSummary := dbwriter.PnLSummary{
 							Time:          trade.Time,
 							StrategyID:    "default", // Or from config
-							Pair:          pair,
+							Pair:          params.Pair,
 							RealizedPnL:   realizedPnL,
 							UnrealizedPnL: unrealizedPnL,
 							TotalPnL:      totalPnL,
@@ -477,6 +491,8 @@ type ReplayExecutionEngine struct {
 	// ExecutedTrades stores the history of simulated trades.
 	ExecutedTrades   []dbwriter.Trade
 	tradeCounter     int64 // Counter for generating deterministic trade IDs
+	currentTP        float64
+	currentSL        float64
 }
 
 // NewReplayExecutionEngine creates a new ReplayExecutionEngine.
@@ -490,115 +506,108 @@ func NewReplayExecutionEngine(orderBook pnl.OrderBookProvider) *ReplayExecutionE
 	}
 }
 
-// PlaceOrder simulates placing an order and records it based on the current order book state.
-func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, pair string, orderType string, rate float64, amount float64, postOnly bool) (*coincheck.OrderResponse, error) {
+// PlaceOrder simulates placing an order. It first checks for TP/SL on any existing position,
+// then processes the new order signal if no TP/SL was hit.
+func (e *ReplayExecutionEngine) PlaceOrder(ctx context.Context, params TradeParams) (*coincheck.OrderResponse, error) {
 	mode := "Simulation"
-
-	// Add a check for the minimum order amount.
-	if amount < 0.001 {
-		return nil, &RiskCheckError{Message: fmt.Sprintf("order amount %.8f is below the minimum required amount of 0.001 BTC", amount)}
-	}
-
 	bestBid := e.orderBook.BestBid()
 	bestAsk := e.orderBook.BestAsk()
+
+	// --- 1. Check for TP/SL on existing position FIRST ---
+	positionSize, _ := e.position.Get()
+	if positionSize > 0 { // Long position is open
+		if e.currentSL > 0 && bestBid <= e.currentSL {
+			return e.executeClosingOrder(ctx, params.Pair, "sell", positionSize, e.currentSL, "SL")
+		}
+		if e.currentTP > 0 && bestBid >= e.currentTP {
+			return e.executeClosingOrder(ctx, params.Pair, "sell", positionSize, e.currentTP, "TP")
+		}
+	} else if positionSize < 0 { // Short position is open
+		if e.currentSL > 0 && bestAsk >= e.currentSL {
+			return e.executeClosingOrder(ctx, params.Pair, "buy", -positionSize, e.currentSL, "SL")
+		}
+		if e.currentTP > 0 && bestAsk <= e.currentTP {
+			return e.executeClosingOrder(ctx, params.Pair, "buy", -positionSize, e.currentTP, "TP")
+		}
+	}
+
+	// If we are here, no TP/SL was hit. Now process the new signal.
+
+	// Do not open a new position if one is already open
+	if positionSize != 0 {
+		// logger.Debugf("[%s] Signal for %s received, but position is already open. Ignoring signal.", mode, params.OrderType)
+		return &coincheck.OrderResponse{Success: false, Error: "position already open"}, nil
+	}
+
+	// --- 2. Execute New Order based on signal ---
+	if params.Amount < 0.001 {
+		return nil, &RiskCheckError{Message: fmt.Sprintf("order amount %.8f is below the minimum required amount of 0.001 BTC", params.Amount)}
+	}
 
 	var executedPrice float64
 	var executed bool
 
-	if orderType == "buy" {
-		if rate >= bestAsk && bestAsk > 0 {
+	if params.OrderType == "buy" {
+		if bestAsk > 0 {
 			executed = true
 			executedPrice = bestAsk
-			logger.Debugf("[%s] Buy order matched: Rate %.2f >= BestAsk %.2f. Executing at %.2f", mode, rate, bestAsk, executedPrice)
+			logger.Debugf("[%s] Buy order matched against BestAsk: %.2f. Executing at %.2f", mode, bestAsk, executedPrice)
 		} else {
-			logger.Debugf("[%s] Buy order NOT matched: Rate %.2f < BestAsk %.2f. Order would be on book.", mode, rate, bestAsk)
+			logger.Debugf("[%s] Buy order NOT matched: No ask price available.", mode)
 		}
-	} else if orderType == "sell" {
-		if rate <= bestBid && bestBid > 0 {
+	} else if params.OrderType == "sell" {
+		if bestBid > 0 {
 			executed = true
 			executedPrice = bestBid
-			logger.Debugf("[%s] Sell order matched: Rate %.2f <= BestBid %.2f. Executing at %.2f", mode, rate, bestBid, executedPrice)
+			logger.Debugf("[%s] Sell order matched against BestBid: %.2f. Executing at %.2f", mode, bestBid, executedPrice)
 		} else {
-			logger.Debugf("[%s] Sell order NOT matched: Rate %.2f > BestBid %.2f. Order would be on book.", mode, rate, bestBid)
+			logger.Debugf("[%s] Sell order NOT matched: No bid price available.", mode)
 		}
 	}
 
 	if !executed {
 		return &coincheck.OrderResponse{
 			Success: false,
-			Error:   fmt.Sprintf("order not executed: rate=%.2f, best_bid=%.2f, best_ask=%.2f", rate, bestBid, bestAsk),
+			Error:   fmt.Sprintf("order not executed: no liquidity available. best_bid=%.2f, best_ask=%.2f", bestBid, bestAsk),
 		}, nil
 	}
 
-	// Generate a deterministic transaction ID using the counter.
+	// --- 3. Record the new trade and update state ---
 	e.tradeCounter++
 	fakeTxID := e.tradeCounter
 
-	// Create a trade record for the simulated execution.
 	trade := dbwriter.Trade{
 		Time:          time.Now().UTC(),
-		Pair:          pair,
-		Side:          orderType,
+		Pair:          params.Pair,
+		Side:          params.OrderType,
 		Price:         executedPrice,
-		Size:          amount,
+		Size:          params.Amount,
 		TransactionID: fakeTxID,
+		EntryTime:     time.Now().UTC(), // Mark entry time for new trade
 	}
 
-	// Update position and get realized PnL
 	tradeAmount := trade.Size
 	if trade.Side == "sell" {
 		tradeAmount = -tradeAmount
 	}
 
-	previousPositionSize, _ := e.position.Get()
+	// Since this is a new order, realized PnL should be 0.
 	realizedPnL := e.position.Update(tradeAmount, trade.Price)
-	newPositionSize, _ := e.position.Get()
-
-	// Set entry and exit times, and position side for closing trades
-	if math.Abs(previousPositionSize) > 1e-8 && math.Abs(newPositionSize) < 1e-8 { // Position closed
-		// Determine position side
-		if previousPositionSize > 0 {
-			trade.PositionSide = "long"
-		} else {
-			trade.PositionSide = "short"
-		}
-
-		// Find the entry trade and set the exit time for all trades in that position
-		for i := len(e.ExecutedTrades) - 1; i >= 0; i-- {
-			if e.ExecutedTrades[i].ExitTime.IsZero() {
-				// Mark all trades in the closing sequence with the same position side
-				if e.ExecutedTrades[i].PositionSide == "" {
-					e.ExecutedTrades[i].PositionSide = trade.PositionSide
-				}
-				e.ExecutedTrades[i].ExitTime = trade.Time
-			} else {
-				break // Stop when we hit a trade that was already part of a closed position
-			}
-		}
-	}
-	trade.EntryTime = trade.Time
-
 	if realizedPnL != 0 {
-		e.pnlCalculator.UpdateRealizedPnL(realizedPnL)
+		logger.Warnf("[%s] Unexpected realized PnL of %.2f when opening a new position.", mode, realizedPnL)
 	}
-	trade.RealizedPnL = realizedPnL
-	e.ExecutedTrades = append(e.ExecutedTrades, trade) // Append after PnL calculation
-	logger.Debugf("[%s] Position updated: %s", mode, e.position.String())
 
-	// Calculate PnL
-	positionSize, avgEntryPrice := e.position.Get()
-	unrealizedPnL := e.pnlCalculator.CalculateUnrealizedPnL(positionSize, avgEntryPrice, executedPrice)
-	totalRealizedPnL := e.pnlCalculator.GetRealizedPnL()
-	totalPnL := totalRealizedPnL + unrealizedPnL
-
-	logger.Debugf("[%s] PnL Update: Realized=%.2f, Unrealized=%.2f, Total=%.2f", mode, realizedPnL, unrealizedPnL, totalPnL)
+	e.currentTP = params.TP
+	e.currentSL = params.SL
+	e.ExecutedTrades = append(e.ExecutedTrades, trade)
+	logger.Debugf("[%s] Position updated: %s. TP set to %.2f, SL set to %.2f", mode, e.position.String(), e.currentTP, e.currentSL)
 
 	return &coincheck.OrderResponse{
 		Success: true,
 		ID:      fakeTxID,
 		Rate:    fmt.Sprintf("%f", executedPrice),
-		Amount:  fmt.Sprintf("%f", amount),
-		Pair:    pair,
+		Amount:  fmt.Sprintf("%f", params.Amount),
+		Pair:    params.Pair,
 	}, nil
 }
 
@@ -648,4 +657,64 @@ func (e *ReplayExecutionEngine) GetPosition() *position.Position {
 // GetPnLCalculator returns the pnl calculator object.
 func (e *ReplayExecutionEngine) GetPnLCalculator() *pnl.Calculator {
 	return e.pnlCalculator
+}
+
+func (e *ReplayExecutionEngine) executeClosingOrder(ctx context.Context, pair string, orderType string, amount float64, price float64, reason string) (*coincheck.OrderResponse, error) {
+	logger.Infof("[Simulation] Closing position due to %s: %s %.8f @ %.2f", reason, orderType, amount, price)
+
+	e.tradeCounter++
+	fakeTxID := e.tradeCounter
+
+	trade := dbwriter.Trade{
+		Time:          time.Now().UTC(),
+		Pair:          pair,
+		Side:          orderType,
+		Price:         price,
+		Size:          amount,
+		TransactionID: fakeTxID,
+	}
+
+	tradeAmount := trade.Size
+	if trade.Side == "sell" {
+		tradeAmount = -tradeAmount
+	}
+
+	previousPositionSize, _ := e.position.Get()
+	realizedPnL := e.position.Update(tradeAmount, trade.Price)
+	newPositionSize, _ := e.position.Get()
+
+	if math.Abs(previousPositionSize) > 1e-8 && math.Abs(newPositionSize) < 1e-8 {
+		if previousPositionSize > 0 {
+			trade.PositionSide = "long"
+		} else {
+			trade.PositionSide = "short"
+		}
+		for i := len(e.ExecutedTrades) - 1; i >= 0; i-- {
+			if e.ExecutedTrades[i].ExitTime.IsZero() {
+				if e.ExecutedTrades[i].PositionSide == "" {
+					e.ExecutedTrades[i].PositionSide = trade.PositionSide
+				}
+				e.ExecutedTrades[i].ExitTime = trade.Time
+			} else {
+				break
+			}
+		}
+	}
+	trade.EntryTime = trade.Time
+
+	if realizedPnL != 0 {
+		e.pnlCalculator.UpdateRealizedPnL(realizedPnL)
+	}
+	trade.RealizedPnL = realizedPnL
+	e.ExecutedTrades = append(e.ExecutedTrades, trade)
+	logger.Debugf("[Simulation] Position updated after closing: %s", e.position.String())
+
+	// Reset TP/SL after closing position
+	e.currentTP = 0
+	e.currentSL = 0
+
+	return &coincheck.OrderResponse{
+		Success: true,
+		ID:      fakeTxID,
+	}, nil
 }
