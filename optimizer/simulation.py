@@ -10,6 +10,73 @@ from . import config
 from .utils import finalize_for_yaml
 
 
+def run_simulation_in_debug_mode(params: dict, sim_csv_path: Path):
+    """
+    Runs a Go simulation without JSON output to capture detailed logs for debugging.
+    This is intended for cases where a normal simulation yields 0 trades.
+    """
+    temp_config_file = None
+    logging.info(f"--- Starting simulation in DEBUG mode for CSV: {sim_csv_path} ---")
+    try:
+        # 1. Create a temporary config file
+        env = Environment(
+            loader=FileSystemLoader(searchpath=config.PARAMS_DIR),
+            finalize=finalize_for_yaml
+        )
+        template = env.get_template(config.CONFIG_TEMPLATE_PATH.name)
+        config_yaml_str = template.render(params)
+
+        with tempfile.NamedTemporaryFile(
+            mode='w', delete=False, suffix='.yaml', dir=str(config.PARAMS_DIR)
+        ) as temp_f:
+            temp_config_file = Path(temp_f.name)
+            temp_f.write(config_yaml_str)
+
+        # 2. Construct the command to run the Go simulation WITHOUT --json-output
+        command = [
+            str(config.SIMULATION_BINARY_PATH),
+            '--simulate',
+            f'--trade-config={temp_config_file}',
+            f'--csv={sim_csv_path}',
+        ]
+        logging.info(f"Executing debug command: {' '.join(command)}")
+
+        # 3. Execute the command
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,  # Don't raise error on non-zero exit
+            cwd=config.APP_ROOT
+        )
+
+        # 4. Log the output from stderr, which should contain the Go app's logs
+        if result.stderr:
+            logging.info("--- Captured Go Simulation Logs (stderr) ---")
+            # Log line by line to preserve formatting
+            for line in result.stderr.splitlines():
+                logging.info(line)
+            logging.info("--- End of Captured Go Simulation Logs ---")
+        else:
+            logging.warning("Debug simulation ran but produced no output on stderr.")
+
+        if result.stdout:
+            logging.info("--- Captured Go Simulation Output (stdout) ---")
+            for line in result.stdout.splitlines():
+                logging.info(line)
+            logging.info("--- End of Captured Go Simulation Output ---")
+
+    except Exception as e:
+        logging.error(f"An error occurred during the debug simulation run: {e}", exc_info=True)
+    finally:
+        # 5. Manually clean up the temporary config file
+        if temp_config_file and temp_config_file.exists():
+            try:
+                os.remove(temp_config_file)
+            except OSError as e:
+                logging.error(f"Failed to remove temporary config file {temp_config_file}: {e}")
+
+
 def run_simulation(params: dict, sim_csv_path: Path) -> dict:
     """
     Runs a single Go simulation for a given set of parameters.

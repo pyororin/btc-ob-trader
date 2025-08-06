@@ -105,11 +105,12 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 
 	// Max drawdown check
 	currentDrawdown := -e.pnlCalculator.GetRealizedPnL()
-	maxDrawdown := jpyBalance * (cfg.Trade.Risk.MaxDrawdownPercent / 100.0)
-	logger.Infof("[Live] Risk Check: Current Drawdown=%.2f, Max Drawdown=%.2f", currentDrawdown, maxDrawdown)
-	if currentDrawdown > maxDrawdown {
-		errMsg := fmt.Sprintf("risk check failed: current drawdown %.2f exceeds max drawdown %.2f", currentDrawdown, maxDrawdown)
-		logger.Errorf("[Live] %s", errMsg)
+	maxDrawdownAllowed := jpyBalance * (cfg.Trade.Risk.MaxDrawdownPercent / 100.0)
+	logger.Infof("[RiskCheck] Drawdown Check: Current Drawdown = %.2f JPY, Max Allowed = %.2f JPY (%.2f%% of %.2f JPY balance)",
+		currentDrawdown, maxDrawdownAllowed, cfg.Trade.Risk.MaxDrawdownPercent, jpyBalance)
+	if currentDrawdown > maxDrawdownAllowed {
+		errMsg := fmt.Sprintf("risk check failed: current drawdown %.2f exceeds max allowed drawdown %.2f", currentDrawdown, maxDrawdownAllowed)
+		logger.Warnf("[RiskCheck] ORDER REJECTED: %s", errMsg)
 		return nil, &RiskCheckError{Message: errMsg}
 	}
 
@@ -125,19 +126,20 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, pair string, order
 		currentPositionValue := math.Abs(positionSize * avgEntryPrice)
 		orderValue := amount * rate
 		prospectivePositionValue := currentPositionValue + orderValue
-		maxPositionValue := jpyBalance * cfg.Trade.Risk.MaxPositionRatio
-		logger.Infof("[Live] Risk Check (JPY): Prospective Position Value=%.2f, Max Position Value=%.2f", prospectivePositionValue, maxPositionValue)
-		if prospectivePositionValue > maxPositionValue {
-			errMsg := fmt.Sprintf("risk check failed: prospective JPY position value %.2f exceeds max JPY position value %.2f", prospectivePositionValue, maxPositionValue)
-			logger.Errorf("[Live] %s", errMsg)
+		maxPositionValueAllowed := jpyBalance * cfg.Trade.Risk.MaxPositionRatio
+		logger.Infof("[RiskCheck] Position Size Check (Buy): Prospective Value = %.2f JPY, Max Allowed = %.2f JPY (%.2f%% of %.2f JPY balance)",
+			prospectivePositionValue, maxPositionValueAllowed, cfg.Trade.Risk.MaxPositionRatio*100, jpyBalance)
+		if prospectivePositionValue > maxPositionValueAllowed {
+			errMsg := fmt.Sprintf("risk check failed: prospective JPY position value %.2f exceeds max allowed JPY position value %.2f", prospectivePositionValue, maxPositionValueAllowed)
+			logger.Warnf("[RiskCheck] ORDER REJECTED: %s", errMsg)
 			return nil, &RiskCheckError{Message: errMsg}
 		}
 	} else if orderType == "sell" {
 		// For sell orders, the maximum amount that can be sold is the available BTC balance.
-		logger.Infof("[Live] Risk Check (BTC): Order Amount=%.8f, Available Balance=%.8f", amount, btcBalance)
+		logger.Infof("[RiskCheck] Position Size Check (Sell): Order Amount = %.8f BTC, Available Balance = %.8f BTC", amount, btcBalance)
 		if amount > btcBalance {
 			errMsg := fmt.Sprintf("risk check failed: sell order amount %.8f exceeds available BTC balance %.8f", amount, btcBalance)
-			logger.Errorf("[Live] %s", errMsg)
+			logger.Warnf("[RiskCheck] ORDER REJECTED: %s", errMsg)
 			return nil, &RiskCheckError{Message: errMsg}
 		}
 	}

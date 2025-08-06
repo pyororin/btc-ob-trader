@@ -207,8 +207,13 @@ def _get_oos_candidates(study: optuna.Study, scored_trials: list) -> list[dict]:
     # Candidates are the top N trials from IS optimization
     for rank, (trial, score) in enumerate(scored_trials):
         if len(candidates) >= config.MAX_RETRY:
-             break
-        candidates.append({'params': trial.params, 'source': f'is_rank_{rank+1}'})
+            break
+        # Also include the trial object to access IS metrics later
+        candidates.append({
+            'params': trial.params,
+            'source': f'is_rank_{rank+1}',
+            'trial': trial
+        })
 
     return candidates
 
@@ -292,6 +297,8 @@ def _save_global_best_parameters(flat_params: dict):
     except Exception as e:
         logging.error(f"Failed to save the best parameter config file: {e}")
 
+from .simulation import run_simulation, run_simulation_in_debug_mode
+
 def analyze_and_validate_for_daemon(study: optuna.Study, oos_csv_path: Path) -> bool:
     """
     Analyzes a study and saves the best config file if OOS validation passes.
@@ -317,12 +324,25 @@ def analyze_and_validate_for_daemon(study: optuna.Study, oos_csv_path: Path) -> 
             logging.warning(f"Reached max_retry limit of {config.MAX_RETRY}. Stopping OOS validation.")
             break
 
+        is_trial = candidate.get('trial')
+        is_metrics = is_trial.user_attrs if is_trial else {}
+        is_trades = is_metrics.get('trades', 'N/A')
+        is_sr = is_metrics.get('sharpe_ratio', 'N/A')
+        is_pf = is_metrics.get('profit_factor', 'N/A')
+
         logging.info(f"--- Running OOS Validation attempt #{i+1} (source: {candidate['source']}) ---")
+        logging.info(
+            f"IS metrics for this candidate: "
+            f"Trades={is_trades}, SR={is_sr:.2f}, PF={is_pf:.2f}"
+        )
+
         nested_params = nest_params(candidate['params'])
         oos_summary = run_simulation(nested_params, oos_csv_path)
 
         if not isinstance(oos_summary, dict) or not oos_summary:
             logging.warning("OOS simulation failed or returned empty results.")
+            # Run in debug mode to see logs from Go
+            run_simulation_in_debug_mode(nested_params, oos_csv_path)
             continue
 
         logging.info(
@@ -330,6 +350,11 @@ def analyze_and_validate_for_daemon(study: optuna.Study, oos_csv_path: Path) -> 
             f"SR={oos_summary.get('SharpeRatio', 0.0):.2f}, "
             f"Trades={oos_summary.get('TotalTrades', 0)}"
         )
+
+        # If OOS validation results in zero trades, run a debug simulation to get more insight.
+        if oos_summary.get('TotalTrades', 0) == 0:
+            logging.warning("OOS simulation resulted in 0 trades. Running in debug mode to get Go logs...")
+            run_simulation_in_debug_mode(nested_params, oos_csv_path)
 
         if _is_oos_passed(oos_summary):
             logging.info(f"OOS validation PASSED for attempt #{i+1}.")

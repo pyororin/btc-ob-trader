@@ -2,7 +2,6 @@
 package signal
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -184,20 +183,27 @@ func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, 
 
 // Evaluate evaluates the current market data and returns a TradingSignal if a new signal is confirmed.
 func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *TradingSignal {
+	// --- 1. Calculate Composite Score ---
 	microPriceDiff := e.microPrice - e.currentMidPrice
-	compositeScore := (obiValue * e.config.OBIWeight) + (e.ofiValue * e.config.OFIWeight) + (e.cvdValue * e.config.CVDWeight)
+	obiComponent := obiValue * e.config.OBIWeight
+	ofiComponent := e.ofiValue * e.config.OFIWeight
+	cvdComponent := e.cvdValue * e.config.CVDWeight
+	microPriceComponent := 0.0
 	if e.config.MicroPriceWeight > 0 {
-		compositeScore += (microPriceDiff * e.config.MicroPriceWeight)
+		microPriceComponent = microPriceDiff * e.config.MicroPriceWeight
 	}
+	compositeScore := obiComponent + ofiComponent + cvdComponent + microPriceComponent
 
-	// Update score history for slope filter
-	if bool(e.slopeFilterConfig.Enabled) {
-		e.obiHistory = append(e.obiHistory, obiValue)
-		if len(e.obiHistory) > e.slopeFilterConfig.Period {
-			e.obiHistory = e.obiHistory[1:]
-		}
-	}
+	logger.Debugf(
+		"[SignalCalc] Composite Score: %.4f (Thr: %.4f) | OBI: %.4f (Val: %.4f, W: %.2f) | OFI: %.4f (Val: %.4f, W: %.2f) | CVD: %.4f (Val: %.4f, W: %.2f) | MicroPrice: %.4f (Diff: %.4f, W: %.2f)",
+		compositeScore, e.config.CompositeThreshold,
+		obiComponent, obiValue, e.config.OBIWeight,
+		ofiComponent, e.ofiValue, e.config.OFIWeight,
+		cvdComponent, e.cvdValue, e.config.CVDWeight,
+		microPriceComponent, microPriceDiff, e.config.MicroPriceWeight,
+	)
 
+	// --- 2. Determine Raw Signal from Score ---
 	rawSignal := SignalNone
 	if compositeScore >= e.config.CompositeThreshold {
 		rawSignal = SignalLong
@@ -205,90 +211,100 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 		rawSignal = SignalShort
 	}
 
-	// Apply slope filter
-	if bool(e.slopeFilterConfig.Enabled) && rawSignal != SignalNone {
-		slope := e.calculateOBISlope()
-		if rawSignal == SignalLong && slope < e.slopeFilterConfig.Threshold {
-			rawSignal = SignalNone
+	// --- 3. Apply Filters ---
+	// Update score history for slope filter
+	if bool(e.slopeFilterConfig.Enabled) {
+		e.obiHistory = append(e.obiHistory, obiValue)
+		if len(e.obiHistory) > e.slopeFilterConfig.Period {
+			e.obiHistory = e.obiHistory[1:]
 		}
-		if rawSignal == SignalShort && slope > -e.slopeFilterConfig.Threshold {
-			rawSignal = SignalNone
+
+		// Apply slope filter
+		if rawSignal != SignalNone {
+			slope := e.calculateOBISlope()
+			if rawSignal == SignalLong && slope < e.slopeFilterConfig.Threshold {
+				logger.Debugf("[SignalFilter] Slope filter triggered for LONG signal. Slope: %.4f, Threshold: %.4f. Discarding signal.", slope, e.slopeFilterConfig.Threshold)
+				rawSignal = SignalNone
+			}
+			if rawSignal == SignalShort && slope > -e.slopeFilterConfig.Threshold {
+				logger.Debugf("[SignalFilter] Slope filter triggered for SHORT signal. Slope: %.4f, Threshold: %.4f. Discarding signal.", slope, -e.slopeFilterConfig.Threshold)
+				rawSignal = SignalNone
+			}
 		}
 	}
 
-	logger.Debugf("Score: %.4f, Thr: %.4f, RawSignal: %s, CurrentSignal: %s, OBI: %.4f, OFI: %.4f, CVD: %.4f, MicroPriceDiff: %.4f",
-		compositeScore, e.config.CompositeThreshold, rawSignal, e.currentSignal, obiValue, e.ofiValue, e.cvdValue, microPriceDiff)
-
+	// --- 4. Manage Signal State and Hold Duration ---
 	if rawSignal != e.currentSignal {
-		if e.config.SignalHoldDuration > 0 {
-			logger.Debugf("Signal changed from %s to %s. Resetting hold timer.", e.currentSignal, rawSignal)
-			e.currentSignal = rawSignal
-			e.currentSignalSince = currentTime
-			if rawSignal == SignalNone {
-				e.lastSignal = SignalNone
-			}
-			return nil // Not confirmed yet, or just ended.
-		}
-		// If hold duration is zero, we can proceed with the new signal immediately.
+		logger.Debugf("[SignalState] State changed from %s to %s. Resetting hold timer.", e.currentSignal, rawSignal)
 		e.currentSignal = rawSignal
 		e.currentSignalSince = currentTime
-	}
-
-	if e.currentSignal == SignalNone {
-		if e.lastSignal != SignalNone {
+		if rawSignal == SignalNone {
 			e.lastSignal = SignalNone
 		}
+		return nil // State changed, requires confirmation or is now neutral.
+	}
+
+	// If there's no active signal, nothing to do.
+	if e.currentSignal == SignalNone {
 		return nil
 	}
 
+	// If we have an active signal, check if it's already been triggered.
+	if e.lastSignal == e.currentSignal {
+		logger.Debugf("[SignalState] Signal %s already triggered and active. Ignoring.", e.currentSignal)
+		return nil
+	}
+
+	// --- 5. Confirm Signal based on Hold Duration or Stability ---
 	holdDuration := currentTime.Sub(e.currentSignalSince)
-	logger.Debugf("Signal %s held for %v. Required: %v", e.currentSignal, holdDuration, e.config.SignalHoldDuration)
 
-	// Add a stable signal threshold to confirm signals faster
+	// A "stable" signal (well beyond the threshold) can be confirmed faster.
 	isStableSignal := false
-	if e.currentSignal == SignalLong && compositeScore >= e.config.CompositeThreshold*1.5 {
+	stableThresholdFactor := 1.5
+	if e.currentSignal == SignalLong && compositeScore >= e.config.CompositeThreshold*stableThresholdFactor {
 		isStableSignal = true
-	} else if e.currentSignal == SignalShort && compositeScore <= -e.config.CompositeThreshold*1.5 {
+	} else if e.currentSignal == SignalShort && compositeScore <= -e.config.CompositeThreshold*stableThresholdFactor {
 		isStableSignal = true
 	}
 
-	if holdDuration >= e.config.SignalHoldDuration || e.config.SignalHoldDuration == 0 || isStableSignal {
-		if e.lastSignal != e.currentSignal && e.currentSignal != SignalNone {
-			e.lastSignal = e.currentSignal
-			e.lastSignalTime = currentTime
+	isHoldDurationMet := e.config.SignalHoldDuration == 0 || holdDuration >= e.config.SignalHoldDuration
+	if isHoldDurationMet || isStableSignal {
+		e.lastSignal = e.currentSignal
+		e.lastSignalTime = currentTime
 
-			logMessage := fmt.Sprintf("Signal %s confirmed. OBI: %.4f", e.currentSignal, obiValue)
-			if e.config.SignalHoldDuration > 0 {
-				logMessage += fmt.Sprintf(", Held for: %v", holdDuration)
-			}
-			logger.Debug(logMessage)
-
-			// Calculate TP/SL prices based on currentMidPrice at signal confirmation
-			var tpPrice, slPrice float64
-			entryPrice := e.currentMidPrice // Use mid-price at signal confirmation as entry basis
-
-			if e.currentSignal == SignalLong {
-				tpPrice = entryPrice + e.longTP
-				slPrice = entryPrice + e.longSL // SL is typically negative
-			} else if e.currentSignal == SignalShort {
-				tpPrice = entryPrice - e.shortTP
-				slPrice = entryPrice - e.shortSL // SL is typically negative, so this becomes entry - (-value) = entry + value
-			}
-
-			return &TradingSignal{
-				Type:               e.currentSignal,
-				EntryPrice:         entryPrice,
-				TakeProfit:         tpPrice,
-				StopLoss:           slPrice,
-				TriggerOBIOBIValue: obiValue,
-				TriggerTime:        currentTime,
-			}
+		reason := "hold duration met"
+		if isStableSignal {
+			reason = "signal is stable"
+		} else if e.config.SignalHoldDuration == 0 {
+			reason = "hold duration is zero"
 		}
-		logger.Debugf("Signal %s already triggered. Ignoring.", e.currentSignal)
-		return nil // Already reported or no new signal state
+
+		logger.Infof("[SignalConfirm] Confirmed %s signal (Reason: %s). Score: %.4f, OBI: %.4f, Hold: %v", e.currentSignal, reason, compositeScore, obiValue, holdDuration)
+
+		// Calculate TP/SL prices based on currentMidPrice at signal confirmation
+		var tpPrice, slPrice float64
+		entryPrice := e.currentMidPrice // Use mid-price at signal confirmation as entry basis
+
+		if e.currentSignal == SignalLong {
+			tpPrice = entryPrice + e.longTP
+			slPrice = entryPrice + e.longSL // SL is typically negative
+		} else if e.currentSignal == SignalShort {
+			tpPrice = entryPrice - e.shortTP
+			slPrice = entryPrice - e.shortSL // SL is typically negative, so this becomes entry - (-value) = entry + value
+		}
+
+		return &TradingSignal{
+			Type:               e.currentSignal,
+			EntryPrice:         entryPrice,
+			TakeProfit:         tpPrice,
+			StopLoss:           slPrice,
+			TriggerOBIOBIValue: obiValue,
+			TriggerTime:        currentTime,
+		}
 	}
-	logger.Debugf("Signal %s not held long enough. Current hold: %v, Required: %v", e.currentSignal, holdDuration, e.config.SignalHoldDuration)
-	return nil // Active and stable, but not yet persisted long enough.
+
+	logger.Debugf("[SignalState] Signal %s not held long enough. Current hold: %v, Required: %v", e.currentSignal, holdDuration, e.config.SignalHoldDuration)
+	return nil // Signal is active but not yet confirmed.
 }
 
 // calculateOBISlope calculates the slope of the OBI history using linear regression.

@@ -27,12 +27,12 @@ log_level: "%s"
 }
 
 // createTestTradeConfigFile creates a dummy trade config file for testing.
-func createTestTradeConfigFile(path string, obiThreshold float64) {
+func createTestTradeConfigFile(path string, compositeThreshold float64) {
 	yamlContent := fmt.Sprintf(`
 pair: "btc_jpy"
-long:
-  obi_threshold: %.2f
-`, obiThreshold)
+signal:
+  composite_threshold: %.2f
+`, compositeThreshold)
 	err := os.WriteFile(path, []byte(yamlContent), 0644)
 	if err != nil {
 		panic(err)
@@ -47,10 +47,10 @@ func TestConfigReloading(t *testing.T) {
 
 	// 1. Create and load initial config
 	createTestAppConfigFile(appConfigPath, "info")
-	createTestTradeConfigFile(tradeConfigPath, 10.0)
+	createTestTradeConfigFile(tradeConfigPath, 0.1)
 	initialCfg, err := config.LoadConfig(appConfigPath, tradeConfigPath)
 	require.NoError(t, err, "Initial config loading should succeed")
-	require.Equal(t, 10.0, initialCfg.Trade.Long.OBIThreshold, "Initial OBI threshold should be 10.0")
+	require.Equal(t, 0.1, initialCfg.Trade.Signal.CompositeThreshold, "Initial composite threshold should be 0.1")
 
 	// 2. Concurrently access config while reloading
 	var wg sync.WaitGroup
@@ -60,18 +60,18 @@ func TestConfigReloading(t *testing.T) {
 		defer wg.Done()
 		time.Sleep(50 * time.Millisecond) // Give some time for the main thread to start reading
 		t.Log("Goroutine: Reloading config...")
-		createTestTradeConfigFile(tradeConfigPath, 20.0) // Update the trade config file
+		createTestTradeConfigFile(tradeConfigPath, 0.2) // Update the trade config file
 		_, err := config.ReloadConfig(appConfigPath, tradeConfigPath)
 		assert.NoError(t, err, "Config reloading should succeed")
 		t.Log("Goroutine: Config reloaded.")
 	}()
 
 	// Continuously read the config to check for race conditions and see the update
-	var finalOBI float64
+	var finalThreshold float64
 	for i := 0; i < 100; i++ {
 		currentCfg := config.GetConfig()
-		if currentCfg.Trade.Long.OBIThreshold == 20.0 {
-			finalOBI = currentCfg.Trade.Long.OBIThreshold
+		if currentCfg.Trade.Signal.CompositeThreshold == 0.2 {
+			finalThreshold = currentCfg.Trade.Signal.CompositeThreshold
 			break
 		}
 		time.Sleep(10 * time.Millisecond) // Simulate work
@@ -79,10 +79,10 @@ func TestConfigReloading(t *testing.T) {
 	wg.Wait() // Wait for the reloading goroutine to finish
 
 	// 3. Verify the config was updated
-	assert.Equal(t, 20.0, finalOBI, "OBI threshold should have been updated to 20.0")
+	assert.Equal(t, 0.2, finalThreshold, "Composite threshold should have been updated to 0.2")
 
 	finalCfg := config.GetConfig()
-	assert.Equal(t, 20.0, finalCfg.Trade.Long.OBIThreshold, "Final config check should show updated OBI threshold")
+	assert.Equal(t, 0.2, finalCfg.Trade.Signal.CompositeThreshold, "Final config check should show updated composite threshold")
 }
 
 // Helper function to create a dummy config file with specific content
