@@ -43,6 +43,19 @@ early_stop_count: 5
 # 例: 0.7
 early_stop_threshold_ratio: 0.7
 
+# --- Drift Monitor Window Settings ---
+# Settings for the optimization windows triggered by the drift monitor.
+drift_monitor_windows:
+  major:
+    window_is_hours: 4
+    window_oos_hours: 1
+  normal:
+    window_is_hours: 4
+    window_oos_hours: 1
+  minor:
+    window_is_hours: 2
+    window_oos_hours: 0.5
+
 # (現在未実装) 将来的に、OOS評価で良い結果が得られなかった場合に再最適化をトリガーするかどうか。
 # 例: true
 trigger_reoptimize: true

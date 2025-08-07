@@ -90,6 +90,11 @@ STABILITY_JITTER_FACTOR = STABILITY_CONFIG.get('jitter_factor', 0.05)
 STABILITY_PENALTY_FACTOR = STABILITY_CONFIG.get('penalty_factor', 0.5)
 
 # Drift Monitor Settings
+DRIFT_MONITOR_WINDOWS = CONFIG.get('drift_monitor_windows', {
+    'major': {'window_is_hours': 4, 'window_oos_hours': 1},
+    'normal': {'window_is_hours': 4, 'window_oos_hours': 1},
+    'minor': {'window_is_hours': 2, 'window_oos_hours': 0.5}
+})
 DB_USER = os.getenv('DB_USER')
 DB_PASSWORD = os.getenv('DB_PASSWORD')
 DB_NAME = os.getenv('DB_NAME')
