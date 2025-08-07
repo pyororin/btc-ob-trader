@@ -194,9 +194,12 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 	}
 	compositeScore := obiComponent + ofiComponent + cvdComponent + microPriceComponent
 
+	longThreshold := e.GetCurrentLongOBIThreshold()
+	shortThreshold := e.GetCurrentShortOBIThreshold()
+
 	logger.Debugf(
-		"[SignalCalc] Composite Score: %.4f (Thr: %.4f) | OBI: %.4f (Val: %.4f, W: %.2f) | OFI: %.4f (Val: %.4f, W: %.2f) | CVD: %.4f (Val: %.4f, W: %.2f) | MicroPrice: %.4f (Diff: %.4f, W: %.2f)",
-		compositeScore, e.config.CompositeThreshold,
+		"[SignalCalc] Composite Score: %.4f (LongThr: %.4f, ShortThr: %.4f) | OBI: %.4f (Val: %.4f, W: %.2f) | OFI: %.4f (Val: %.4f, W: %.2f) | CVD: %.4f (Val: %.4f, W: %.2f) | MicroPrice: %.4f (Diff: %.4f, W: %.2f)",
+		compositeScore, longThreshold, shortThreshold,
 		obiComponent, obiValue, e.config.OBIWeight,
 		ofiComponent, e.ofiValue, e.config.OFIWeight,
 		cvdComponent, e.cvdValue, e.config.CVDWeight,
@@ -205,9 +208,9 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 
 	// --- 2. Determine Raw Signal from Score ---
 	rawSignal := SignalNone
-	if compositeScore >= e.config.CompositeThreshold {
+	if compositeScore >= longThreshold {
 		rawSignal = SignalLong
-	} else if compositeScore <= -e.config.CompositeThreshold {
+	} else if compositeScore <= shortThreshold {
 		rawSignal = SignalShort
 	}
 
@@ -261,9 +264,9 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 	// A "stable" signal (well beyond the threshold) can be confirmed faster.
 	isStableSignal := false
 	stableThresholdFactor := 1.5
-	if e.currentSignal == SignalLong && compositeScore >= e.config.CompositeThreshold*stableThresholdFactor {
+	if e.currentSignal == SignalLong && compositeScore >= longThreshold*stableThresholdFactor {
 		isStableSignal = true
-	} else if e.currentSignal == SignalShort && compositeScore <= -e.config.CompositeThreshold*stableThresholdFactor {
+	} else if e.currentSignal == SignalShort && compositeScore <= shortThreshold*stableThresholdFactor {
 		isStableSignal = true
 	}
 
