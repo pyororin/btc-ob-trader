@@ -8,48 +8,36 @@
 # Optuna によって動的に置き換えられます。
 
 # ------------------------------------------------------------------------------
-# 基本取引設定 (Basic Trading)
+# 基本取引設定 (Basic Trading Settings)
 # ------------------------------------------------------------------------------
 
 # pair: 取引対象の通貨ペア。
 # 例: "btc_jpy", "eth_jpy"
 pair: "btc_jpy"
 
-# order_amount: 1回の取引で発注する量。
+# order_amount: 1回の取引で発注する基本の量（ロット）。
+# この値はポジション管理設定によって調整されることがあります。
 # 例: 0.01
 order_amount: 0.01
 
 # spread_limit: 取引を許可する最大のスプレッド（最良買値と最良売値の差）を円で指定します。
 # これよりスプレッドが広い場合、ボットは新規エントリーを見送ります。
 # 市場の流動性が低い時や急変動時に、不利な価格で約定するのを防ぐためのフィルターです。
+# [最適化対象]
 spread_limit: {{ spread_limit }}
 
 # ------------------------------------------------------------------------------
-# ポジションサイズ設定 (Position Sizing)
+# ポジション管理 (Position Management)
 # ------------------------------------------------------------------------------
 
 # lot_max_ratio: 1回の注文で使用する証拠金の最大比率。
-# 例えば、0.05 は利用可能残高の5%を上限とすることを意味します。
+# 例えば、0.95 は利用可能残高の95%を上限とすることを意味します。
 # リスク管理の重要な要素です。値を大きくするとハイリスク・ハイリターンになります。
 lot_max_ratio: 0.95
 
 # order_ratio: 注文量に対する比率。
-# この比率は、アダプティブ・ポジションサイジング機能によって動的に調整されることがあります。
+# 通常は 0.95 (95%) に設定し、不意のエラーを防ぐために少量のマージンを残します。
 order_ratio: 0.95
-
-# adaptive_position_sizing: アダプティブ（適応型）ポジションサイズ調整機能の設定。
-# 直近の取引成績に応じて、自動でロットサイズを調整します。
-adaptive_position_sizing:
-  # enabled: この機能を有効にするか (`true`) 無効にするか (`false`)。
-  enabled: False
-  # num_trades: パフォーマンス評価の対象とする直近の取引回数。
-  num_trades: 10
-  # reduction_step: 損失が出た場合に、次の注文のロットサイズを縮小する係数。
-  # 0.8 は、現在のロットサイズを80%に減らすことを意味します（20%減）。
-  reduction_step: 0.8
-  # min_ratio:ロットサイズの下限を、元の `order_ratio` に対する割合で指定します。
-  # 0.5 は、`order_ratio` の50%より小さくならないように制限します。
-  min_ratio: 0.5
 
 # ------------------------------------------------------------------------------
 # エントリー戦略 (Entry Strategy)
@@ -59,113 +47,85 @@ adaptive_position_sizing:
 long:
   # tp: 利食い（Take Profit）を行う価格幅を円で指定します。
   # エントリー価格からこの値幅分、価格が上昇した場合に利食い注文が執行されます。
+  # [最適化対象]
   tp: {{ long.tp }}
   # sl: 損切り（Stop Loss）を行う価格幅を円で指定します。
   # エントリー価格からこの値幅分、価格が下落した場合に損切り注文が執行されます。
   # 必ず負の値を指定してください。
+  # [最適化対象]
   sl: {{ long.sl }}
 
 # short: ショート（売り）エントリーの戦略設定。
 short:
   # tp: 利食い（Take Profit）を行う価格幅を円で指定します。
   # エントリー価格からこの値幅分、価格が下落した場合に利食い注文が執行されます。
+  # [最適化対象]
   tp: {{ short.tp }}
   # sl: 損切り（Stop Loss）を行う価格幅を円で指定します。
   # エントリー価格からこの値幅分、価格が上昇した場合に損切り注文が執行されます。
   # 必ず負の値を指定してください（例: -20 は20円の上昇で損切り）。
+  # [最適化対象]
   sl: {{ short.sl }}
 
 # ------------------------------------------------------------------------------
-# シグナルフィルター (Signal Filters)
+# シグナル設定 (Signal Settings)
 # ------------------------------------------------------------------------------
 
-# signal: シグナルの精度を高めるためのフィルター設定。
 signal:
-  # hold_duration_ms: シグナル確定までの待機時間（ミリ秒）。
+  # hold_duration_ms: シグナルが確定してからエントリーするまでの待機時間（ミリ秒）。
+  # 短期的なノイズを避け、シグナルの確度を高めるために使用します。
   hold_duration_ms: 500
 
   # cvd_window_minutes: CVD (Cumulative Volume Delta) を計算する際の期間（分）。
+  # この期間内の買い圧力と売り圧力の差分を計算します。
   cvd_window_minutes: 1
 
   # --- 複合シグナル設定 (Composite Signal Settings) ---
-  # 以下のパラメータは、複数の指標を組み合わせて取引シグナルを生成するために使用されます。
+  # 複数の指標を組み合わせて取引シグナルを生成します。
   # 各指標に重みを付け、その合計スコアが `composite_threshold` を超えた場合にシグナルが発生します。
 
-  # obi_weight: OBI (Order Book Imbalance) の重み。
+  # obi_weight: OBI (Order Book Imbalance) の重み。[最適化対象]
   obi_weight: {{ signal.obi_weight }}
-  # ofi_weight: OFI (Order Flow Imbalance) の重み。
+  # ofi_weight: OFI (Order Flow Imbalance) の重み。[最適化対象]
   ofi_weight: {{ signal.ofi_weight }}
-  # cvd_weight: CVD (Cumulative Volume Delta) の重み。
+  # cvd_weight: CVD (Cumulative Volume Delta) の重み。[最適化対象]
   cvd_weight: {{ signal.cvd_weight }}
-  # micro_price_weight: MicroPrice の変化の重み。
+  # micro_price_weight: MicroPrice の変化の重み。[最適化対象]
   micro_price_weight: {{ signal.micro_price_weight }}
-  # composite_threshold: 複合シグナルの発動閾値。
+  # composite_threshold: 複合シグナルの発動閾値。[最適化対象]
   composite_threshold: {{ signal.composite_threshold }}
 
-  # slope_filter: OBIの傾き（変化率）を利用したフィルター設定。
-  slope_filter:
-    # enabled: このフィルターは現在、無効に設定されています。
-    enabled: False
-    # period: 傾きを計算するために使用する、直近のOBIデータの数。
-    period: 44
-    # threshold: エントリーを許可するOBIの最小傾き。
-    threshold: 0.7
-
 # ------------------------------------------------------------------------------
-# 動的パラメータ調整 (Dynamic Parameters)
+# 動的パラメータ調整 (Dynamic Parameter Adjustment)
 # ------------------------------------------------------------------------------
 
-# volatility: 市場のボラティリティ（価格変動の大きさ）に関する設定。
 volatility:
   # ewma_lambda: ボラティリティ計算に使用するEWMA（指数平滑移動平均）のλ（ラムダ）値。
   # 0に近いほど過去の値を重視し、1に近いほど直近の値を重視します。
+  # [最適化対象]
   ewma_lambda: {{ volatility.ewma_lambda }}
+
   # dynamic_obi: ボラティリティに応じてOBIの閾値を動的に調整する機能。
   dynamic_obi:
-    # enabled: この機能を有効にするか (`true`) 無効にするか (`false`)。
-    # trueにすると、ボラティリティが高い時は閾値を広げ、低い時は狭めるよう自動調整します。
+    # enabled: この機能を有効にするか (`true`) 無効にするか (`false`)。[最適化対象]
     enabled: {{ volatility.dynamic_obi.enabled }}
-    # volatility_factor: ボラティリティをOBI閾値の調整にどれだけ反映させるかの係数。
+    # volatility_factor: ボラティリティをOBI閾値の調整にどれだけ反映させるかの係数。[最適化対象]
     volatility_factor: {{ volatility.dynamic_obi.volatility_factor }}
-    # min_threshold_factor: 動的閾値の下限を、元のOBI閾値に対する割合で指定します。
+    # min_threshold_factor: 動的閾値の下限を、元のOBI閾値に対する割合で指定します。[最適化対象]
     min_threshold_factor: {{ volatility.dynamic_obi.min_threshold_factor }}
-    # max_threshold_factor: 動的閾値の上限を、元のOBI閾値に対する割合で指定します。
+    # max_threshold_factor: 動的閾値の上限を、元のOBI閾値に対する割合で指定します。[最適化対象]
     max_threshold_factor: {{ volatility.dynamic_obi.max_threshold_factor }}
 
 # ------------------------------------------------------------------------------
-# 執行戦略 (Execution Strategy)
-# ------------------------------------------------------------------------------
-
-# twap: TWAP (Time-Weighted Average Price) 注文の設定。
-# 大きな注文を時間で分割して発注し、市場への価格インパクトを抑えつつ平均取得単価を安定させます。
-twap:
-  # enabled: TWAP注文を有効にするか (`true`) 無効にするか (`false`)。
-  enabled: False
-  # max_order_size_btc: 1回の分割注文における最大のサイズ（BTC）。
-  # 最小値は取引所の制約により 0.01 です。
-  max_order_size_btc: 0.05
-  # interval_seconds: 分割された注文を発注する間隔（秒）。
-  interval_seconds: 5
-  # partial_exit_enabled: ポジションの一部を利益確定する（部分利食い）機能を有効にするか。
-  # この機能は現在、TWAP注文と連動しています。
-  partial_exit_enabled: False
-  # profit_threshold: 部分利食いをトリガーする利益率（%）。
-  # 例: 0.5 は、0.5%の含み益が出た場合にトリガーされます。
-  profit_threshold: 1.0
-  # exit_ratio: 部分利食いするポジションの割合。
-  # 例: 0.5 は、現在のポジションの50%を利益確定します。
-  exit_ratio: 0.5
-
-# ------------------------------------------------------------------------------
-# リスク管理 (Risk Management)
+# 全体リスク管理 (Global Risk Management)
 # ------------------------------------------------------------------------------
 
 risk:
   # max_drawdown_percent: 許容する最大のドローダウン率（%）。
-  # 資産のピークからの下落率がこの値を超えた場合、ボットは新規の注文を停止します。
+  # 資産のピークからの下落率がこの値を超えた場合、ボットは全ての新規注文を停止します。
   # 非常に重要なリスク管理項目です。
   max_drawdown_percent: 20
   # max_position_ratio: 利用可能残高に対する許容される最大ポジションサイズの割合。
   # 1.0 は、残高の100%までポジションを持つことを意味します。
-  # これにより、所持金を超える取引を防ぎます。
+  # これにより、意図せず所持金を超える取引をしてしまうことを防ぎます。
   max_position_ratio: 0.9

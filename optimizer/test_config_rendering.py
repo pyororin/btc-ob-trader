@@ -68,16 +68,12 @@ class TestConfigRendering(unittest.TestCase):
         expected_yaml_structure = {
             'pair': 'btc_jpy', 'order_amount': 0.01, 'spread_limit': 80,
             'lot_max_ratio': 0.95, 'order_ratio': 0.95,
-            'adaptive_position_sizing': {
-                'enabled': False, 'num_trades': 10, 'reduction_step': 0.8, 'min_ratio': 0.5
-            },
             'long': {'tp': 100, 'sl': -100},
             'short': {'tp': 110, 'sl': -110},
             'signal': {
                 'hold_duration_ms': 500, 'cvd_window_minutes': 1, 'obi_weight': 1.5,
                 'ofi_weight': 1.4, 'cvd_weight': 1.3, 'micro_price_weight': 0.4,
-                'composite_threshold': 1.1,
-                'slope_filter': {'enabled': False, 'period': 44, 'threshold': 0.7}
+                'composite_threshold': 1.1
             },
             'volatility': {
                 'ewma_lambda': 0.2,
@@ -85,10 +81,6 @@ class TestConfigRendering(unittest.TestCase):
                     'enabled': True, 'volatility_factor': 3.0,
                     'min_threshold_factor': 0.7, 'max_threshold_factor': 2.5
                 }
-            },
-            'twap': {
-                'enabled': False, 'max_order_size_btc': 0.05, 'interval_seconds': 5,
-                'partial_exit_enabled': False, 'profit_threshold': 1.0, 'exit_ratio': 0.5
             },
             'risk': {'max_drawdown_percent': 20, 'max_position_ratio': 0.9}
         }
