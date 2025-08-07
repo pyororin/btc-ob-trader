@@ -228,7 +228,7 @@ class Objective:
         params['ofi_weight'] = trial.suggest_float('ofi_weight', 0.5, 2.0)
         params['cvd_weight'] = trial.suggest_float('cvd_weight', 0.0, 1.0)
         params['micro_price_weight'] = trial.suggest_float('micro_price_weight', 0.0, 0.5)
-        params['composite_threshold'] = trial.suggest_float('composite_threshold', 0.1, 0.5)
+        params['composite_threshold'] = trial.suggest_float('composite_threshold', 0.1, 0.25)
 
         # Signal Slope Filter (Fixed in template)
         # params['slope_filter_enabled'] = trial.suggest_categorical('slope_filter_enabled', [True, False])
@@ -244,9 +244,9 @@ class Objective:
         params['dynamic_obi_enabled'] = trial.suggest_categorical('dynamic_obi_enabled', [True, False])
         if params['dynamic_obi_enabled']:
             # P3: Narrowed range to prevent overfitting.
-            params['volatility_factor'] = trial.suggest_float('volatility_factor', 0.5, 3.0, log=True)
+            params['volatility_factor'] = trial.suggest_float('volatility_factor', 0.75, 1.5, log=True)
             params['min_threshold_factor'] = trial.suggest_float('min_threshold_factor', 0.5, 1.0)
-            params['max_threshold_factor'] = trial.suggest_float('max_threshold_factor', 1.0, 3.0)
+            params['max_threshold_factor'] = trial.suggest_float('max_threshold_factor', 1.0, 1.5)
 
         # TWAP Execution (Fixed in template)
         # params['twap_enabled'] = trial.suggest_categorical('twap_enabled', [True, False])
