@@ -237,12 +237,14 @@ class Objective:
 
         # Volatility
         # P1: Use log scale for sensitive smoothing factor
-        params['ewma_lambda'] = trial.suggest_float('ewma_lambda', 0.01, 0.3, log=True)
+        # P3: Narrowed range to prevent overfitting.
+        params['ewma_lambda'] = trial.suggest_float('ewma_lambda', 0.05, 0.25, log=True)
 
         # P1: Use conditional (hierarchical) parameters
         params['dynamic_obi_enabled'] = trial.suggest_categorical('dynamic_obi_enabled', [True, False])
         if params['dynamic_obi_enabled']:
-            params['volatility_factor'] = trial.suggest_float('volatility_factor', 0.5, 5.0, log=True)
+            # P3: Narrowed range to prevent overfitting.
+            params['volatility_factor'] = trial.suggest_float('volatility_factor', 0.5, 3.0, log=True)
             params['min_threshold_factor'] = trial.suggest_float('min_threshold_factor', 0.5, 1.0)
             params['max_threshold_factor'] = trial.suggest_float('max_threshold_factor', 1.0, 3.0)
 

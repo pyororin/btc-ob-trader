@@ -62,7 +62,7 @@ min_order_book_snapshots: 100000
 # IS最適化中に、ここで設定した取引回数に満たない試行を枝刈り（pruning）します。
 # jobファイルで 'min_trades' が指定されている場合はそちらを優先します。
 # 例: 30
-min_trades_for_pruning: 10
+min_trades_for_pruning: 50
 
 # --- Stability Analysis Settings ---
 # Settings for the objective regularization to find robust parameters.
