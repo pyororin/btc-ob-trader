@@ -21,6 +21,11 @@ rules:
     requirement: |
       DBを起動出来ないため、静的解析及びユニットテストによる動作担保は重要度が高いです。
 
+  - description: make up や make compose build は使用せず、改修対象サービスのみを個別に起動して動作確認を行ってください。
+    requirement: |
+      動作確認時に make up は使用しないでください。
+      必要に応じて `docker compose up <サービス名>` を用いて、該当する改修箇所のみを個別に起動し、確認を行ってください。
+
   - description: ファイル作成場所の制限。
     requirement: |
       明確な理由が無い限り、ルートディレクトリ直下に新規ファイルを作成しないでください。

@@ -6,15 +6,9 @@
 # ------------------------------------------------------------------------------
 
 # check_interval_seconds: パフォーマンスチェックを実行する間隔（秒単位）。
-# ドリフトモニターが有効な場合、この間隔で現在のパラメータのパフォーマンスを評価します。
-# 環境変数 'CHECK_INTERVAL_SECONDS' が設定されていればそちらを優先します。
-# 例: 300 (5分), 900 (15分)
 check_interval_seconds: 900
 
 # params_dir: パラメータファイルやデータベースが保存されるディレクトリのパス。
-# 最適化結果(trade_config.yaml)やOptunaのスタディDB(optuna_study.db)がこの配下に保存されます。
-# 環境変数 'PARAMS_DIR' が設定されていればそちらを優先します。
-# 例: 'data/params'
 params_dir: 'data/params'
 
 # ------------------------------------------------------------------------------
@@ -22,33 +16,19 @@ params_dir: 'data/params'
 # ------------------------------------------------------------------------------
 
 # n_trials: 1回の最適化サイクルでOptunaが試行する回数。
-# 数値を大きくするほど最適なパラメータを見つけやすくなりますが、時間もかかります。
-# Coarse-to-Fine探索が有効な場合は、この設定は無視されます。
-# 例: 500, 1000
 n_trials: 1000
 
-# warm_start_max_trials: 最適化を開始する際に、過去の学習結果（Trial）を何件まで読み込むか。
-# これにより、過去の有望なパラメータ空間から探索を始めることができます（ウォームスタート）。
-# 例: 100
+# warm_start_max_trials: 過去の学習結果を何件まで読み込むか。
 warm_start_max_trials: 100
 
 # min_trades_for_pruning: In-Sample(IS)最適化中に、ここで設定した取引回数に満たない試行を枝刈り（pruning）します。
-# 取引が少なすぎる非効率な試行を早期に打ち切ることで、最適化を高速化します。
-# 例: 30
-min_trades_for_pruning: 50
+min_trades_for_pruning: 5
 
 # coarse_to_fine: Coarse-to-Fine（粗から密へ）探索の設定。
-# 広範囲のパラメータ空間を粗く探索（Coarse）し、有望な領域を特定してから、その周辺を密に探索（Fine）する手法です。
-# これにより、効率的に最適なパラメータを見つけることができます。
 coarse_to_fine:
-  # enabled: Coarse-to-Fine探索を有効にするか。
   enabled: true
-  # coarse_trials: 粗い探索フェーズでの試行回数。
   coarse_trials: 300
-  # fine_trials: 精密な探索フェーズでの試行回数。
   fine_trials: 200
-  # top_trials_quantile_for_kde: 粗い探索で見つかった上位何%の試行を、精密探索のサンプリングに使用するか。
-  # 0.2は上位20%を意味します。
   top_trials_quantile_for_kde: 0.2
 
 # ------------------------------------------------------------------------------
@@ -56,29 +36,18 @@ coarse_to_fine:
 # ------------------------------------------------------------------------------
 
 # oos_min_sharpe_ratio: Out-of-Sample(OOS)評価での合格基準となるシャープレシオの最小値。
-# この値を下回るパラメータは、未知のデータへの汎用性が低いと判断され、不合格となります。
-# 例: 0.5
 oos_min_sharpe_ratio: 0.5
 
 # oos_min_trades: OOS評価での合格基準となる最小取引回数。
-# 取引回数が少なすぎると、そのパフォーマンスは偶然である可能性が高いため、このフィルタで除外します。
-# 例: 10
 oos_min_trades: 10
 
-# max_retry: OOS評価で不合格だった場合に、In-Sample(IS)の上位から何番目までのパラメータを試すか。
-# ISで最も良かったパラメータがOOSで失敗した場合でも、次点のパラメータで再挑戦します。
-# 例: 5
+# max_retry: OOS評価で不合格だった場合に、ISの上位から何番目までのパラメータを試すか。
 max_retry: 5
 
 # early_stop_count: OOS評価で、著しく低いシャープレシオがこの回数連続した場合にリトライを早期停止します。
-# 市場環境が大きく変化し、どのパラメータも通用しない場合に、無駄な試行を打ち切ります。
-# 例: 3
 early_stop_count: 5
 
 # early_stop_threshold_ratio: 早期停止のトリガーとなるシャープレシオの閾値の割合。
-# (oos_min_sharpe_ratio * この値) を下回る結果が続くと、早期停止のカウンターが作動します。
-# 例えば、oos_min_sharpe_ratioが0.5で、この値が0.7なら、0.35未満のシャープレシオでカウンターが増加します。
-# 例: 0.7
 early_stop_threshold_ratio: 0.7
 
 # ------------------------------------------------------------------------------
@@ -87,7 +56,7 @@ early_stop_threshold_ratio: 0.7
 
 # objective_weights: Optunaの目的関数の各指標に対する重み付け。
 # これらの値は、最終的な評価スコアを計算する際の各指標の重要度を決定します。
-# 値を大きくするほど、その指標が重視されます。
+# realization_rateを追加し、約定の実現性を重視します。
 objective_weights:
   # シャープレシオ: リスク調整後のリターン
   sharpe_ratio: 1.0
@@ -99,34 +68,28 @@ objective_weights:
   sqn: 0.5
   # 取引回数
   trades: 0.5
+  # 約定実現率: シグナル確定数に対する実際の取引数の割合。オーバーフィットの抑制に重要。
+  realization_rate: 1.5
 
 # stability_analysis: パラメータの安定性分析（ロバスト性チェック）の設定。
-# 良い結果だったパラメータに微小なノイズ（ジッター）を加えて再シミュレーションし、それでも性能が大きく劣化しないかを評価します。
 stability_analysis:
-  # n_runs: ノイズを加えた追加シミュレーションの実行回数。
   n_runs: 5
-  # jitter_factor: 数値パラメータを変動させる際の変動幅（例: 0.05は±5%の変動）。
   jitter_factor: 0.05
-  # penalty_factor: 最終的な目的スコアにおける、性能の標準偏差（ばらつき）に対するペナルティの重み。
-  # 値が大きいほど、安定したパラメータが選ばれやすくなります。
   penalty_factor: 0.75
 
 # analyzer: 最適化結果の分析設定。
 analyzer:
-  # top_trials_quantile: 性能上位何%の試行をロバスト性分析の対象とするか。
-  # 0.1は上位10%を意味します。
   top_trials_quantile: 0.1
 
 # drift_monitor_windows: ドリフトモニターによって最適化がトリガーされた際の、ウィンドウサイズ設定。
-# ドリフトの深刻度（major, normal, minor）に応じて、In-Sample(IS)とOut-of-Sample(OOS)の期間を調整します。
 drift_monitor_windows:
-  major: # 大規模なドリフト
+  major:
     window_is_hours: 4
     window_oos_hours: 1
-  normal: # 通常のドリフト
+  normal:
     window_is_hours: 4
     window_oos_hours: 1
-  minor: # 小規模なドリフト
+  minor:
     window_is_hours: 2
     window_oos_hours: 0.5
 
@@ -134,18 +97,8 @@ drift_monitor_windows:
 # Walk-Forward Optimization (WFO) Runner Settings
 # -----------------------------------------------------------------------------
 wfo_runner:
-  # start_date: WFO全体の分析を開始する日時 (ISO 8601形式)。
   start_date: "2024-04-01T00:00:00Z"
-  # end_date: WFO全体の分析を終了する日時 (ISO 8601形式)。
   end_date: "2024-07-01T00:00:00Z"
-
-  # is_window_days: In-Sample（学習）期間の長さ（日数）。
   is_window_days: 45
-
-  # oos_window_days: Out-of-Sample（検証）期間の長さ（日数）。
   oos_window_days: 15
-
-  # step_days: 次のサイクルに進む際にウィンドウをスライドさせる日数。
-  # - step_days == oos_window_days の場合: ウィンドウは連続し、重複しない (Tumbling Window)。
-  # - step_days < oos_window_days の場合: ウィンドウは重複する (Rolling Window)。
   step_days: 15

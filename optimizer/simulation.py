@@ -5,6 +5,7 @@ import tempfile
 import logging
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
+import re
 
 from . import config
 from .utils import finalize_for_yaml
@@ -77,7 +78,7 @@ def run_simulation_in_debug_mode(params: dict, sim_csv_path: Path):
                 logging.error(f"Failed to remove temporary config file {temp_config_file}: {e}")
 
 
-def run_simulation(params: dict, sim_csv_path: Path) -> dict:
+def run_simulation(params: dict, sim_csv_path: Path) -> tuple[dict, str]:
     """
     Runs a single Go simulation for a given set of parameters.
 
@@ -91,13 +92,14 @@ def run_simulation(params: dict, sim_csv_path: Path) -> dict:
         sim_csv_path: The path to the CSV file containing the market data for the simulation.
 
     Returns:
-        A dictionary containing the simulation summary results. Returns an
-        empty dictionary if the simulation fails or the output cannot be parsed.
+        A tuple containing:
+        - A dictionary with the simulation summary results.
+        - A string with the stderr log output.
+        Returns ({}, "") if the simulation fails.
     """
     temp_config_file = None
     try:
         # 1. Create a temporary config file from the template
-        # Setup a Jinja2 environment that uses a custom finalizer for YAML compatibility
         env = Environment(
             loader=FileSystemLoader(searchpath=config.PARAMS_DIR),
             finalize=finalize_for_yaml
@@ -105,9 +107,6 @@ def run_simulation(params: dict, sim_csv_path: Path) -> dict:
         template = env.get_template(config.CONFIG_TEMPLATE_PATH.name)
         config_yaml_str = template.render(params)
 
-
-        # Use delete=False, so the file is not deleted when the 'with' block exits.
-        # This is crucial for the subprocess to be able to access it.
         with tempfile.NamedTemporaryFile(
             mode='w', delete=False, suffix='.yaml', dir=str(config.PARAMS_DIR)
         ) as temp_f:
@@ -115,7 +114,6 @@ def run_simulation(params: dict, sim_csv_path: Path) -> dict:
             temp_f.write(config_yaml_str)
 
         # 2. Construct the command to run the Go simulation
-        # Execute the pre-compiled binary for performance.
         command = [
             str(config.SIMULATION_BINARY_PATH),
             '--simulate',
@@ -129,26 +127,36 @@ def run_simulation(params: dict, sim_csv_path: Path) -> dict:
             command,
             capture_output=True,
             text=True,
-            check=True,
+            check=False,  # Set to False to handle non-zero exit codes manually
             cwd=config.APP_ROOT
         )
 
-        # 4. Parse the JSON output from stdout
-        return json.loads(result.stdout)
+        # 4. Check for errors
+        if result.returncode != 0:
+            logging.warning(f"Simulation for {temp_config_file} exited with code {result.returncode}. Stderr: {result.stderr}")
+            # Even if it fails, try to parse stdout as it might contain partial results or a valid summary.
+            # A common case is a non-zero exit code for simulations with zero trades.
 
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Simulation failed for config {temp_config_file}: {e.stderr}")
-        return {}
-    except json.JSONDecodeError as e:
-        logging.error(f"Failed to parse simulation output for {temp_config_file}: {e}")
-        if 'result' in locals():
-            logging.error(f"Received output: {result.stdout}")
-        return {}
+        # 5. Parse the JSON output from stdout
+        try:
+            summary = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            # If stdout is not valid JSON, treat it as a failure.
+            logging.error(f"Failed to parse simulation JSON output for {temp_config_file}.")
+            logging.error(f"Received stdout: {result.stdout}")
+            logging.error(f"Received stderr: {result.stderr}")
+            return {}, result.stderr  # Return empty dict and the logs
+
+        return summary, result.stderr
+
     except FileNotFoundError:
         logging.error(f"Template file not found at {config.CONFIG_TEMPLATE_PATH}")
-        return {}
+        return {}, ""
+    except Exception as e:
+        logging.error(f"An unexpected error occurred in run_simulation: {e}", exc_info=True)
+        return {}, "" # Return empty results on unexpected errors
     finally:
-        # 5. Manually clean up the temporary config file
+        # 6. Manually clean up the temporary config file
         if temp_config_file and temp_config_file.exists():
             try:
                 os.remove(temp_config_file)
