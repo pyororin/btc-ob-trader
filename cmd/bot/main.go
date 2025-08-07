@@ -746,7 +746,7 @@ func runSimulation(ctx context.Context, f *flags, sigs chan<- os.Signal, summary
 
 			eventCount++
 			if eventCount%10000 == 0 && !f.jsonOutput {
-				logger.Infof("Processed event %d at time %s", eventCount, marketEvent.GetTime().Format(time.RFC3339))
+				logger.Infof("Progress: Processed %d events so far. Last event at %s", eventCount, marketEvent.GetTime().Format(time.RFC3339))
 			}
 
 			switch event := marketEvent.(type) {
