@@ -205,7 +205,7 @@ class Objective:
         params = {}
 
         # Basic Trading
-        params['spread_limit'] = trial.suggest_int('spread_limit', 20, 80)
+        params['spread_limit'] = trial.suggest_int('spread_limit', 20, 150)
         # The following are now fixed in the template file
         # params['lot_max_ratio'] = trial.suggest_float('lot_max_ratio', 0.8, 1.0)
         # params['order_ratio'] = trial.suggest_float('order_ratio', 0.8, 1.0)
@@ -217,10 +217,10 @@ class Objective:
         # params['adaptive_min_ratio'] = trial.suggest_float('adaptive_min_ratio', 0.1, 0.8)
 
         # Long/Short Strategy
-        params['long_tp'] = trial.suggest_int('long_tp', 50, 200)
-        params['long_sl'] = trial.suggest_int('long_sl', -200, -50)
-        params['short_tp'] = trial.suggest_int('short_tp', 50, 200)
-        params['short_sl'] = trial.suggest_int('short_sl', -200, -50)
+        params['long_tp'] = trial.suggest_int('long_tp', 50, 400)
+        params['long_sl'] = trial.suggest_int('long_sl', -400, -50)
+        params['short_tp'] = trial.suggest_int('short_tp', 50, 400)
+        params['short_sl'] = trial.suggest_int('short_sl', -400, -50)
 
         # Signal Filters
         # params['hold_duration_ms'] is fixed in the template
@@ -228,7 +228,7 @@ class Objective:
         params['ofi_weight'] = trial.suggest_float('ofi_weight', 0.5, 2.0)
         params['cvd_weight'] = trial.suggest_float('cvd_weight', 0.0, 1.0)
         params['micro_price_weight'] = trial.suggest_float('micro_price_weight', 0.0, 0.5)
-        params['composite_threshold'] = trial.suggest_float('composite_threshold', 0.1, 0.5)
+        params['composite_threshold'] = trial.suggest_float('composite_threshold', 0.25, 0.75)
 
         # Signal Slope Filter (Fixed in template)
         # params['slope_filter_enabled'] = trial.suggest_categorical('slope_filter_enabled', [True, False])
@@ -241,7 +241,7 @@ class Objective:
         params['ewma_lambda'] = trial.suggest_float('ewma_lambda', 0.05, 0.25, log=True)
 
         # P1: Use conditional (hierarchical) parameters
-        params['dynamic_obi_enabled'] = trial.suggest_categorical('dynamic_obi_enabled', [True, False])
+        params['dynamic_obi_enabled'] = trial.suggest_categorical('dynamic_obi_enabled', [False])
         if params['dynamic_obi_enabled']:
             # P3: Narrowed range to prevent overfitting.
             params['volatility_factor'] = trial.suggest_float('volatility_factor', 0.5, 3.0, log=True)

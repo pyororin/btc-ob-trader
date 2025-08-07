@@ -72,7 +72,7 @@ stability_analysis:
   # The factor by which to jitter numerical parameters (e.g., 0.05 for +/- 5%).
   jitter_factor: 0.05
   # The weight of the standard deviation penalty in the final objective score.
-  penalty_factor: 0.75
+  penalty_factor: 1.5
 
 # --- Analyzer Settings ---
 analyzer:
@@ -92,11 +92,11 @@ coarse_to_fine:
 # The weights for the components of the custom objective function.
 # These values determine the importance of each metric in the final score.
 objective_weights:
-  sharpe_ratio: 1.0
-  profit_factor: 1.0
+  sharpe_ratio: 2.0
+  profit_factor: 0.5
   max_drawdown: 1.0 # Note: The objective function inverts this, so higher is better.
   sqn: 0.5
-  trades: 0.5
+  trades: 0.25
 
 # -----------------------------------------------------------------------------
 # Walk-Forward Optimization (WFO) Runner Settings
