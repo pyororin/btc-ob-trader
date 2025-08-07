@@ -114,6 +114,7 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, params TradeParams
 		logger.Errorf("[Live] Failed to parse JPY balance '%s': %v", balance.Jpy, err)
 		return nil, fmt.Errorf("failed to parse JPY balance for risk check: %w", err)
 	}
+	logger.Infof("[RiskCheck] Current Balance: JPY=%.2f, BTC=%s", jpyBalance, balance.Btc)
 
 	// Max drawdown check
 	currentDrawdown := -e.pnlCalculator.GetRealizedPnL()
@@ -123,8 +124,10 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, params TradeParams
 	if currentDrawdown > maxDrawdownAllowed {
 		errMsg := fmt.Sprintf("risk check failed: current drawdown %.2f exceeds max allowed drawdown %.2f", currentDrawdown, maxDrawdownAllowed)
 		logger.Warnf("[RiskCheck] ORDER REJECTED: %s", errMsg)
+		logger.Infof("[RiskCheckResult] Drawdown check FAILED.")
 		return nil, &RiskCheckError{Message: errMsg}
 	}
+	logger.Infof("[RiskCheckResult] Drawdown check PASSED.")
 
 	// Max position size check
 	btcBalance, err := strconv.ParseFloat(balance.Btc, 64)
@@ -139,21 +142,25 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, params TradeParams
 		orderValue := params.Amount * params.Rate
 		prospectivePositionValue := currentPositionValue + orderValue
 		maxPositionValueAllowed := jpyBalance * cfg.Trade.Risk.MaxPositionRatio
-		logger.Infof("[RiskCheck] Position Size Check (Buy): Prospective Value = %.2f JPY, Max Allowed = %.2f JPY (%.2f%% of %.2f JPY balance)",
-			prospectivePositionValue, maxPositionValueAllowed, cfg.Trade.Risk.MaxPositionRatio*100, jpyBalance)
+		logger.Infof("[RiskCheck] Position Size Check (Buy): Current Position Value=%.2f, Order Value=%.2f, Prospective Value = %.2f JPY, Max Allowed = %.2f JPY (%.2f%% of %.2f JPY balance)",
+			currentPositionValue, orderValue, prospectivePositionValue, maxPositionValueAllowed, cfg.Trade.Risk.MaxPositionRatio*100, jpyBalance)
 		if prospectivePositionValue > maxPositionValueAllowed {
 			errMsg := fmt.Sprintf("risk check failed: prospective JPY position value %.2f exceeds max allowed JPY position value %.2f", prospectivePositionValue, maxPositionValueAllowed)
 			logger.Warnf("[RiskCheck] ORDER REJECTED: %s", errMsg)
+			logger.Infof("[RiskCheckResult] Position size check (Buy) FAILED.")
 			return nil, &RiskCheckError{Message: errMsg}
 		}
+		logger.Infof("[RiskCheckResult] Position size check (Buy) PASSED.")
 	} else if params.OrderType == "sell" {
 		// For sell orders, the maximum amount that can be sold is the available BTC balance.
 		logger.Infof("[RiskCheck] Position Size Check (Sell): Order Amount = %.8f BTC, Available Balance = %.8f BTC", params.Amount, btcBalance)
 		if params.Amount > btcBalance {
 			errMsg := fmt.Sprintf("risk check failed: sell order amount %.8f exceeds available BTC balance %.8f", params.Amount, btcBalance)
 			logger.Warnf("[RiskCheck] ORDER REJECTED: %s", errMsg)
+			logger.Infof("[RiskCheckResult] Position size check (Sell) FAILED.")
 			return nil, &RiskCheckError{Message: errMsg}
 		}
+		logger.Infof("[RiskCheckResult] Position size check (Sell) PASSED.")
 	}
 	logger.Info("[Live] Risk management checks passed.")
 	// --- End Risk Management ---
