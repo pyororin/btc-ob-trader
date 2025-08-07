@@ -169,7 +169,8 @@ def check_for_drift(metrics_1h: Optional[Dict], metrics_15m: Optional[Dict], bas
         )
         return [{
             "trigger_type": "zero_metrics_fallback", "severity": "major",
-            "window_is": 4, "window_oos": 1
+            "window_is": config.DRIFT_MONITOR_WINDOWS['major']['window_is_hours'],
+            "window_oos": config.DRIFT_MONITOR_WINDOWS['major']['window_oos_hours']
         }]
 
     detected_drifts = []
@@ -183,7 +184,8 @@ def check_for_drift(metrics_1h: Optional[Dict], metrics_15m: Optional[Dict], bas
         )
         detected_drifts.append({
             "trigger_type": "sharpe_drift_short_term", "severity": "minor",
-            "window_is": 2, "window_oos": 0.5
+            "window_is": config.DRIFT_MONITOR_WINDOWS['minor']['window_is_hours'],
+            "window_oos": config.DRIFT_MONITOR_WINDOWS['minor']['window_oos_hours']
         })
 
     # --- Condition 2: Emergency Sharpe Ratio Drop (Major) ---
@@ -194,7 +196,8 @@ def check_for_drift(metrics_1h: Optional[Dict], metrics_15m: Optional[Dict], bas
         )
         detected_drifts.append({
             "trigger_type": "sharpe_emergency_drop", "severity": "major",
-            "window_is": 4, "window_oos": 1
+            "window_is": config.DRIFT_MONITOR_WINDOWS['major']['window_is_hours'],
+            "window_oos": config.DRIFT_MONITOR_WINDOWS['major']['window_oos_hours']
         })
 
     # --- Condition 3: Profit Factor Degradation (Normal) ---
@@ -206,7 +209,8 @@ def check_for_drift(metrics_1h: Optional[Dict], metrics_15m: Optional[Dict], bas
         )
         detected_drifts.append({
             "trigger_type": "profit_factor_drift", "severity": "normal",
-            "window_is": 4, "window_oos": 1
+            "window_is": config.DRIFT_MONITOR_WINDOWS['normal']['window_is_hours'],
+            "window_oos": config.DRIFT_MONITOR_WINDOWS['normal']['window_oos_hours']
         })
 
     # --- Condition 4: Zero Metrics Fallback (Major) ---
@@ -218,7 +222,8 @@ def check_for_drift(metrics_1h: Optional[Dict], metrics_15m: Optional[Dict], bas
         )
         detected_drifts.append({
             "trigger_type": "zero_metrics_fallback", "severity": "major",
-            "window_is": 4, "window_oos": 1
+            "window_is": config.DRIFT_MONITOR_WINDOWS['major']['window_is_hours'],
+            "window_oos": config.DRIFT_MONITOR_WINDOWS['major']['window_oos_hours']
         })
 
     return detected_drifts
