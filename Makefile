@@ -181,7 +181,7 @@ run-wfo: ## Run a full Walk-Forward Optimization analysis.
 # GO BUILDS & TESTS
 # ==============================================================================
 # Define a helper to run commands inside a temporary Go builder container
-DOCKER_RUN_GO = $(DOCKER_CMD) run --rm --service-ports --entrypoint "" builder
+DOCKER_RUN_GO = $(DOCKER_CMD) run --rm --service-ports --entrypoint "" -v /var/run/docker.sock:/var/run/docker.sock builder
 
 test: ## Run standard Go tests (excluding DB-dependent tests).
 	@echo "Running standard Go tests..."

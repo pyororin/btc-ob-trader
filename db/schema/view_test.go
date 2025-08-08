@@ -25,7 +25,7 @@ func TestViewPerformanceVsBenchmark(t *testing.T) {
 
 	// 1. PostgreSQLコンテナの起動 (TimescaleDBイメージを使用)
 	pgContainer, err := postgres.RunContainer(ctx,
-		testcontainers.WithImage("timescale/timescaledb:latest-pg14"),
+		testcontainers.WithImage("timescale/timescaledb:2.11.2-pg14"),
 		postgres.WithDatabase("test-db"),
 		postgres.WithUsername("user"),
 		postgres.WithPassword("password"),
