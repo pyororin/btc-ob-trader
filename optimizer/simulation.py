@@ -119,7 +119,6 @@ def run_simulation(params: dict, sim_csv_path: Path) -> tuple[dict, str]:
             '--simulate',
             f'--trade-config={temp_config_file}',
             f'--csv={sim_csv_path}',
-            f'--entry-price-offset={params.get("entry_price_offset", 0.0)}',
             '--json-output'
         ]
 
