@@ -26,6 +26,7 @@ type AppConfig struct {
 type TradeConfig struct {
 	Pair                   string                 `yaml:"pair"`
 	OrderAmount            float64                `yaml:"order_amount"`
+	EntryPriceOffset       float64                `yaml:"entry_price_offset"`
 	SpreadLimit            float64                `yaml:"spread_limit"`
 	LotMaxRatio            float64                `yaml:"lot_max_ratio"`
 	OrderRatio             float64                `yaml:"order_ratio"`

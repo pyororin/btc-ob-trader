@@ -100,6 +100,12 @@ class Objective:
             logging.debug(f"Trial {trial.number} pruned for high relative drawdown: {relative_drawdown:.2%}")
             return get_dominated_penalty()
 
+        # Prune based on execution rate
+        execution_rate = trial.user_attrs.get("execution_rate", 0.0)
+        if execution_rate < 0.5: # New Pruning threshold
+             logging.debug(f"Trial {trial.number} pruned due to low execution rate: {execution_rate:.2f}")
+             return get_dominated_penalty()
+
         # --- Stability Analysis (Objective Regularization) ---
         # Run multiple simulations with small jitters to evaluate parameter stability.
         jitter_summaries = []
@@ -137,8 +143,8 @@ class Objective:
         final_mdd = mean_mdd + (lambda_penalty * std_mdd) # Add penalty for instability
 
         # --- Final Objective Calculation ---
-        # Apply realization rate as a direct penalty to the primary objective
-        final_sqn_penalized = final_sqn * realization_rate
+        # Apply realization and execution rates as direct penalties
+        final_sqn_penalized = final_sqn * realization_rate * execution_rate
 
         # Store all calculated metrics in user_attrs for later analysis
         trial.set_user_attr("mean_sqn", mean_sqn)
@@ -188,6 +194,7 @@ class Objective:
         params['micro_price_weight'] = trial.suggest_float('micro_price_weight', 0.0, 0.5)
         params['composite_threshold'] = trial.suggest_float('composite_threshold', 0.1, 0.25)
         params['ewma_lambda'] = trial.suggest_float('ewma_lambda', 0.05, 0.25, log=True)
+        params['entry_price_offset'] = trial.suggest_float('entry_price_offset', 0, 500)
         params['dynamic_obi_enabled'] = trial.suggest_categorical('dynamic_obi_enabled', [True, False])
         if params['dynamic_obi_enabled']:
             params['volatility_factor'] = trial.suggest_float('volatility_factor', 0.75, 1.5, log=True)
@@ -207,11 +214,13 @@ class Objective:
 
         # Metrics from parsing stderr logs
         confirmed_signals = len(re.findall(r"Confirmed (LONG|SHORT) signal", stderr_log))
+        unrealized_trades = len(re.findall(r"order NOT matched", stderr_log))
 
         # Calculated metrics
-        realization_rate = 0.0
-        if confirmed_signals > 0:
-            realization_rate = total_trades / confirmed_signals
+        realization_rate = total_trades / confirmed_signals if confirmed_signals > 0 else 0.0
+
+        executable_signals = total_trades + unrealized_trades
+        execution_rate = total_trades / executable_signals if executable_signals > 0 else 0.0
 
         _, relative_drawdown = calculate_max_drawdown(pnl_history)
         sqn = sharpe_ratio * np.sqrt(total_trades) if total_trades > 0 and sharpe_ratio is not None else 0.0
@@ -226,6 +235,8 @@ class Objective:
         trial.set_user_attr("sqn", sqn)
         trial.set_user_attr("confirmed_signals", confirmed_signals)
         trial.set_user_attr("realization_rate", realization_rate)
+        trial.set_user_attr("unrealized_trades", unrealized_trades)
+        trial.set_user_attr("execution_rate", execution_rate)
 
 
 class MetricsCalculator:

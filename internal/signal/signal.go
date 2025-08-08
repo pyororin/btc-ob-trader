@@ -50,6 +50,7 @@ func (s SignalType) String() string {
 // EngineConfig encapsulates configuration for the SignalEngine.
 type EngineConfig struct {
 	SignalHoldDuration    time.Duration
+	EntryPriceOffset      float64
 	DynamicOBIConf        config.DynamicOBIConf
 	CVDWindow             time.Duration
 	OBIWeight             float64
@@ -82,6 +83,8 @@ type SignalEngine struct {
 	currentSignal            SignalType
 	currentSignalSince       time.Time
 	currentMidPrice          float64
+	bestBid                  float64
+	bestAsk                  float64
 	longTP                   float64
 	longSL                   float64
 	shortTP                  float64
@@ -109,6 +112,7 @@ func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
 
 	engineCfg := EngineConfig{
 		SignalHoldDuration:    signalHoldDuration,
+		EntryPriceOffset:      tradeCfg.EntryPriceOffset,
 		DynamicOBIConf:        tradeCfg.Volatility.DynamicOBI,
 		CVDWindow:             cvdWindow,
 		OBIWeight:             tradeCfg.Signal.OBIWeight,
@@ -142,6 +146,8 @@ func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
 // UpdateMarketData updates the engine with the latest market data.
 func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, bestBid, bestAsk, bestBidSize, bestAskSize float64, trades []cvd.Trade) {
 	e.currentMidPrice = currentMidPrice
+	e.bestBid = bestBid
+	e.bestAsk = bestAsk
 
 	// Update price history for regime detection
 	e.priceHistory = append(e.priceHistory, currentMidPrice)
@@ -285,13 +291,14 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 		logger.Infof("[SignalConfirm] Confirmed %s signal (Reason: %s). Score: %.4f, OBI: %.4f, Hold: %v", e.currentSignal, reason, compositeScore, obiValue, holdDuration)
 
 		// Calculate TP/SL prices based on currentMidPrice at signal confirmation
-		var tpPrice, slPrice float64
-		entryPrice := e.currentMidPrice // Use mid-price at signal confirmation as entry basis
+		var tpPrice, slPrice, entryPrice float64
 
 		if e.currentSignal == SignalLong {
+			entryPrice = e.bestAsk + e.config.EntryPriceOffset
 			tpPrice = entryPrice + e.longTP
 			slPrice = entryPrice + e.longSL // SL is typically negative
 		} else if e.currentSignal == SignalShort {
+			entryPrice = e.bestBid - e.config.EntryPriceOffset
 			tpPrice = entryPrice - e.shortTP
 			slPrice = entryPrice - e.shortSL // SL is typically negative, so this becomes entry - (-value) = entry + value
 		}

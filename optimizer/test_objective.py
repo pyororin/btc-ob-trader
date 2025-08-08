@@ -49,75 +49,58 @@ class TestObjective(unittest.TestCase):
         Test the objective function when simulation returns successful results with trades.
         """
         # Arrange
-        # Because the jittered runs will all return the same mock value, the stdev will be 0.
-        # The final score will be the mean score, which is just the value from this summary.
         mock_summary = {
-            'TotalTrades': 50,
-            'SharpeRatio': 2.1,
-            'ProfitFactor': 1.8,
-            'WinRate': 65.0,
-            'MaxDrawdown': 500.0,
-            'PnlHistory': [100, -50, 150] # Relative drawdown is low, no penalty
+            'TotalTrades': 50, 'SharpeRatio': 2.1, 'ProfitFactor': 1.8, 'WinRate': 65.0,
+            'MaxDrawdown': 500.0, 'PnlHistory': [100, -50, 150]
         }
-        mock_run_simulation.return_value = mock_summary
-        config.MIN_TRADES_FOR_PRUNING = 10 # Ensure pruning is not triggered
+        mock_log = "Confirmed LONG signal\n" * 50 # 50 signals, 50 trades -> 1.0 realization
+        mock_run_simulation.return_value = (mock_summary, mock_log)
+        config.MIN_TRADES_FOR_PRUNING = 10
 
         # Act
         sqn, pf, mdd = self.objective(self.mock_trial)
 
         # Assert
-        expected_sqn = 2.1 * (50 ** 0.5)
+        realization_rate = self.trial_user_attrs.get("realization_rate")
+        execution_rate = self.trial_user_attrs.get("execution_rate")
+        expected_sqn = 2.1 * (50 ** 0.5) * realization_rate * execution_rate
+
         self.assertAlmostEqual(sqn, expected_sqn)
         self.assertEqual(pf, 1.8)
         self.assertEqual(mdd, -500.0)
-
-        # Check that the backing dictionary was populated correctly for later analysis
         self.assertEqual(self.trial_user_attrs.get("trades"), 50)
-        self.assertEqual(self.trial_user_attrs.get("sharpe_ratio"), 2.1)
-        self.assertEqual(self.trial_user_attrs.get("profit_factor"), 1.8)
-        self.assertAlmostEqual(self.trial_user_attrs.get("sqn"), expected_sqn)
+        self.assertEqual(self.trial_user_attrs.get("realization_rate"), 1.0)
+        self.assertEqual(self.trial_user_attrs.get("execution_rate"), 1.0)
 
     @patch('optimizer.objective.simulation.run_simulation')
     def test_objective_with_zero_trades(self, mock_run_simulation):
         """
         Test the objective function when simulation returns zero trades.
-        It should return a penalty value.
         """
         # Arrange
-        mock_summary = {
-            'TotalTrades': 0, 'SharpeRatio': 0.0, 'WinRate': 0.0, 'MaxDrawdown': 0.0,
-            'PnlHistory': []
-        }
-        mock_run_simulation.return_value = mock_summary
+        mock_summary = {'TotalTrades': 0, 'SharpeRatio': 0.0, 'WinRate': 0.0, 'MaxDrawdown': 0.0, 'PnlHistory': []}
+        mock_run_simulation.return_value = (mock_summary, "")
 
         # Act
         result = self.objective(self.mock_trial)
 
         # Assert
-        # The penalty now returns a large negative number for the 3rd objective
-        # because the direction is 'maximize'.
-        self.assertEqual(result[0], -1.0)
-        self.assertEqual(result[1], 0.0)
-        self.assertEqual(result[2], -1_000_000.0)
-        # Check that attributes were still set before penalty was returned
+        self.assertEqual(result, (-1.0, 0.0, -1_000_000.0))
         self.assertEqual(self.trial_user_attrs.get("trades"), 0)
 
     @patch('optimizer.objective.simulation.run_simulation')
     def test_objective_with_failed_simulation(self, mock_run_simulation):
         """
-        Test the objective function when simulation fails (returns empty dict).
-        It should return a penalty value.
+        Test the objective function when simulation fails.
         """
         # Arrange
-        mock_run_simulation.return_value = {}
+        mock_run_simulation.return_value = ({}, "error log")
 
         # Act
         result = self.objective(self.mock_trial)
 
         # Assert
-        self.assertEqual(result[0], -1.0)
-        self.assertEqual(result[1], 0.0)
-        self.assertEqual(result[2], -1_000_000.0)
+        self.assertEqual(result, (-1.0, 0.0, -1_000_000.0))
 
     @patch('optimizer.objective.simulation.run_simulation')
     def test_objective_with_high_drawdown_penalty(self, mock_run_simulation):
@@ -127,19 +110,53 @@ class TestObjective(unittest.TestCase):
         # Arrange
         mock_summary = {
             'TotalTrades': 50, 'SharpeRatio': 2.0, 'WinRate': 70.0, 'MaxDrawdown': 1000.0,
-            'PnlHistory': [500, 500, -300, 300] # Final PnL=1000, Max DD=300 -> Rel DD=0.3
+            'PnlHistory': [500, 500, -800, 300] # Final PnL=500, Max DD=800 -> Rel DD=1.6
         }
-        mock_run_simulation.return_value = mock_summary
+        mock_run_simulation.return_value = (mock_summary, "")
 
         # Act
         result = self.objective(self.mock_trial)
 
         # Assert
-        self.assertEqual(result[0], -1.0)
-        self.assertEqual(result[1], 0.0)
-        self.assertEqual(result[2], -1_000_000.0)
-        # Check that relative_drawdown was calculated and was the cause of the penalty
+        self.assertEqual(result, (-1.0, 0.0, -1_000_000.0))
         self.assertGreater(self.trial_user_attrs.get("relative_drawdown"), 0.25)
+
+    @patch('optimizer.objective.simulation.run_simulation')
+    def test_execution_rate_logic(self, mock_run_simulation):
+        """
+        Test if execution_rate and related metrics are calculated correctly.
+        """
+        # Arrange
+        mock_summary = {'TotalTrades': 10, 'SharpeRatio': 1.5, 'ProfitFactor': 2.0, 'MaxDrawdown': 200, 'PnlHistory': [100]*10}
+        mock_log = "Confirmed LONG signal\n" * 20 + "order NOT matched\n" * 5 # 20 signals, 10 trades, 5 not matched
+        mock_run_simulation.return_value = (mock_summary, mock_log)
+        config.MIN_TRADES_FOR_PRUNING = 5
+
+        # Act
+        self.objective(self.mock_trial)
+
+        # Assert
+        self.assertEqual(self.trial_user_attrs.get("confirmed_signals"), 20)
+        self.assertEqual(self.trial_user_attrs.get("unrealized_trades"), 5)
+        self.assertAlmostEqual(self.trial_user_attrs.get("realization_rate"), 10 / 20)
+        self.assertAlmostEqual(self.trial_user_attrs.get("execution_rate"), 10 / (10 + 5))
+
+    @patch('optimizer.objective.simulation.run_simulation')
+    def test_low_execution_rate_pruning(self, mock_run_simulation):
+        """
+        Test that a low execution rate correctly triggers pruning.
+        """
+        # Arrange
+        mock_summary = {'TotalTrades': 5, 'SharpeRatio': 2.0, 'ProfitFactor': 3.0, 'MaxDrawdown': 100, 'PnlHistory': [100]*5}
+        mock_log = "order NOT matched\n" * 10 # 5 trades, 10 not matched -> execution_rate = 5/15 = 0.33
+        mock_run_simulation.return_value = (mock_summary, mock_log)
+
+        # Act
+        result = self.objective(self.mock_trial)
+
+        # Assert
+        self.assertEqual(result, (-1.0, 0.0, -1_000_000.0))
+        self.assertLess(self.trial_user_attrs.get("execution_rate"), 0.5)
 
 if __name__ == '__main__':
     unittest.main()
