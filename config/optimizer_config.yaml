@@ -22,7 +22,7 @@ n_trials: 1000
 warm_start_max_trials: 100
 
 # min_trades_for_pruning: In-Sample(IS)最適化中に、ここで設定した取引回数に満たない試行を枝刈り（pruning）します。
-min_trades_for_pruning: 5
+min_trades_for_pruning: 10
 
 # coarse_to_fine: Coarse-to-Fine（粗から密へ）探索の設定。
 coarse_to_fine:
@@ -69,7 +69,7 @@ objective_weights:
   # 取引回数
   trades: 0.5
   # 約定実現率: シグナル確定数に対する実際の取引数の割合。オーバーフィットの抑制に重要。
-  realization_rate: 1.5
+  realization_rate: 2.0
 
 # stability_analysis: パラメータの安定性分析（ロバスト性チェック）の設定。
 stability_analysis:
