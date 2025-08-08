@@ -63,13 +63,13 @@ objective_weights:
   # プロフィットファクター: 総利益 / 総損失
   profit_factor: 1.0
   # 最大ドローダウン: 資産のピークからの最大下落率 (値が大きいほど良いと評価されるように内部で反転されます)
-  max_drawdown: 1.0
+  max_drawdown: 0.5
   # SQN (System Quality Number): システムの品質を示す指標 (SharpeRatio * sqrt(TotalTrades))
   sqn: 0.5
   # 取引回数
-  trades: 0.5
+  trades: 0.2
   # 約定実現率: シグナル確定数に対する実際の取引数の割合。オーバーフィットの抑制に重要。
-  realization_rate: 1.5
+  realization_rate: 2.0
 
 # stability_analysis: パラメータの安定性分析（ロバスト性チェック）の設定。
 stability_analysis:

@@ -194,6 +194,7 @@ class Objective:
         params['micro_price_weight'] = trial.suggest_float('micro_price_weight', 0.0, 0.5)
         params['composite_threshold'] = trial.suggest_float('composite_threshold', 0.1, 0.25)
         params['ewma_lambda'] = trial.suggest_float('ewma_lambda', 0.05, 0.25, log=True)
+        params['entry_price_offset'] = trial.suggest_float('entry_price_offset', 0, 500)
         params['dynamic_obi_enabled'] = trial.suggest_categorical('dynamic_obi_enabled', [True, False])
         if params['dynamic_obi_enabled']:
             params['volatility_factor'] = trial.suggest_float('volatility_factor', 0.75, 1.5, log=True)
