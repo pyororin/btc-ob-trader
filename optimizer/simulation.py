@@ -39,7 +39,6 @@ def run_simulation_in_debug_mode(params: dict, sim_csv_path: Path):
             '--simulate',
             f'--trade-config={temp_config_file}',
             f'--csv={sim_csv_path}',
-            f'--entry-price-offset={params.get("entry_price_offset", 0.0)}',
         ]
         logging.info(f"Executing debug command: {' '.join(command)}")
 
