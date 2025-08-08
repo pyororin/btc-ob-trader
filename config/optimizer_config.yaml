@@ -22,7 +22,7 @@ n_trials: 1000
 warm_start_max_trials: 100
 
 # min_trades_for_pruning: In-Sample(IS)最適化中に、ここで設定した取引回数に満たない試行を枝刈り（pruning）します。
-min_trades_for_pruning: 5
+min_trades_for_pruning: 10
 
 # coarse_to_fine: Coarse-to-Fine（粗から密へ）探索の設定。
 coarse_to_fine:

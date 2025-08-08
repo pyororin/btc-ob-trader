@@ -120,11 +120,12 @@ class Objective:
              logging.warning(f"Trial {trial.number}: Too many jittered simulations failed. Using original result without penalty.")
              jitter_summaries = [summary] # Use original summary if jitter runs fail
 
-        sqns, profit_factors, max_drawdowns = [], [], []
+        sqns, profit_factors, max_drawdowns, sharpe_ratios = [], [], [], []
         for res in jitter_summaries:
             sr = res.get('SharpeRatio', 0.0)
             trades = res.get('TotalTrades', 0)
             sqn = sr * np.sqrt(trades) if trades > 0 and sr is not None else 0.0
+            sharpe_ratios.append(sr)
             sqns.append(sqn)
             profit_factors.append(res.get('ProfitFactor', 0.0))
             max_drawdowns.append(res.get('MaxDrawdown', 0.0))
@@ -135,16 +136,24 @@ class Objective:
         std_pf = np.std(profit_factors)
         mean_mdd = np.mean(max_drawdowns)
         std_mdd = np.std(max_drawdowns)
+        std_sr = np.std(sharpe_ratios)
 
         # The final objective is penalized by the standard deviation
         lambda_penalty = config.STABILITY_PENALTY_FACTOR
-        final_sqn = mean_sqn - (lambda_penalty * std_sqn)
+        # Penalize by stability of SQN and Sharpe Ratio
+        final_sqn = mean_sqn - (lambda_penalty * std_sqn) - (lambda_penalty * std_sr)
         final_pf = mean_pf - (lambda_penalty * std_pf)
         final_mdd = mean_mdd + (lambda_penalty * std_mdd) # Add penalty for instability
 
         # --- Final Objective Calculation ---
         # Apply realization and execution rates as direct penalties
         final_sqn_penalized = final_sqn * realization_rate * execution_rate
+
+        # Add a new penalty for each unrealized trade to directly punish missed opportunities
+        unrealized_trades = trial.user_attrs.get("unrealized_trades", 0)
+        sqn_penalty_per_unrealized = 0.2
+        additive_penalty = unrealized_trades * sqn_penalty_per_unrealized
+        final_sqn_penalized -= additive_penalty
 
         # Store all calculated metrics in user_attrs for later analysis
         trial.set_user_attr("mean_sqn", mean_sqn)
@@ -188,11 +197,11 @@ class Objective:
         params['long_sl'] = trial.suggest_int('long_sl', -200, -50)
         params['short_tp'] = trial.suggest_int('short_tp', 50, 200)
         params['short_sl'] = trial.suggest_int('short_sl', -200, -50)
-        params['obi_weight'] = trial.suggest_float('obi_weight', 0.5, 2.0)
-        params['ofi_weight'] = trial.suggest_float('ofi_weight', 0.5, 2.0)
+        params['obi_weight'] = trial.suggest_float('obi_weight', 0.8, 1.2)
+        params['ofi_weight'] = trial.suggest_float('ofi_weight', 0.8, 1.2)
         params['cvd_weight'] = trial.suggest_float('cvd_weight', 0.0, 1.0)
         params['micro_price_weight'] = trial.suggest_float('micro_price_weight', 0.0, 0.5)
-        params['composite_threshold'] = trial.suggest_float('composite_threshold', 0.1, 0.25)
+        params['composite_threshold'] = trial.suggest_float('composite_threshold', 0.15, 0.25)
         params['ewma_lambda'] = trial.suggest_float('ewma_lambda', 0.05, 0.25, log=True)
         params['entry_price_offset'] = trial.suggest_float('entry_price_offset', 0, 500)
         params['dynamic_obi_enabled'] = trial.suggest_categorical('dynamic_obi_enabled', [True, False])
