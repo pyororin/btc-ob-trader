@@ -43,3 +43,7 @@ rules:
         - adminer
         - optimizer
         - drift-monitor
+  - description: TASK_MANAGEMENT.md に記載しているタスクを実行するよう指示がある場合
+    requirement: |
+      実行はタスク単位とし、実行状況を ステータス へ反映すること
+      また、別タスクの項目の ステータス で既に完了していると推測するものは done とすること
