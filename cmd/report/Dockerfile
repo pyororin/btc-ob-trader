@@ -1,29 +1,27 @@
-# --- Builder Stage ---
-FROM golang:1.24-alpine AS builder
+# ---- Builder ----
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
-# Copy go.mod and go.sum files
-COPY go.mod go.sum ./
+# Install git for fetching dependencies if needed, and ca-certificates for HTTPS
+RUN apk add --no-cache git ca-certificates
 
-# Download all dependencies.
+COPY go.mod go.sum ./
+RUN go mod tidy
 RUN go mod download
 
-# Copy the source code
 COPY . .
 
-# Build the application
-# CGO_ENABLED=0 is important for creating a static binary
-# -o /app/report-generator specifies the output file name
-RUN CGO_ENABLED=0 go build -o /app/report-generator ./cmd/report
+# Build a static binary
+RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-s -w" -o /go/bin/report-generator cmd/report/main.go
 
-# --- Final Stage ---
-FROM alpine:3.19
+# ---- Final Image ----
+FROM scratch
 
-WORKDIR /
-
-# Copy the binary from the builder stage
-COPY --from=builder /app/report-generator /app/report-generator
+# Copy the static binary from the builder stage
+COPY --from=builder /go/bin/report-generator /report-generator
+# Copy ca-certificates for TLS
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 # Command to run the application
-CMD ["/app/report-generator"]
+ENTRYPOINT ["/report-generator"]

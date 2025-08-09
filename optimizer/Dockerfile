@@ -1,27 +1,16 @@
-FROM python:3.9-slim
+FROM python:3.11-alpine
 
-# Install Go
-ARG GO_VERSION=1.22.5
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    wget ca-certificates && \
-    wget https://golang.org/dl/go${GO_VERSION}.linux-amd64.tar.gz && \
-    tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz && \
-    rm go${GO_VERSION}.linux-amd64.tar.gz && \
-    apt-get remove -y wget && \
-    apt-get autoremove -y && \
-    rm -rf /var/lib/apt/lists/*
-ENV PATH="/usr/local/go/bin:${PATH}"
-
-# Create a virtual environment
-ENV VENV_PATH=/opt/venv
-RUN python3 -m venv $VENV_PATH
-ENV PATH="$VENV_PATH/bin:$PATH"
-
-# Install Python packages into the virtual environment
+# Set the working directory in the container
 WORKDIR /app
-COPY optimizer/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Install build dependencies, then install python packages, then remove build dependencies
+COPY ./optimizer/requirements.txt /app/requirements.txt
+RUN apk add --no-cache --virtual .build-deps gcc musl-dev g++ && \
+    pip install --no-cache-dir -r requirements.txt && \
+    apk del .build-deps
+
+# Copy the rest of the application's code into the container
+COPY ./optimizer /app/optimizer
 
 # Set environment variables to control thread usage by numerical libraries
 ENV OMP_NUM_THREADS=1 \
@@ -30,5 +19,5 @@ ENV OMP_NUM_THREADS=1 \
     VECLIB_MAXIMUM_THREADS=1 \
     NUMEXPR_NUM_THREADS=1
 
-# Copy the entire source code
-COPY . .
+# The command to run the application
+CMD ["python", "-m", "optimizer.main"]
