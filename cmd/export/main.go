@@ -36,13 +36,22 @@ func main() {
 		if *startTimeStr == "" || *endTimeStr == "" {
 			logger.Fatal("Both --start and --end flags are required when --hours-before is not used.")
 		}
-		startTime, err = time.Parse("2006-01-02 15:04:05", *startTimeStr)
+		// Use RFC3339 to properly parse timezone-aware strings (e.g., with 'Z' for UTC).
+		startTime, err = time.Parse(time.RFC3339, *startTimeStr)
 		if err != nil {
-			logger.Fatalf("Invalid start time format: %v", err)
+			// Fallback for backward compatibility with old format
+			startTime, err = time.Parse("2006-01-02 15:04:05", *startTimeStr)
+			if err != nil {
+				logger.Fatalf("Invalid start time format. Use YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DD HH:MM:SS. Error: %v", err)
+			}
 		}
-		endTime, err = time.Parse("2006-01-02 15:04:05", *endTimeStr)
+		endTime, err = time.Parse(time.RFC3339, *endTimeStr)
 		if err != nil {
-			logger.Fatalf("Invalid end time format: %v", err)
+			// Fallback for backward compatibility with old format
+			endTime, err = time.Parse("2006-01-02 15:04:05", *endTimeStr)
+			if err != nil {
+				logger.Fatalf("Invalid end time format. Use YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DD HH:MM:SS. Error: %v", err)
+			}
 		}
 	}
 

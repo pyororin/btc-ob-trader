@@ -46,8 +46,8 @@ def run_walk_forward_analysis(job: dict) -> bool:
 
         try:
             # a. Export training (IS) and validation (OOS) data for the fold
-            # The Go export script expects the format "YYYY-MM-DD HH:MM:SS".
-            time_format = "%Y-%m-%d %H:%M:%S"
+            # The Go export script expects timezone-aware RFC3339 format (YYYY-MM-DDTHH:MM:SSZ).
+            time_format = "%Y-%m-%dT%H:%M:%SZ"
             train_csv, validate_csv = data.export_and_split_data(
                 is_start_time=fold_times['train_start'].strftime(time_format),
                 is_end_time=fold_times['train_end'].strftime(time_format),
