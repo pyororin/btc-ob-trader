@@ -10,7 +10,10 @@ RUN apk add --no-cache go libgomp libstdc++ && \
     pip install --no-cache-dir -r requirements.txt && \
     apk del .build-deps
 
-# Copy the rest of the application's code into the container
+# Install runtime dependencies
+RUN apk add --no-cache libgomp
+
+# Copy the application's code into the container
 COPY ./optimizer /app/optimizer
 
 # Set environment variables to control thread usage by numerical libraries
