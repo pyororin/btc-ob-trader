@@ -46,6 +46,7 @@ def nest_params(flat_params: dict) -> dict:
     # The key is the flat param name, the value is a tuple path.
     key_map = {
         'spread_limit': ('spread_limit',),
+        'entry_price_offset': ('entry_price_offset',),
         'lot_max_ratio': ('lot_max_ratio',),
         'order_ratio': ('order_ratio',),
         # adaptive_position_sizing
