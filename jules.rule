@@ -1,50 +1,49 @@
 # jules.rule - 開発用共通ルール集
 
 rules:
-  - description: 日本語で依頼者とやり取りしてください。
-    requirement: |
-      チャット上のやり取り（質問、返答、説明など）はすべて日本語で行ってください。
+  - description: 日本語で依頼者とやり取りしてください。
+    requirement: |
+      チャット上のやり取り（質問、返答、説明など）はすべて日本語で行ってください。
 
-  - description: コミットメッセージは日本語で記述してください。
-    requirement: |
-      Gitへのコミットメッセージは、処理内容や目的が分かるように日本語で記述してください。
+  - description: コミットメッセージは日本語で記述してください。
+    requirement: |
+      Gitへのコミットメッセージは、処理内容や目的が分かるように日本語で記述してください。
 
-  - description: ソースコードは英語で記述してください。
-    requirement: |
-      変数名、関数名、コメントなどのソースコード中の表記は、すべて英語で記述してください。
+  - description: ソースコードは英語で記述してください。
+    requirement: |
+      変数名、関数名、コメントなどのソースコード中の表記は、すべて英語で記述してください。
 
-  - description: 仕様の事前確認を行ってください。
-    requirement: |
-      ロジックの設計・実装を始める前に、対象エンドポイントの ./docs/{対象名}/README.md を読み、仕様を必ず把握してください。
+  - description: 仕様の事前確認を行ってください。
+    requirement: |
+      ロジックの設計・実装を始める前に、対象エンドポイントの ./docs/{対象名}/README.md を読み、仕様を必ず把握してください。
 
-  - description: 該当コードに関するユニットテストは出来る限り実施してください。
-    requirement: |
-      DBを起動出来ないため、静的解析及びユニットテストによる動作担保は重要度が高いです。
+  - description: 該当コードに関するユニットテストは出来る限り実施してください。
+    requirement: |
+      DBを起動出来ないため、静的解析及びユニットテストによる動作担保は重要度が高いです。
 
-  - description: make up や make compose build は使用せず、改修対象サービスのみを個別に起動して動作確認を行ってください。
-    requirement: |
-      動作確認時に make up は使用しないでください。
-      必要に応じて `docker compose up <サービス名>` を用いて、該当する改修箇所のみを個別に起動し、確認を行ってください。
-      **ログ確認後は、`Ctrl+C`などで速やかにコマンドを終了してください。**
+  - description: make up や make compose build は使用せず、改修対象サービスのみを個別に起動して動作確認を行ってください。
+    requirement: |
+      動作確認時に make up は使用しないでください。
+      必要に応じて `docker compose up <サービス名>` を用いて、該当する改修箇所のみを個別に起動し、確認を行ってください。
 
-  - description: ファイル作成場所の制限。
-    requirement: |
-      明確な理由が無い限り、ルートディレクトリ直下に新規ファイルを作成しないでください。
+  - description: ファイル作成場所の制限。
+    requirement: |
+      明確な理由が無い限り、ルートディレクトリ直下に新規ファイルを作成しないでください。
 
-  - description: サービスに変更を加えた場合の設計書更新。
-    requirement: |
-      以下の対象サービスに変更を加えた場合は、必ず該当サービスの `./docs/{サービス名}/README.md` にも設計情報を反映してください。
-      
-      【対象サービス一覧】
-        - bot
-        - botsimulate
-        - timescaledb
-        - report-generator
-        - grafana
-        - adminer
-        - optimizer
-        - drift-monitor
-  - description: TASK_MANAGEMENT.md に記載しているタスクを実行するよう指示がある場合
-    requirement: |
-      実行はタスク単位とし、実行状況を ステータス へ反映すること
-      また、別タスクの項目の ステータス で既に完了していると推測するものは done とすること
+  - description: サービスに変更を加えた場合の設計書更新。
+    requirement: |
+      以下の対象サービスに変更を加えた場合は、必ず該当サービスの `./docs/{サービス名}/README.md` にも設計情報を反映してください。
+
+      【対象サービス一覧】
+        - bot
+        - botsimulate
+        - timescaledb
+        - report-generator
+        - grafana
+        - adminer
+        - optimizer
+        - drift-monitor
+  - description: TASK_MANAGEMENT.md に記載しているタスクを実行するよう指示がある場合
+    requirement: |
+      実行はタスク単位とし、実行状況を ステータス へ反映すること
+      また、別タスクの項目の ステータス で既に完了していると推測するものは done とすること

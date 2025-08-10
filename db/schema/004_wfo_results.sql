@@ -50,6 +50,7 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+DROP TRIGGER IF EXISTS update_wfo_results_updated_at ON wfo_results;
 CREATE TRIGGER update_wfo_results_updated_at
     BEFORE UPDATE ON wfo_results
     FOR EACH ROW
