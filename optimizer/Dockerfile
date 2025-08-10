@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Install build dependencies, then install python packages, then remove build dependencies
 COPY ./optimizer/requirements.txt /app/requirements.txt
-RUN apk add --no-cache libgomp libstdc++ && \
+RUN apk add --no-cache go libgomp libstdc++ && \
     apk add --no-cache --virtual .build-deps gcc musl-dev g++ && \
     pip install --no-cache-dir -r requirements.txt && \
     apk del .build-deps
