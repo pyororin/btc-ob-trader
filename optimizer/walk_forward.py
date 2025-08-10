@@ -46,10 +46,12 @@ def run_walk_forward_analysis(job: dict) -> bool:
 
         try:
             # a. Export training (IS) and validation (OOS) data for the fold
+            # The Go export script expects the format "YYYY-MM-DD HH:MM:SS".
+            time_format = "%Y-%m-%d %H:%M:%S"
             train_csv, validate_csv = data.export_and_split_data(
-                is_start_time=fold_times['train_start'].isoformat(),
-                is_end_time=fold_times['train_end'].isoformat(),
-                oos_end_time=fold_times['validate_end'].isoformat(),
+                is_start_time=fold_times['train_start'].strftime(time_format),
+                is_end_time=fold_times['train_end'].strftime(time_format),
+                oos_end_time=fold_times['validate_end'].strftime(time_format),
                 cycle_dir=fold_dir
             )
             if not train_csv or not validate_csv:
