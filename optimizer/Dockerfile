@@ -1,3 +1,20 @@
+# ---- Go Builder ----
+FROM golang:1.23-alpine AS go-builder
+
+WORKDIR /app
+
+# Install git for fetching dependencies if needed
+RUN apk add --no-cache git
+
+COPY go.mod go.sum ./
+RUN go mod tidy
+RUN go mod download
+
+COPY . .
+
+# Build the export command
+RUN CGO_ENABLED=0 go build -v -o /usr/local/bin/export ./cmd/export
+
 # ---- Builder Stage ----
 # This stage installs all build dependencies and Python packages.
 FROM python:3.11-alpine AS builder
@@ -30,6 +47,9 @@ RUN apk add --no-cache libgomp libstdc++
 # This avoids the need for build tools in the final image.
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Copy the export binary from the go-builder stage
+COPY --from=go-builder /usr/local/bin/export /usr/local/bin/export
 
 # Copy the application's code into the container.
 COPY ./optimizer /app/optimizer
