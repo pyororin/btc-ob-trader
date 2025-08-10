@@ -16,12 +16,18 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-s -w" -o /go/bin/obi-scalp-bot cmd/bot/main.go
 
 # ---- Final Image ----
-FROM scratch
+FROM alpine:latest
 
-# Copy the static binary from the builder stage
-COPY --from=builder /go/bin/obi-scalp-bot /obi-scalp-bot
+WORKDIR /app
+
+# Copy the entrypoint script with execute permissions
+COPY --chmod=755 --from=builder /app/entrypoint.sh /app/entrypoint.sh
+
+# Copy the static binary from the builder stage to a standard location
+COPY --from=builder /go/bin/obi-scalp-bot /usr/local/bin/obi-scalp-bot
+
 # Copy ca-certificates for TLS
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
-# Command to run the application
-ENTRYPOINT ["/obi-scalp-bot"]
+# Set the entrypoint to our script
+ENTRYPOINT ["/app/entrypoint.sh"]
