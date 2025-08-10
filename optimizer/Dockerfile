@@ -18,6 +18,9 @@ WORKDIR /app
 # Copy installed packages from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 
+# Install runtime dependencies
+RUN apk add --no-cache libgomp
+
 # Copy the application's code into the container
 COPY ./optimizer /app/optimizer
 
