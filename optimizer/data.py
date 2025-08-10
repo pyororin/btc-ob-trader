@@ -113,11 +113,8 @@ def _split_data_by_timestamp(full_dataset_path: Path, split_time_str: str, cycle
     data_lines = lines[1:]
 
     if not data_lines:
-        logging.warning("No data to split. Creating empty IS and OOS files.")
-        with open(is_path, 'w') as f_is, open(oos_path, 'w') as f_oos:
-            f_is.write(header)
-            f_oos.write(header)
-        return is_path, oos_path
+        logging.warning("No data to split. The exported file is empty.")
+        return None, None
 
     with open(is_path, 'w') as f_is, open(oos_path, 'w') as f_oos:
         f_is.write(header)
@@ -225,11 +222,8 @@ def _split_data_by_ratio(full_dataset_path: Path, total_hours: float, oos_hours:
     data_lines = lines[1:]
 
     if not data_lines:
-        logging.warning("No data to split. Creating empty IS and OOS files.")
-        with open(is_path, 'w') as f_is, open(oos_path, 'w') as f_oos:
-            f_is.write(header)
-            f_oos.write(header)
-        return is_path, oos_path
+        logging.warning("No data to split. The exported file is empty.")
+        return None, None
 
     try:
         # Determine the split time based on the timestamp of the last data line
