@@ -1,19 +1,16 @@
-# ---- Builder ----
-FROM python:3.11-alpine AS builder
+FROM python:3.11-alpine
 
+# Set the working directory in the container
 WORKDIR /app
 
-# Install build dependencies
-RUN apk add --no-cache --virtual .build-deps gcc musl-dev g++
-
-# Install python packages
+# Install build dependencies, then install python packages, then remove build dependencies
 COPY ./optimizer/requirements.txt /app/requirements.txt
-RUN apk add --no-cache libgomp && \
+RUN apk add --no-cache libgomp libstdc++ && \
     apk add --no-cache --virtual .build-deps gcc musl-dev g++ && \
     pip install --no-cache-dir -r requirements.txt && \
     apk del .build-deps
 
-# Copy the application's code into the container
+# Copy the rest of the application's code into the container
 COPY ./optimizer /app/optimizer
 
 # Set environment variables to control thread usage by numerical libraries
