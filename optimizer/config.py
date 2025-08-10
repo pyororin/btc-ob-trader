@@ -41,6 +41,7 @@ CONFIG = load_config()
 PARAMS_DIR = Path(os.getenv('PARAMS_DIR', CONFIG.get('params_dir', DEFAULT_PARAMS_DIR)))
 SIMULATION_DIR = APP_ROOT / 'simulation'
 WFO_RESULTS_DIR = APP_ROOT / 'data' / 'wfo_results'
+WFA_DIR = APP_ROOT / 'data' / 'wfa_runs'
 BIN_DIR = APP_ROOT / 'bin'
 CONFIG_TEMPLATE_PATH = PARAMS_DIR / 'trade_config.yaml.template'
 BEST_CONFIG_OUTPUT_PATH = PARAMS_DIR / 'trade_config.yaml'
@@ -89,12 +90,17 @@ STABILITY_CHECK_N_RUNS = STABILITY_CONFIG.get('n_runs', 5)
 STABILITY_JITTER_FACTOR = STABILITY_CONFIG.get('jitter_factor', 0.05)
 STABILITY_PENALTY_FACTOR = STABILITY_CONFIG.get('penalty_factor', 0.5)
 
+# Walk-Forward Analysis (WFA) Settings
+WFA_CONFIG = CONFIG.get('wfa', {})
+WFA_TOTAL_DAYS = WFA_CONFIG.get('total_days', 30)
+WFA_N_SPLITS = WFA_CONFIG.get('n_splits', 5)
+WFA_TRAIN_DAYS = WFA_CONFIG.get('train_days', 4)
+WFA_VALIDATE_DAYS = WFA_CONFIG.get('validate_days', 2)
+WFA_N_TRIALS_PER_FOLD = WFA_CONFIG.get('n_trials_per_fold', 200)
+WFA_MIN_SUCCESS_RATIO = WFA_CONFIG.get('min_success_ratio', 0.6)
+
+
 # Drift Monitor Settings
-DRIFT_MONITOR_WINDOWS = CONFIG.get('drift_monitor_windows', {
-    'major': {'window_is_hours': 4, 'window_oos_hours': 1},
-    'normal': {'window_is_hours': 4, 'window_oos_hours': 1},
-    'minor': {'window_is_hours': 2, 'window_oos_hours': 0.5}
-})
 DB_USER = os.getenv('DB_USER')
 DB_PASSWORD = os.getenv('DB_PASSWORD')
 DB_NAME = os.getenv('DB_NAME')

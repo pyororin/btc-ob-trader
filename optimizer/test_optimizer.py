@@ -113,7 +113,12 @@ class TestObjective(unittest.TestCase):
             'MaxDrawdown': 1234.5,
             'PnlHistory': [10, -5, 10, -5, 10] # Results in a low relative drawdown
         }
-        mock_run_simulation.return_value = mock_summary
+        # Create a mock stderr log where all signals are realized
+        mock_stderr = "\n".join(["Confirmed LONG signal" for _ in range(100)])
+
+        # Make the mock return the same summary and log for all runs
+        num_stability_runs = config.STABILITY_CHECK_N_RUNS
+        mock_run_simulation.side_effect = [(mock_summary, mock_stderr)] * (1 + num_stability_runs)
 
         trial = self.study.ask()
         # Set some dummy params
@@ -140,7 +145,7 @@ class TestObjective(unittest.TestCase):
             'MaxDrawdown': 500.0,
             'PnlHistory': [100, -20, -80, 10] # Peak is 100, final PnL is 10, drawdown is 90. Relative DD = 90 / 10 = 9.0 > 0.25
         }
-        mock_run_simulation.return_value = mock_summary
+        mock_run_simulation.return_value = (mock_summary, "")
 
         trial = self.study.ask()
         trial.suggest_int('spread_limit', 20, 80)
@@ -163,7 +168,7 @@ class TestObjective(unittest.TestCase):
             'MaxDrawdown': 100.0,
             'PnlHistory': [10, 10]
         }
-        mock_run_simulation.return_value = mock_summary
+        mock_run_simulation.return_value = (mock_summary, "")
 
         trial = self.study.ask()
         trial.suggest_int('spread_limit', 20, 80)

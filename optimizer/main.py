@@ -11,6 +11,7 @@ import optuna
 from . import config
 from . import data
 from . import study
+from . import walk_forward
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -74,50 +75,23 @@ def run_wfo_cycle(
 def run_daemon_job(job: dict):
     """
     Manages a single, complete optimization job triggered by the drift monitor.
+    This now uses the Walk-Forward Analysis (WFA) framework instead of a
+    simple IS/OOS split.
     """
-    logging.info(f"Processing daemon job: {job}")
+    logging.info(f"Processing daemon job with Walk-Forward Analysis: {job}")
 
     try:
-        is_hours = job.get('window_is_hours', 4)
-        oos_hours = job.get('window_oos_hours', 1)
-        n_trials = job.get('n_trials', config.N_TRIALS)
+        # The daemon job now triggers a full WFA run.
+        # The WFA module handles its own data fetching, optimization, and validation.
+        wfa_passed = walk_forward.run_walk_forward_analysis(job)
 
-        is_csv_path, oos_csv_path = data.export_and_split_data_for_daemon(
-            total_hours=is_hours + oos_hours,
-            oos_hours=oos_hours
-        )
-        if not is_csv_path or not oos_csv_path:
-            logging.error("Failed to get data for daemon job. Aborting.")
-            return
-
-        # Use the global study database for the daemon
-        study_name = f"daemon-opt-{int(datetime.datetime.now().timestamp())}"
-        # The create_study function needs to be adapted for daemon use
-        # Let's create a separate one or adapt the existing one.
-        # For now, let's assume a default global study.
-        storage_path = config.STORAGE_URL
-        # We need a way to create a study with the global storage.
-        # The refactored `create_study` requires a specific storage path.
-        # Let's create a wrapper or modify `create_study`.
-        # For now, let's just create a study with the default storage URL
-        optuna_study = optuna.create_study(
-            study_name=study_name,
-            storage=storage_path,
-            directions=['maximize', 'maximize', 'minimize'],
-            load_if_exists=True,
-        )
-
-        recent_days = job.get('recent_days_warm_start', 1)
-        # Warm-start is disabled because the parameter space has been updated.
-        # Re-enabling it would cause errors due to incompatible trial data from older studies.
-        # study.warm_start_with_recent_trials(optuna_study, recent_days)
-
-        study.run_optimization(optuna_study, is_csv_path, n_trials, storage_path)
-
-        study.analyze_and_validate_for_daemon(optuna_study, oos_csv_path)
+        if wfa_passed:
+            logging.info("WFA concluded successfully and the global parameters have been updated.")
+        else:
+            logging.warning("WFA concluded with a failure. Global parameters were not updated.")
 
     except Exception as e:
-        logging.error(f"An unexpected error occurred during the daemon job: {e}", exc_info=True)
+        logging.error(f"An unexpected error occurred during the WFA daemon job: {e}", exc_info=True)
 
 
 def main_loop():

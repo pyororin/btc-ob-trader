@@ -28,13 +28,13 @@ class TestConfigRendering(unittest.TestCase):
             -110,  # short_sl
         ]
         trial.suggest_float.side_effect = [
-            # Note: long_obi_threshold and short_obi_threshold are removed
             1.5,   # obi_weight
             1.4,   # ofi_weight
             1.3,   # cvd_weight
             0.4,   # micro_price_weight
             1.1,   # composite_threshold
             0.2,   # ewma_lambda
+            100.0, # entry_price_offset
             3.0,   # volatility_factor
             0.7,   # min_threshold_factor
             2.5,   # max_threshold_factor
@@ -67,7 +67,8 @@ class TestConfigRendering(unittest.TestCase):
         # Values for fixed params come from the .template file.
         expected_yaml_structure = {
             'pair': 'btc_jpy', 'order_amount': 0.01, 'spread_limit': 80,
-            'lot_max_ratio': 0.95, 'order_ratio': 0.95,
+            'entry_price_offset': 100.0,
+            'lot_max_ratio': 1.0, 'order_ratio': 0.95,
             'long': {'tp': 100, 'sl': -100},
             'short': {'tp': 110, 'sl': -110},
             'signal': {
@@ -82,7 +83,7 @@ class TestConfigRendering(unittest.TestCase):
                     'min_threshold_factor': 0.7, 'max_threshold_factor': 2.5
                 }
             },
-            'risk': {'max_drawdown_percent': 20, 'max_position_ratio': 0.9}
+            'risk': {'max_drawdown_percent': 25, 'max_position_ratio': 1.0}
         }
 
         self.maxDiff = None
