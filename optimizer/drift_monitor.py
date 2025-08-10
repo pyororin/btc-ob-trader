@@ -127,17 +127,15 @@ def trigger_optimization(drift_details: Dict[str, Any]):
 
     This monitoring script does not run the optimization directly. Instead, it
     communicates with the optimizer by creating a JSON file that the optimizer
-is watching for.
+    is watching for. The job no longer contains specific window sizes, as the
+    new WFA process manages its own time windows based on its configuration.
 
     Args:
-        drift_details: A dictionary containing the trigger type, severity, and
-                       suggested time windows for the optimization.
+        drift_details: A dictionary containing the trigger type and severity.
     """
     job = {
         "trigger_type": drift_details["trigger_type"],
         "severity": drift_details["severity"],
-        "window_is_hours": drift_details["window_is"],
-        "window_oos_hours": drift_details["window_oos"],
         "timestamp": time.time()
     }
     try:
@@ -167,11 +165,7 @@ def check_for_drift(metrics_1h: Optional[Dict], metrics_15m: Optional[Dict], bas
         logging.critical(
             "EMERGENCY TRIGGER (Incomplete Data): One or more metrics could not be retrieved."
         )
-        return [{
-            "trigger_type": "zero_metrics_fallback", "severity": "major",
-            "window_is": config.DRIFT_MONITOR_WINDOWS['major']['window_is_hours'],
-            "window_oos": config.DRIFT_MONITOR_WINDOWS['major']['window_oos_hours']
-        }]
+        return [{"trigger_type": "zero_metrics_fallback", "severity": "major"}]
 
     detected_drifts = []
     sharpe_mu, sharpe_sigma = baseline["sharpe_mu"], baseline["sharpe_sigma"]
@@ -182,11 +176,7 @@ def check_for_drift(metrics_1h: Optional[Dict], metrics_15m: Optional[Dict], bas
         logging.warning(
             f"DRIFT DETECTED (Short-term Sharpe): Z-score={z_score_15m:.2f} < {config.SHARPE_DRIFT_THRESHOLD_SD}"
         )
-        detected_drifts.append({
-            "trigger_type": "sharpe_drift_short_term", "severity": "minor",
-            "window_is": config.DRIFT_MONITOR_WINDOWS['minor']['window_is_hours'],
-            "window_oos": config.DRIFT_MONITOR_WINDOWS['minor']['window_oos_hours']
-        })
+        detected_drifts.append({"trigger_type": "sharpe_drift_short_term", "severity": "minor"})
 
     # --- Condition 2: Emergency Sharpe Ratio Drop (Major) ---
     z_score_1h = (metrics_1h["sharpe_ratio"] - sharpe_mu) / sharpe_sigma
@@ -194,11 +184,7 @@ def check_for_drift(metrics_1h: Optional[Dict], metrics_15m: Optional[Dict], bas
         logging.critical(
             f"EMERGENCY TRIGGER (Sharpe Drop): 1h Z={z_score_1h:.2f}, 15m Z={z_score_15m:.2f}"
         )
-        detected_drifts.append({
-            "trigger_type": "sharpe_emergency_drop", "severity": "major",
-            "window_is": config.DRIFT_MONITOR_WINDOWS['major']['window_is_hours'],
-            "window_oos": config.DRIFT_MONITOR_WINDOWS['major']['window_oos_hours']
-        })
+        detected_drifts.append({"trigger_type": "sharpe_emergency_drop", "severity": "major"})
 
     # --- Condition 3: Profit Factor Degradation (Normal) ---
     # Trigger if the profit factor is below the threshold, but not zero,
@@ -207,11 +193,7 @@ def check_for_drift(metrics_1h: Optional[Dict], metrics_15m: Optional[Dict], bas
         logging.warning(
             f"DRIFT DETECTED (Profit Factor): PF={metrics_1h['profit_factor']:.2f} < {config.PF_DRIFT_THRESHOLD}"
         )
-        detected_drifts.append({
-            "trigger_type": "profit_factor_drift", "severity": "normal",
-            "window_is": config.DRIFT_MONITOR_WINDOWS['normal']['window_is_hours'],
-            "window_oos": config.DRIFT_MONITOR_WINDOWS['normal']['window_oos_hours']
-        })
+        detected_drifts.append({"trigger_type": "profit_factor_drift", "severity": "normal"})
 
     # --- Condition 4: Zero Metrics Fallback (Major) ---
     # If profit factor is zero, it's a strong indicator that we are not receiving
@@ -220,11 +202,7 @@ def check_for_drift(metrics_1h: Optional[Dict], metrics_15m: Optional[Dict], bas
         logging.critical(
             "EMERGENCY TRIGGER (Zero Metrics): Profit factor is 0, indicating a potential data feed issue."
         )
-        detected_drifts.append({
-            "trigger_type": "zero_metrics_fallback", "severity": "major",
-            "window_is": config.DRIFT_MONITOR_WINDOWS['major']['window_is_hours'],
-            "window_oos": config.DRIFT_MONITOR_WINDOWS['major']['window_oos_hours']
-        })
+        detected_drifts.append({"trigger_type": "zero_metrics_fallback", "severity": "major"})
 
     return detected_drifts
 

@@ -242,7 +242,7 @@ class TestSimulation(unittest.TestCase):
                 result = run_simulation(params=nested_params, sim_csv_path=Path("dummy.csv"))
 
             # 5. Assertions
-            self.assertEqual(result, {"TotalTrades": 10, "SharpeRatio": 1.5})
+            self.assertEqual(result[0], {"TotalTrades": 10, "SharpeRatio": 1.5})
             self.assertTrue(mock_subprocess_run.called)
 
             # Check the command that was run
