@@ -37,7 +37,7 @@ def export_and_split_data(
     _cleanup_directory(config.SIMULATION_DIR)
 
     cmd = [
-        'go', 'run', 'cmd/export/main.go',
+        'export',
         f'--start={is_start_time}',
         f'--end={oos_end_time}',
         '--no-zip'
@@ -181,7 +181,7 @@ def export_and_split_data_for_daemon(total_hours: float, oos_hours: float) -> Tu
 
     import math
     cmd = [
-        'go', 'run', 'cmd/export/main.go',
+        'export',
         f'--hours-before={math.ceil(total_hours)}',
         '--no-zip'
     ]
