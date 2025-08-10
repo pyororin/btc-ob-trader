@@ -13,9 +13,21 @@ RUN go mod download
 COPY . .
 
 # Build the wfo-runner
-RUN CGO_ENABLED=0 go build -v -o /usr/local/bin/wfo-runner ./cmd/wfo-runner
+RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-s -w" -o /usr/local/bin/wfo-runner ./cmd/wfo-runner/main.go
 
-# ---- Python Image ----
+# ---- Python Builder ----
+FROM python:3.11-alpine AS python-builder
+
+WORKDIR /app
+
+# Install build dependencies for python packages
+RUN apk add --no-cache --virtual .build-deps gcc musl-dev g++
+
+# Install python packages
+COPY ./optimizer/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ---- Final Image ----
 FROM python:3.11-alpine
 
 WORKDIR /app
@@ -23,11 +35,8 @@ WORKDIR /app
 # Copy the wfo-runner binary from the go-builder stage
 COPY --from=go-builder /usr/local/bin/wfo-runner /usr/local/bin/wfo-runner
 
-# Install build dependencies for python packages
-COPY ./optimizer/requirements.txt /app/requirements.txt
-RUN apk add --no-cache --virtual .build-deps gcc musl-dev g++ && \
-    pip install --no-cache-dir -r requirements.txt && \
-    apk del .build-deps
+# Copy installed python packages from python-builder
+COPY --from=python-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 
 # Copy the optimizer code
 COPY ./optimizer /app/optimizer
