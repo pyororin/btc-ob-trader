@@ -1,16 +1,18 @@
 # ---- Builder Stage ----
-# This stage installs all build dependencies and Python packages.
+# This stage installs build dependencies, creates a virtual environment, and installs Python packages.
 FROM python:3.11-alpine AS builder
 
-# Set the working directory
-WORKDIR /app
-
 # Install build-time dependencies needed for compiling Python packages.
-# 'go' and 'libstdc++' are included to match the original Dockerfile's dependencies.
-RUN apk add --no-cache --virtual .build-deps gcc musl-dev g++ go libstdc++
+RUN apk add --no-cache --virtual .build-deps gcc musl-dev g++
 
-# Copy the requirements file and install Python packages.
+# Create a virtual environment
+ENV VENV_PATH=/opt/venv
+RUN python -m venv $VENV_PATH
+ENV PATH="$VENV_PATH/bin:$PATH"
+
+# Copy the requirements file and install Python packages into the virtual environment.
 # Using --no-cache-dir reduces the image size by not storing the cache.
+WORKDIR /app
 COPY ./optimizer/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -26,10 +28,12 @@ WORKDIR /app
 # 'libstdc++' is a common runtime library for C++ code.
 RUN apk add --no-cache libgomp libstdc++
 
-# Copy the installed Python packages from the builder stage.
-# This avoids the need for build tools in the final image.
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+# Copy the virtual environment from the builder stage.
+ENV VENV_PATH=/opt/venv
+COPY --from=builder $VENV_PATH $VENV_PATH
+
+# Set the PATH to use the venv
+ENV PATH="$VENV_PATH/bin:$PATH"
 
 # Copy the application's code into the container.
 COPY ./optimizer /app/optimizer
@@ -43,4 +47,5 @@ ENV OMP_NUM_THREADS=1 \
     NUMEXPR_NUM_THREADS=1
 
 # The command to run the application.
+# The python executable from the venv will be used due to the PATH update.
 CMD ["python", "-m", "optimizer.main"]
