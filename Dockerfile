@@ -16,7 +16,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-s -w" -o /go/bin/obi-scalp-bot cmd/bot/main.go
 
 # ---- Final Image ----
-FROM scratch
+FROM alpine:latest
 
 WORKDIR /app
 
