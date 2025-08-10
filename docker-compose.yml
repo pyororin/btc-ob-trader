@@ -24,11 +24,10 @@ services:
       dockerfile: Dockerfile
     container_name: obi-scalp-bot
     volumes:
-      - .:/app
       - ./.env:/app/.env:ro
       - ./data/params:/data/params
       - ./config:/app/config:ro
-    entrypoint: ["/app/entrypoint.sh"]
+    # The entrypoint is now defined in the Dockerfile.
     # The trade_config.yaml is now loaded from /data/params by default in the Go app
     command: ["-config", "/app/config/app_config.yaml"]
     env_file:
