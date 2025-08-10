@@ -55,7 +55,9 @@ def run_walk_forward_analysis(job: dict) -> bool:
                 cycle_dir=fold_dir
             )
             if not train_csv or not validate_csv:
-                raise ValueError("Data export for fold failed.")
+                logging.warning(f"Skipping fold {fold_id} due to missing data for the period.")
+                all_fold_results.append({"status": "skipped", "reason": "No data available for this time period."})
+                continue
 
             # b. Create and run an Optuna study on the training data
             storage_path = f"sqlite:///{fold_dir / 'optuna-study.db'}"
