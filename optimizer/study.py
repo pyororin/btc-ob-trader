@@ -56,7 +56,7 @@ def _run_single_phase_optimization(
     study.optimize(
         objective_func,
         n_trials=n_trials,
-        n_jobs=-1,
+        n_jobs=1,
         show_progress_bar=False,
         catch=(Exception,),
         callbacks=[callback_with_n_trials]
