@@ -112,3 +112,91 @@ wfa:
 analyzer:
   top_trials_quantile: 0.1
 
+# -----------------------------------------------------------------------------
+# Walk-Forward Optimization (WFO) Runner Settings
+# -----------------------------------------------------------------------------
+wfo_runner:
+  start_date: "2024-04-01T00:00:00Z"
+  end_date: "2024-07-01T00:00:00Z"
+  is_window_days: 45
+  oos_window_days: 15
+  step_days: 15
+
+# ==============================================================================
+# パラメータ探索空間 (Parameter Search Space)
+# ==============================================================================
+# Optunaがパラメータを提案（suggest）する際の探索範囲を定義します。
+# 各パラメータの型（type）に応じて、適切な suggest_* メソッドが呼び出されます。
+#
+# - type: "int" -> suggest_int(low, high)
+# - type: "float" -> suggest_float(low, high, log)
+# - type: "categorical" -> suggest_categorical(choices)
+#
+parameter_space:
+  spread_limit:
+    type: "int"
+    low: 20
+    high: 80
+  long_tp:
+    type: "int"
+    low: 50
+    high: 200
+  long_sl:
+    type: "int"
+    low: -200
+    high: -50
+  short_tp:
+    type: "int"
+    low: 50
+    high: 200
+  short_sl:
+    type: "int"
+    low: -200
+    high: -50
+  obi_weight:
+    type: "float"
+    low: 0.8
+    high: 1.2
+  ofi_weight:
+    type: "float"
+    low: 0.8
+    high: 1.2
+  cvd_weight:
+    type: "float"
+    low: 0.0
+    high: 1.0
+  micro_price_weight:
+    type: "float"
+    low: 0.0
+    high: 0.5
+  composite_threshold:
+    type: "float"
+    low: 0.15
+    high: 0.25
+  ewma_lambda:
+    type: "float"
+    low: 0.05
+    high: 0.25
+    log: true
+  entry_price_offset:
+    type: "float"
+    low: 0
+    high: 500
+  dynamic_obi_enabled:
+    type: "categorical"
+    choices: [true, false]
+  # --- Conditional Parameters ---
+  # dynamic_obi_enabled が true の場合にのみ提案されます
+  volatility_factor:
+    type: "float"
+    low: 0.75
+    high: 1.5
+    log: true
+  min_threshold_factor:
+    type: "float"
+    low: 0.5
+    high: 1.0
+  max_threshold_factor:
+    type: "float"
+    low: 1.0
+    high: 1.5

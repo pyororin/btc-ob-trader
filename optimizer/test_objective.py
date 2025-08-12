@@ -117,5 +117,39 @@ class TestObjective(unittest.TestCase):
             self.objective(self.mock_trial)
         self.assertLess(self.trial_user_attrs.get("execution_rate"), 0.5)
 
+    @patch('optimizer.config.PARAMETER_SPACE', {
+        'param_int': {'type': 'int', 'low': 1, 'high': 10},
+        'param_float': {'type': 'float', 'low': 0.1, 'high': 1.0, 'log': True},
+        'param_cat': {'type': 'categorical', 'choices': ['a', 'b']},
+        'dynamic_obi_enabled': {'type': 'categorical', 'choices': [True, False]},
+        'volatility_factor': {'type': 'float', 'low': 0.5, 'high': 1.5}
+    })
+    def test_suggest_parameters_from_config(self):
+        """
+        Test that parameters are suggested based on the PARAMETER_SPACE config.
+        """
+        # We need to reset the mock to clear previous return values for this specific test
+        self.mock_trial.suggest_categorical.side_effect = [True, 'a'] # First call for dynamic_obi_enabled, second for param_cat if needed
+
+        params = self.objective._suggest_parameters(self.mock_trial)
+
+        # Verify that the suggest methods were called correctly
+        self.mock_trial.suggest_int.assert_called_once_with('param_int', 1, 10)
+        self.mock_trial.suggest_float.assert_any_call('param_float', 0.1, 1.0, log=True)
+
+        # Check the call for the categorical parameter
+        self.mock_trial.suggest_categorical.assert_any_call('param_cat', ['a', 'b'])
+
+        # Check the call for the conditional parameter
+        # The first call to suggest_categorical will return True, enabling the condition
+        self.mock_trial.suggest_float.assert_any_call('volatility_factor', 0.5, 1.5, log=False)
+
+        # Verify the returned params dict
+        self.assertIn('param_int', params)
+        self.assertIn('param_float', params)
+        self.assertIn('param_cat', params)
+        self.assertIn('volatility_factor', params)
+
+
 if __name__ == '__main__':
     unittest.main()

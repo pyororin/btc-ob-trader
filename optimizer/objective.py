@@ -168,26 +168,51 @@ class Objective:
 
     def _suggest_parameters(self, trial: optuna.Trial) -> dict:
         """
-        Suggests a flat dictionary of parameters for a trial.
+        Suggests a flat dictionary of parameters for a trial based on the search
+        space defined in the configuration file.
         """
         params = {}
-        params['spread_limit'] = trial.suggest_int('spread_limit', 20, 80)
-        params['long_tp'] = trial.suggest_int('long_tp', 50, 200)
-        params['long_sl'] = trial.suggest_int('long_sl', -200, -50)
-        params['short_tp'] = trial.suggest_int('short_tp', 50, 200)
-        params['short_sl'] = trial.suggest_int('short_sl', -200, -50)
-        params['obi_weight'] = trial.suggest_float('obi_weight', 0.8, 1.2)
-        params['ofi_weight'] = trial.suggest_float('ofi_weight', 0.8, 1.2)
-        params['cvd_weight'] = trial.suggest_float('cvd_weight', 0.0, 1.0)
-        params['micro_price_weight'] = trial.suggest_float('micro_price_weight', 0.0, 0.5)
-        params['composite_threshold'] = trial.suggest_float('composite_threshold', 0.15, 0.25)
-        params['ewma_lambda'] = trial.suggest_float('ewma_lambda', 0.05, 0.25, log=True)
-        params['entry_price_offset'] = trial.suggest_float('entry_price_offset', 0, 500)
-        params['dynamic_obi_enabled'] = trial.suggest_categorical('dynamic_obi_enabled', [True, False])
-        if params['dynamic_obi_enabled']:
-            params['volatility_factor'] = trial.suggest_float('volatility_factor', 0.75, 1.5, log=True)
-            params['min_threshold_factor'] = trial.suggest_float('min_threshold_factor', 0.5, 1.0)
-            params['max_threshold_factor'] = trial.suggest_float('max_threshold_factor', 1.0, 1.5)
+        space = config.PARAMETER_SPACE
+
+        # Define which parameters are conditional
+        conditional_params = {
+            'dynamic_obi_enabled': ['volatility_factor', 'min_threshold_factor', 'max_threshold_factor']
+        }
+
+        # Iterate through the defined parameter space and suggest parameters
+        for name, p_space in space.items():
+            # Skip conditional parameters for now, they will be handled later
+            is_conditional = any(name in group for group in conditional_params.values())
+            if is_conditional:
+                continue
+
+            p_type = p_space.get('type')
+            if p_type == 'int':
+                params[name] = trial.suggest_int(name, p_space['low'], p_space['high'])
+            elif p_type == 'float':
+                log = p_space.get('log', False)
+                params[name] = trial.suggest_float(name, p_space['low'], p_space['high'], log=log)
+            elif p_type == 'categorical':
+                params[name] = trial.suggest_categorical(name, p_space['choices'])
+            else:
+                logging.warning(f"Unsupported parameter type '{p_type}' for '{name}'")
+
+        # Handle conditional parameters
+        if params.get('dynamic_obi_enabled'):
+            for name in conditional_params['dynamic_obi_enabled']:
+                p_space = space.get(name)
+                if not p_space:
+                    logging.warning(f"Conditional parameter '{name}' not found in parameter_space config.")
+                    continue
+
+                p_type = p_space.get('type')
+                if p_type == 'float':
+                     log = p_space.get('log', False)
+                     params[name] = trial.suggest_float(name, p_space['low'], p_space['high'], log=log)
+                # Add other types if needed for future conditional parameters
+                else:
+                    logging.warning(f"Unsupported conditional parameter type '{p_type}' for '{name}'")
+
         return params
 
     def _calculate_and_set_metrics(self, trial: optuna.Trial, summary: dict, stderr_log: str):

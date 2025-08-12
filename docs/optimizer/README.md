@@ -25,10 +25,46 @@
 -   `optimizer/study.py`: 1サイクル分のOptuna最適化（IS最適化とOOS検証）を実行し、結果を返す。
 -   `optimizer/data.py`: 指定された時間枠のデータをエクスポートし、IS/OOSに分割する。
 -   `optimizer/config.py`: `optimizer_config.yaml`から設定を読み込む。
+-   `optimizer/objective.py`: Optunaの目的関数を定義する。`_suggest_parameters`メソッドは、`optimizer_config.yaml`内の`parameter_space`セクションに基づいてパラメータの探索範囲を動的に決定します。
 -   `simulation.py`: Goのバックテストエンジンをサブプロセスとして呼び出す。
--   `objective.py`: Optunaの目的関数を定義する。
 
-## 4. 実行方法
+## 4. 設定ファイル (`config/optimizer_config.yaml`)
+
+オプティマイザの挙動は、`config/optimizer_config.yaml`ファイルで詳細に設定できます。
+
+-   `n_trials`: 1回の最適化サイクルで試行する回数。
+-   `parameter_space`: Optunaが探索するパラメータの範囲を定義します。各パラメータについて、型（`int`, `float`, `categorical`）、範囲（`low`, `high`）、対数スケール（`log`）などを指定できます。このセクションを変更することで、ソースコードに触れることなく探索空間を調整できます。
+-   `wfo_runner`: WFO全体の期間や、IS/OOSのウィンドウサイズなどを設定します。
+
+## 5. データベース
+
+### `wfo_results` テーブル
+
+WFOの各サイクルの結果を格納するために、新たに`wfo_results`テーブルが追加されました。
+
+-   **役割**: 各サイクル（特定のIS/OOS期間）のパフォーマンス指標と、そのサイクルで見つかった最適なパラメータを記録します。
+-   **主なカラム**:
+    -   `cycle_id`: "cycle-01", "cycle-02"などの一意なID。
+    -   `status`: サイクルの成功・失敗ステータス。
+    -   `is_start_time`, `is_end_time`, `oos_end_time`: サイクルの期間。
+    -   `is_*`, `oos_*`: ISとOOSそれぞれのパフォーマンス指標（Sharpe Ratio, Profit Factor, tradesなど）。
+    -   `best_params`: OOS検証に合格したパラメータのJSON。
+-   **目的**: このテーブルを分析することで、どのパラメータが様々な市場状況で安定して機能するか、また戦略がどのような市場で得意/不得意かを知ることができます。
+
+## 5. 実行方法
+
+### Walk-Forward Optimizationの実行
+
+大規模なWFO分析を実行するには、以下のコマンドを使用します。
+
+```bash
+make run-wfo
+```
+
+-   このコマンドは`wfo-runner`サービスを起動します。
+-   処理には非常に長い時間がかかることがあります。
+-   実行中は、各サイクルのログがコンソールに出力されます。
+-   完了後、全結果は`wfo_results`テーブルに格納されます。
 
 ### 継続的最適化の実行
 
