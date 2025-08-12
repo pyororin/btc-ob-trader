@@ -104,7 +104,8 @@ def _split_data_by_timestamp(full_dataset_path: Path, split_time_str: str, cycle
         split_time = _parse_timestamp(split_time_str)
     except ValueError as e:
         logging.error(f"Invalid split_time_str format: {split_time_str}. Error: {e}")
-        return is_path, oos_path
+        # Return None to indicate failure, preventing creation of empty files
+        return None, None
 
     with open(full_dataset_path, 'r') as f_full:
         lines = f_full.readlines()
@@ -113,7 +114,7 @@ def _split_data_by_timestamp(full_dataset_path: Path, split_time_str: str, cycle
     data_lines = lines[1:]
 
     if not data_lines:
-        logging.warning("No data to split. The exported file is empty.")
+        logging.warning(f"No data to split in {full_dataset_path}. The file is likely empty. Skipping fold.")
         return None, None
 
     with open(is_path, 'w') as f_is, open(oos_path, 'w') as f_oos:
@@ -234,11 +235,8 @@ def _split_data_by_ratio(full_dataset_path: Path, total_hours: float, oos_hours:
 
     except (ValueError, IndexError) as e:
         logging.error(f"Could not determine split time from data due to error: {e}. Aborting split.")
-        # Create empty files to prevent downstream errors
-        with open(is_path, 'w') as f_is, open(oos_path, 'w') as f_oos:
-            f_is.write(header)
-            f_oos.write(header)
-        return is_path, oos_path
+        # Return None to indicate failure, preventing creation of empty files
+        return None, None
 
     # Split data based on the calculated timestamp
     with open(is_path, 'w') as f_is, open(oos_path, 'w') as f_oos:
