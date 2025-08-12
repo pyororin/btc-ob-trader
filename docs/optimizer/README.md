@@ -63,10 +63,18 @@ WFOは、過学習（カーブフィッティング）を避け、パラメー�
 -   `optimizer/study.py`: 1サイクル分のOptuna最適化（IS最適化とOOS検証）を実行し、結果を返す。
 -   `optimizer/data.py`: 指定された時間枠のデータをエクスポートし、IS/OOSに分割する。
 -   `optimizer/config.py`: `optimizer_config.yaml`から設定を読み込む。
+-   `optimizer/objective.py`: Optunaの目的関数を定義する。`_suggest_parameters`メソッドは、`optimizer_config.yaml`内の`parameter_space`セクションに基づいてパラメータの探索範囲を動的に決定します。
 -   `simulation.py`: Goのバックテストエンジンをサブプロセスとして呼び出す。
--   `objective.py`: Optunaの目的関数を定義する。
 
-## 4. データベース
+## 4. 設定ファイル (`config/optimizer_config.yaml`)
+
+オプティマイザの挙動は、`config/optimizer_config.yaml`ファイルで詳細に設定できます。
+
+-   `n_trials`: 1回の最適化サイクルで試行する回数。
+-   `parameter_space`: Optunaが探索するパラメータの範囲を定義します。各パラメータについて、型（`int`, `float`, `categorical`）、範囲（`low`, `high`）、対数スケール（`log`）などを指定できます。このセクションを変更することで、ソースコードに触れることなく探索空間を調整できます。
+-   `wfo_runner`: WFO全体の期間や、IS/OOSのウィンドウサイズなどを設定します。
+
+## 5. データベース
 
 ### `wfo_results` テーブル
 

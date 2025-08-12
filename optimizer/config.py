@@ -60,6 +60,9 @@ MAX_RETRY = CONFIG.get('max_retry', 5)
 EARLY_STOP_COUNT = CONFIG.get('early_stop_count', 3)
 EARLY_STOP_THRESHOLD_RATIO = CONFIG.get('early_stop_threshold_ratio', -0.5)
 
+# Parameter Search Space
+PARAMETER_SPACE = CONFIG.get('parameter_space', {})
+
 # Out-of-Sample (OOS) Validation Criteria
 OOS_MIN_SHARPE_RATIO = CONFIG.get('oos_min_sharpe_ratio', 0.5)
 OOS_MIN_TRADES = CONFIG.get('oos_min_trades', 10)
