@@ -1,5 +1,5 @@
 import unittest
-from .utils import nest_params
+from optimizer.utils import nest_params
 
 class TestUtils(unittest.TestCase):
 
