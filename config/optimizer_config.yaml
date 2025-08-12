@@ -134,69 +134,52 @@ wfo_runner:
 #
 parameter_space:
   spread_limit:
-    type: "int"
-    low: 20
-    high: 80
+    type: "categorical"
+    choices: [20, 40, 60, 80]
   long_tp:
-    type: "int"
-    low: 50
-    high: 200
+    type: "categorical"
+    choices: [50, 100, 150, 200]
   long_sl:
-    type: "int"
-    low: -200
-    high: -50
+    type: "categorical"
+    choices: [-200, -150, -100, -50]
   short_tp:
-    type: "int"
-    low: 50
-    high: 200
+    type: "categorical"
+    choices: [50, 100, 150, 200]
   short_sl:
-    type: "int"
-    low: -200
-    high: -50
+    type: "categorical"
+    choices: [-200, -150, -100, -50]
   obi_weight:
-    type: "float"
-    low: 0.8
-    high: 1.2
+    type: "categorical"
+    choices: [0.8, 1.0, 1.2]
   ofi_weight:
-    type: "float"
-    low: 0.8
-    high: 1.2
+    type: "categorical"
+    choices: [0.8, 1.0, 1.2]
   cvd_weight:
-    type: "float"
-    low: 0.0
-    high: 1.0
+    type: "categorical"
+    choices: [0.0, 0.25, 0.5, 0.75, 1.0]
   micro_price_weight:
-    type: "float"
-    low: 0.0
-    high: 0.5
+    type: "categorical"
+    choices: [0.0, 0.1, 0.2, 0.3, 0.4]
   composite_threshold:
-    type: "float"
-    low: 0.15
-    high: 0.25
+    type: "categorical"
+    choices: [0.15, 0.2, 0.25]
   ewma_lambda:
-    type: "float"
-    low: 0.05
-    high: 0.25
-    log: true
+    type: "categorical"
+    choices: [0.05, 0.1, 0.15, 0.2, 0.25]
   entry_price_offset:
-    type: "float"
-    low: 0
-    high: 500
+    type: "categorical"
+    choices: [0, 100, 250, 500]
   dynamic_obi_enabled:
     type: "categorical"
     choices: [true, false]
   # --- Conditional Parameters ---
   # dynamic_obi_enabled が true の場合にのみ提案されます
   volatility_factor:
-    type: "float"
-    low: 0.75
-    high: 1.5
-    log: true
+    type: "categorical"
+    choices: [0.75, 1.0, 1.25, 1.5]
   min_threshold_factor:
-    type: "float"
-    low: 0.5
-    high: 1.0
+    type: "categorical"
+    choices: [0.5, 0.75, 1.0]
   max_threshold_factor:
-    type: "float"
-    low: 1.0
-    high: 1.5
+    type: "categorical"
+    choices: [1.0, 1.25, 1.5]

@@ -20,14 +20,13 @@ class TestConfigRendering(unittest.TestCase):
 
         # This list of side effects corresponds to the *active* list of parameters
         # in objective.py's _suggest_parameters method.
-        trial.suggest_int.side_effect = [
+        # All parameters are now categorical
+        trial.suggest_categorical.side_effect = [
             80,    # spread_limit
             100,   # long_tp
             -100,  # long_sl
             110,   # short_tp
             -110,  # short_sl
-        ]
-        trial.suggest_float.side_effect = [
             1.5,   # obi_weight
             1.4,   # ofi_weight
             1.3,   # cvd_weight
@@ -35,12 +34,10 @@ class TestConfigRendering(unittest.TestCase):
             1.1,   # composite_threshold
             0.2,   # ewma_lambda
             100.0, # entry_price_offset
+            True,  # dynamic_obi_enabled
             3.0,   # volatility_factor
             0.7,   # min_threshold_factor
             2.5,   # max_threshold_factor
-        ]
-        trial.suggest_categorical.side_effect = [
-            True,  # dynamic_obi_enabled
         ]
 
         # 2. Instantiate Objective and suggest parameters

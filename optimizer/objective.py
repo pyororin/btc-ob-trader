@@ -209,6 +209,8 @@ class Objective:
                 if p_type == 'float':
                      log = p_space.get('log', False)
                      params[name] = trial.suggest_float(name, p_space['low'], p_space['high'], log=log)
+                elif p_type == 'categorical':
+                    params[name] = trial.suggest_categorical(name, p_space['choices'])
                 # Add other types if needed for future conditional parameters
                 else:
                     logging.warning(f"Unsupported conditional parameter type '{p_type}' for '{name}'")
