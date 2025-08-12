@@ -38,10 +38,5 @@ bin/
 # 一時パラメータファイル
 data/params/tmp*.yaml
 
-# WFO 結果ファイル（全ての cycle に対応）
-data/wfo_results/**/full_data.csv
-data/wfo_results/**/is_data.csv
-data/wfo_results/**/oos_data.csv
-
 # 単発の order book CSV ファイル（例: 日付入りファイル）
 order_book_updates_*.csv
