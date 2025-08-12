@@ -40,7 +40,6 @@ CONFIG = load_config()
 # Directories and Paths
 PARAMS_DIR = Path(os.getenv('PARAMS_DIR', CONFIG.get('params_dir', DEFAULT_PARAMS_DIR)))
 SIMULATION_DIR = APP_ROOT / 'simulation'
-WFO_RESULTS_DIR = APP_ROOT / 'data' / 'wfo_results'
 WFA_DIR = APP_ROOT / 'data' / 'wfa_runs'
 BIN_DIR = APP_ROOT / 'bin'
 CONFIG_TEMPLATE_PATH = PARAMS_DIR / 'trade_config.yaml.template'
