@@ -5,7 +5,7 @@ from typing import Dict, Any, List
 from optuna.trial import FrozenTrial
 from optuna.distributions import FloatDistribution, IntDistribution, CategoricalDistribution
 
-from .sampler import KDESampler
+from optimizer.sampler import KDESampler
 
 def create_mock_trial(params: Dict[str, Any], trial_number: int) -> FrozenTrial:
     """Helper function to create a mock FrozenTrial."""

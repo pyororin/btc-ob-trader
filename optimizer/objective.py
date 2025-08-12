@@ -58,20 +58,18 @@ class Objective:
         """
         self.study = study
 
-    def __call__(self, trial: optuna.Trial) -> tuple[float, float, float]:
+    def __call__(self, trial: optuna.Trial) -> float:
         """
-        Executes a single optimization trial for multi-objective optimization.
+        Executes a single optimization trial.
+        The objective is to maximize a penalized Sharpe Ratio.
         """
-        def get_dominated_penalty():
-            return -1.0, 0.0, -1_000_000.0
-
         flat_params = self._suggest_parameters(trial)
         params = nest_params(flat_params)
 
         sim_csv_path = self.study.user_attrs.get('current_csv_path')
         if not sim_csv_path:
             logging.error("Simulation CSV path not found in study user attributes.")
-            return get_dominated_penalty()
+            raise optuna.exceptions.TrialPruned()
 
         # Run the simulation and get both summary and logs
         summary, stderr_log = simulation.run_simulation(params, sim_csv_path)
@@ -83,88 +81,69 @@ class Objective:
         total_trades = trial.user_attrs.get("trades", 0)
         if total_trades < config.MIN_TRADES_FOR_PRUNING:
             logging.debug(f"Trial {trial.number} pruned due to insufficient trades: {total_trades} < {config.MIN_TRADES_FOR_PRUNING}")
-            return get_dominated_penalty()
+            raise optuna.exceptions.TrialPruned()
 
-        # Prune based on realization rate
         realization_rate = trial.user_attrs.get("realization_rate", 0.0)
         confirmed_signals = trial.user_attrs.get("confirmed_signals", 0)
-        # Only apply this pruning if there was a reasonable number of signals
         if confirmed_signals > 10 and realization_rate < 0.1:
-             logging.debug(f"Trial {trial.number} pruned due to low realization rate: {realization_rate:.2f}")
-             return get_dominated_penalty()
+            logging.debug(f"Trial {trial.number} pruned due to low realization rate: {realization_rate:.2f}")
+            raise optuna.exceptions.TrialPruned()
 
-        # Prune based on high drawdown
-        DD_PENALTY_THRESHOLD = 0.25
         relative_drawdown = trial.user_attrs.get("relative_drawdown", 1.0)
-        if relative_drawdown > DD_PENALTY_THRESHOLD:
+        if relative_drawdown > config.DD_PENALTY_THRESHOLD:
             logging.debug(f"Trial {trial.number} pruned for high relative drawdown: {relative_drawdown:.2%}")
-            return get_dominated_penalty()
+            raise optuna.exceptions.TrialPruned()
 
-        # Prune based on execution rate
         execution_rate = trial.user_attrs.get("execution_rate", 0.0)
-        if execution_rate < 0.5: # New Pruning threshold
-             logging.debug(f"Trial {trial.number} pruned due to low execution rate: {execution_rate:.2f}")
-             return get_dominated_penalty()
+        if execution_rate < 0.5:
+            logging.debug(f"Trial {trial.number} pruned due to low execution rate: {execution_rate:.2f}")
+            raise optuna.exceptions.TrialPruned()
 
         # --- Stability Analysis (Objective Regularization) ---
-        # Run multiple simulations with small jitters to evaluate parameter stability.
         jitter_summaries = []
         for i in range(config.STABILITY_CHECK_N_RUNS):
             jittered_flat_params = self._get_jittered_params(trial)
             jittered_nested_params = nest_params(jittered_flat_params)
             jitter_summary, _ = simulation.run_simulation(jittered_nested_params, sim_csv_path)
-            if jitter_summary:
+            if jitter_summary and jitter_summary.get('SharpeRatio') is not None:
                 jitter_summaries.append(jitter_summary)
 
         if len(jitter_summaries) < config.STABILITY_CHECK_N_RUNS / 2:
-             logging.warning(f"Trial {trial.number}: Too many jittered simulations failed. Using original result without penalty.")
-             jitter_summaries = [summary] # Use original summary if jitter runs fail
+            logging.warning(f"Trial {trial.number}: Too many jittered simulations failed. Using original result without penalty.")
+            jitter_summaries = [summary]
 
-        sqns, profit_factors, max_drawdowns, sharpe_ratios = [], [], [], []
-        for res in jitter_summaries:
-            sr = res.get('SharpeRatio', 0.0)
-            trades = res.get('TotalTrades', 0)
-            sqn = sr * np.sqrt(trades) if trades > 0 and sr is not None else 0.0
-            sharpe_ratios.append(sr)
-            sqns.append(sqn)
-            profit_factors.append(res.get('ProfitFactor', 0.0))
-            max_drawdowns.append(res.get('MaxDrawdown', 0.0))
-
-        mean_sqn = np.mean(sqns)
-        std_sqn = np.std(sqns)
-        mean_pf = np.mean(profit_factors)
-        std_pf = np.std(profit_factors)
-        mean_mdd = np.mean(max_drawdowns)
-        std_mdd = np.std(max_drawdowns)
+        sharpe_ratios = [res.get('SharpeRatio', 0.0) for res in jitter_summaries]
+        mean_sr = np.mean(sharpe_ratios)
         std_sr = np.std(sharpe_ratios)
 
-        # The final objective is penalized by the standard deviation
+        # The final objective is penalized by the standard deviation of the Sharpe Ratio
         lambda_penalty = config.STABILITY_PENALTY_FACTOR
-        # Penalize by stability of SQN and Sharpe Ratio
-        final_sqn = mean_sqn - (lambda_penalty * std_sqn) - (lambda_penalty * std_sr)
-        final_pf = mean_pf - (lambda_penalty * std_pf)
-        final_mdd = mean_mdd + (lambda_penalty * std_mdd) # Add penalty for instability
+        final_sr = mean_sr - (lambda_penalty * std_sr)
 
         # --- Final Objective Calculation ---
         # Apply realization and execution rates as direct penalties
-        final_sqn_penalized = final_sqn * realization_rate * execution_rate
+        final_sr_penalized = final_sr * realization_rate * execution_rate
 
-        # Add a new penalty for each unrealized trade to directly punish missed opportunities
+        # Add a new penalty for each unrealized trade
         unrealized_trades = trial.user_attrs.get("unrealized_trades", 0)
-        sqn_penalty_per_unrealized = 0.2
-        additive_penalty = unrealized_trades * sqn_penalty_per_unrealized
-        final_sqn_penalized -= additive_penalty
+        sr_penalty_per_unrealized = 0.05
+        additive_penalty = unrealized_trades * sr_penalty_per_unrealized
+        final_sr_penalized -= additive_penalty
 
         # Store all calculated metrics in user_attrs for later analysis
-        trial.set_user_attr("mean_sqn", mean_sqn)
-        trial.set_user_attr("stdev_sqn", std_sqn)
-        trial.set_user_attr("final_sqn", final_sqn)
-        trial.set_user_attr("final_sqn_penalized", final_sqn_penalized)
-        trial.set_user_attr("mean_profit_factor", mean_pf)
-        trial.set_user_attr("stdev_profit_factor", std_pf)
-        trial.set_user_attr("final_profit_factor", final_pf)
+        trial.set_user_attr("mean_sharpe_ratio", mean_sr)
+        trial.set_user_attr("stdev_sharpe_ratio", std_sr)
+        trial.set_user_attr("final_sharpe_ratio", final_sr)
+        trial.set_user_attr("final_sharpe_ratio_penalized", final_sr_penalized)
 
-        return final_sqn_penalized, final_pf, -final_mdd
+        # For compatibility with existing analysis scripts, also store other metrics
+        # from the jitter analysis, although they are not used in the objective.
+        profit_factors = [res.get('ProfitFactor', 0.0) for res in jitter_summaries]
+        sqns = [res.get('SharpeRatio', 0.0) * np.sqrt(res.get('TotalTrades', 0)) for res in jitter_summaries]
+        trial.set_user_attr("mean_sqn", np.mean(sqns))
+        trial.set_user_attr("mean_profit_factor", np.mean(profit_factors))
+
+        return final_sr_penalized
 
     def _get_jittered_params(self, trial: optuna.Trial) -> dict:
         """
@@ -248,59 +227,3 @@ class Objective:
         trial.set_user_attr("execution_rate", execution_rate)
 
 
-class MetricsCalculator:
-    """
-    A class to calculate a composite objective score from multiple metrics.
-    """
-    def __init__(self, weights: dict, completed_trials: list[optuna.Trial]):
-        self.weights = weights
-        self.trials = completed_trials
-        self.metrics_data = self._extract_metrics()
-        self.scalers = self._fit_scalers()
-
-    def _extract_metrics(self) -> dict[str, list[float]]:
-        """Extracts all relevant metrics from the user_attrs of completed trials."""
-        metrics_data = {key: [] for key in self.weights.keys()}
-        for trial in self.trials:
-            for key in self.weights.keys():
-                value = trial.user_attrs.get(key)
-                if value is not None:
-                    metrics_data[key].append(value)
-        return metrics_data
-
-    def _fit_scalers(self) -> dict[str, MinMaxScaler]:
-        """Fits MinMaxScaler for each metric to normalize them to a 0-1 range."""
-        scalers = {}
-        for key, values in self.metrics_data.items():
-            scaler = MinMaxScaler()
-            if values:
-                scaler.fit(np.array(values).reshape(-1, 1))
-            scalers[key] = scaler
-        return scalers
-
-    def calculate_score(self, trial: optuna.Trial) -> float:
-        """
-        Calculates the final composite score for a single trial.
-        """
-        scaled_values = {}
-        for key, scaler in self.scalers.items():
-            value = trial.user_attrs.get(key, 0.0)
-            if hasattr(scaler, 'data_max_') and scaler.data_max_ is not None and scaler.data_max_ != scaler.data_min_:
-                scaled_value = scaler.transform(np.array([[value]]))[0][0]
-            else:
-                scaled_value = 0.5
-
-            if key == 'relative_drawdown':
-                scaled_value = 1.0 - scaled_value
-
-            scaled_values[key] = scaled_value
-
-        objective_value = 0.0
-        total_weight = sum(self.weights.values())
-        if total_weight == 0:
-            return 0.0
-
-        for key, weight in self.weights.items():
-            objective_value += scaled_values.get(key, 0.0) * weight
-
-        return objective_value / total_weight

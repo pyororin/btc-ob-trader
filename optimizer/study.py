@@ -9,7 +9,7 @@ from jinja2 import Environment, FileSystemLoader
 from typing import Union, Optional, Tuple, Dict, Any
 
 from . import config
-from .objective import Objective, MetricsCalculator
+from .objective import Objective
 from .simulation import run_simulation
 from .utils import nest_params, finalize_for_yaml
 from .sampler import KDESampler
@@ -17,27 +17,22 @@ from .sampler import KDESampler
 
 def create_study(storage_path: str, study_name: str, sampler: Optional[optuna.samplers.BaseSampler] = None) -> optuna.Study:
     """
-    Creates and configures a new Optuna study for multi-objective optimization.
-
-    Args:
-        storage_path: The path to the SQLite database for the study.
-        study_name: The name for the study.
-        sampler: An optional sampler to use. If None, NSGAIISampler is used.
-
-    Returns:
-        An optuna.Study object.
+    Creates and configures a new Optuna study for single-objective optimization.
+    The objective is to maximize the penalized Sharpe Ratio.
     """
-    logging.info(f"Creating new multi-objective Optuna study: {study_name} at {storage_path}")
+    logging.info(f"Creating new single-objective Optuna study: {study_name} at {storage_path}")
 
+    # Pruner to stop unpromising trials early.
     pruner = optuna.pruners.HyperbandPruner(min_resource=5, max_resource=100, reduction_factor=3)
 
+    # Use TPESampler for single-objective optimization unless a specific sampler is provided.
     if sampler is None:
-        sampler = optuna.samplers.NSGAIISampler(seed=42)
+        sampler = optuna.samplers.TPESampler(seed=42, n_startup_trials=20)
 
     return optuna.create_study(
         study_name=study_name,
         storage=storage_path,
-        directions=['maximize', 'maximize', 'maximize'],  # SQN (max), ProfitFactor (max), -MaxDD (max)
+        direction='maximize',
         load_if_exists=False,
         pruner=pruner,
         sampler=sampler
@@ -85,14 +80,10 @@ def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int, stor
     logging.info("--- Starting Coarse-to-Fine Optimization: Phase 2 (Fine Search) ---")
 
     # Select top trials to build the KDE sampler
-    metrics_calculator = MetricsCalculator(config.OBJECTIVE_WEIGHTS, completed_trials)
-    scored_trials = sorted(
-        [(trial, metrics_calculator.calculate_score(trial)) for trial in completed_trials],
-        key=lambda x: x[1],
-        reverse=True
-    )
-    n_top_trials = int(len(scored_trials) * config.CTF_TOP_TRIALS_QUANTILE_FOR_KDE)
-    top_trials = [t for t, score in scored_trials[:n_top_trials]]
+    # Sort by the objective value (penalized Sharpe Ratio)
+    completed_trials.sort(key=lambda t: t.value, reverse=True)
+    n_top_trials = int(len(completed_trials) * config.CTF_TOP_TRIALS_QUANTILE_FOR_KDE)
+    top_trials = completed_trials[:n_top_trials]
 
     if not top_trials:
         logging.warning("No top trials found after coarse search. Skipping fine search.")
@@ -123,26 +114,14 @@ def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int, stor
 def progress_callback(study: optuna.Study, trial: optuna.Trial, n_trials: int):
     """Callback function to report progress periodically."""
     if trial.number > 0 and trial.number % 100 == 0:
-        pareto_front = study.best_trials
         logging.info(
             f"Trial {trial.number}/{n_trials}: "
-            f"Pareto front contains {len(pareto_front)} trials."
+            f"Best value so far: {study.best_value:.4f}"
         )
 
 def analyze_and_validate(study: optuna.Study, oos_csv_path: Path, cycle_dir: Path) -> Optional[Dict[str, Any]]:
     """
     Analyzes a completed study, performs OOS validation, and returns the results.
-
-    Instead of saving a global config, this function finds the best parameters for
-    the current cycle, validates them, and returns a summary dictionary.
-
-    Args:
-        study: The completed Optuna study.
-        oos_csv_path: Path to the Out-of-Sample data CSV file.
-        cycle_dir: The directory for saving cycle-specific artifacts.
-
-    Returns:
-        A dictionary with the results of the best validated candidate, or None.
     """
     logging.info("Optimization finished. Analyzing results and performing OOS validation.")
     completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
@@ -150,38 +129,34 @@ def analyze_and_validate(study: optuna.Study, oos_csv_path: Path, cycle_dir: Pat
         logging.warning("No trials were completed successfully. Skipping OOS validation.")
         return None
 
-    metrics_calculator = MetricsCalculator(config.OBJECTIVE_WEIGHTS, completed_trials)
-    scored_trials = sorted(
-        [(trial, metrics_calculator.calculate_score(trial)) for trial in completed_trials],
-        key=lambda x: x[1],
-        reverse=True
-    )
-    best_is_trial, best_is_score = scored_trials[0]
-    logging.info(
-        f"Best IS trial by custom objective: #{best_is_trial.number} "
-        f"(Score: {best_is_score:.4f}, SR: {best_is_trial.user_attrs.get('sharpe_ratio', 0.0):.2f})"
-    )
+    # For single-objective, the best trial is directly available.
+    try:
+        best_is_trial = study.best_trial
+        logging.info(
+            f"Best IS trial: #{best_is_trial.number} "
+            f"(Value: {best_is_trial.value:.4f}, SR: {best_is_trial.user_attrs.get('sharpe_ratio', 0.0):.2f})"
+        )
+    except ValueError:
+        logging.warning("Could not find the best trial. Skipping OOS validation.")
+        return None
 
-    candidates = _get_oos_candidates(study, scored_trials)
+    # Sort all completed trials by their objective value to create a list of candidates
+    completed_trials.sort(key=lambda t: t.value, reverse=True)
+    candidates = _get_oos_candidates(completed_trials)
 
     # Perform OOS validation and get the results of the passing candidate
     validation_result = _perform_oos_validation(candidates, oos_csv_path)
 
     if validation_result:
         logging.info(f"OOS validation PASSED. Saving cycle artifacts.")
-        # Save the best parameters for this specific cycle
         _save_cycle_best_parameters(validation_result['params'], cycle_dir)
-
-        # Also update the global configuration file
-        logging.info("Updating global trade_config.yaml with the best parameters from this cycle.")
         _save_global_best_parameters(validation_result['params'])
 
-        # Combine IS and OOS results into a final summary for this cycle
         final_summary = {
             "cycle_id": cycle_dir.name,
             "status": "success",
             "best_is_trial_number": best_is_trial.number,
-            "best_is_score": best_is_score,
+            "best_is_value": best_is_trial.value,
             "is_metrics": best_is_trial.user_attrs,
             "oos_metrics": validation_result['summary'],
             "best_params": validation_result['params'],
@@ -198,23 +173,17 @@ def analyze_and_validate(study: optuna.Study, oos_csv_path: Path, cycle_dir: Pat
             "is_metrics": best_is_trial.user_attrs,
         }
 
-def _get_oos_candidates(study: optuna.Study, scored_trials: list) -> list[dict]:
-    """Generates a list of parameter candidates for OOS validation."""
+def _get_oos_candidates(sorted_trials: list[optuna.trial.Trial]) -> list[dict]:
+    """Generates a list of parameter candidates for OOS validation from sorted trials."""
     candidates = []
-    # Note: The analyzer subprocess logic is removed for simplicity in the WFO context.
-    # It could be added back if needed, but top IS trials are a robust starting point.
-
-    # Candidates are the top N trials from IS optimization
-    for rank, (trial, score) in enumerate(scored_trials):
+    for rank, trial in enumerate(sorted_trials):
         if len(candidates) >= config.MAX_RETRY:
             break
-        # Also include the trial object to access IS metrics later
         candidates.append({
             'params': trial.params,
             'source': f'is_rank_{rank+1}',
             'trial': trial
         })
-
     return candidates
 
 def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> Optional[Dict[str, Any]]:
@@ -310,14 +279,9 @@ def analyze_and_validate_for_daemon(study: optuna.Study, oos_csv_path: Path) -> 
         logging.warning("No trials were completed successfully. Skipping OOS validation.")
         return False
 
-    metrics_calculator = MetricsCalculator(config.OBJECTIVE_WEIGHTS, completed_trials)
-    scored_trials = sorted(
-        [(trial, metrics_calculator.calculate_score(trial)) for trial in completed_trials],
-        key=lambda x: x[1],
-        reverse=True
-    )
-
-    candidates = _get_oos_candidates(study, scored_trials)
+    # Sort trials by best value and get candidates for OOS
+    completed_trials.sort(key=lambda t: t.value, reverse=True)
+    candidates = _get_oos_candidates(completed_trials)
 
     for i, candidate in enumerate(candidates):
         if i >= config.MAX_RETRY:

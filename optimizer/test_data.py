@@ -4,8 +4,8 @@ import shutil
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from datetime import datetime, timezone, timedelta
-from .data import _parse_timestamp, export_and_split_data
-from . import config
+from optimizer.data import _parse_timestamp, export_and_split_data_for_daemon
+from optimizer import config
 
 class TestDataSplitter(unittest.TestCase):
     def setUp(self):
@@ -49,8 +49,6 @@ class TestDataSplitter(unittest.TestCase):
         # Ratio: 8/10 = 0.8
         total_hours = 10 / 60  # 0.1666... hours
         oos_hours = 2 / 60   # 0.0333... hours
-        # This test targets the legacy daemon function
-        from .data import export_and_split_data_for_daemon
         export_and_split_data_for_daemon(total_hours, oos_hours)
 
         # --- Assertions ---
