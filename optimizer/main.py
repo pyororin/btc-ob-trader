@@ -19,57 +19,6 @@ optuna_logger = logging.getLogger("optuna")
 optuna_logger.setLevel(logging.WARNING)
 
 
-# --- WFO Cycle Mode ---
-
-def run_wfo_cycle(
-    is_start_time: str,
-    is_end_time: str,
-    oos_end_time: str,
-    cycle_id: str,
-    n_trials: int,
-):
-    """
-    Manages a single, complete walk-forward optimization (WFO) cycle.
-    """
-    logging.info(f"--- Starting WFO Cycle: {cycle_id} ---")
-    logging.info(f"IS Window: {is_start_time} -> {is_end_time}")
-    logging.info(f"OOS Window: {is_end_time} -> {oos_end_time}")
-
-    cycle_dir = config.WFO_RESULTS_DIR / cycle_id
-    cycle_dir.mkdir(parents=True, exist_ok=True)
-
-    try:
-        is_csv_path, oos_csv_path = data.export_and_split_data(
-            is_start_time=is_start_time,
-            is_end_time=is_end_time,
-            oos_end_time=oos_end_time,
-            cycle_dir=cycle_dir
-        )
-        if not is_csv_path or not oos_csv_path:
-            raise ValueError(f"Failed to get data for cycle {cycle_id}.")
-
-        study_name = f"wfo-cycle-{cycle_id}"
-        storage_path = f"sqlite:///{cycle_dir / 'optuna-study.db'}"
-        optuna_study = study.create_study(storage_path=storage_path, study_name=study_name)
-
-        study.run_optimization(optuna_study, is_csv_path, n_trials, storage_path)
-
-        summary = study.analyze_and_validate(optuna_study, oos_csv_path, cycle_dir)
-
-        summary_path = cycle_dir / "summary.json"
-        with open(summary_path, 'w') as f:
-            summary['cycle_start_time_utc'] = datetime.datetime.utcnow().isoformat()
-            json.dump(summary, f, indent=4, default=str)
-
-        logging.info(f"Successfully saved WFO cycle '{cycle_id}' summary to {summary_path}")
-
-    except Exception as e:
-        logging.error(f"An unexpected error occurred during WFO cycle {cycle_id}: {e}", exc_info=True)
-        summary = {"cycle_id": cycle_id, "status": "failure", "reason": str(e)}
-        with open(cycle_dir / "summary.json", 'w') as f:
-            json.dump(summary, f, indent=4)
-
-
 # --- Daemon Mode ---
 
 def run_daemon_job(job: dict):
@@ -129,34 +78,8 @@ def main():
     """
     Main entry point. Determines whether to run in WFO mode or daemon mode.
     """
-    # Check if WFO-specific arguments are present
-    wfo_args = ['--is-start-time', '--is-end-time', '--oos-end-time', '--cycle-id']
-    is_wfo_mode = any(arg in sys.argv for arg in wfo_args)
-
-    if is_wfo_mode:
-        logging.info("Running in WFO Cycle Mode.")
-        parser = argparse.ArgumentParser(description="Run a single WFO optimization cycle.")
-        parser.add_argument("--is-start-time", required=True)
-        parser.add_argument("--is-end-time", required=True)
-        parser.add_argument("--oos-end-time", required=True)
-        parser.add_argument("--cycle-id", required=True)
-        parser.add_argument("--n-trials", type=int, default=config.N_TRIALS)
-        args = parser.parse_args()
-
-        if not config.CONFIG_TEMPLATE_PATH.exists():
-            logging.error(f"Trade config template not found. Exiting.")
-            return
-
-        run_wfo_cycle(
-            is_start_time=args.is_start_time,
-            is_end_time=args.is_end_time,
-            oos_end_time=args.oos_end_time,
-            cycle_id=args.cycle_id,
-            n_trials=args.n_trials,
-        )
-    else:
-        logging.info("No WFO arguments detected. Running in Daemon Mode.")
-        main_loop()
+    logging.info("No WFO arguments detected. Running in Daemon Mode.")
+    main_loop()
 
 
 if __name__ == "__main__":
