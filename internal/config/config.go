@@ -42,7 +42,7 @@ type TradeConfig struct {
 // Config wraps both application and trading configurations.
 type Config struct {
 	App         AppConfig
-	Trade       TradeConfig
+	Trade       *TradeConfig
 	EnableTrade bool   `yaml:"-"` // Loaded from env
 	APIKey      string `yaml:"-"` // Loaded from env
 	APISecret   string `yaml:"-"` // Loaded from env
@@ -173,15 +173,23 @@ func loadFromFiles(appConfigPath, tradeConfigPath string) (*Config, error) {
 	}
 
 	// Load trade config (optional)
-	var tradeCfg TradeConfig
+	var tradeCfg *TradeConfig
 	if tradeConfigPath != "" {
 		tradeFile, err := os.ReadFile(tradeConfigPath)
 		if err != nil {
-			// If the file is specified but not found, return an error.
-			return nil, err
-		}
-		if err := yaml.Unmarshal(tradeFile, &tradeCfg); err != nil {
-			return nil, err
+			if !os.IsNotExist(err) {
+				// File exists but couldn't be read (e.g., permissions)
+				return nil, err
+			}
+			// File does not exist, which is an acceptable state.
+			// tradeCfg remains nil.
+		} else {
+			// File exists, so unmarshal it.
+			var tc TradeConfig
+			if err := yaml.Unmarshal(tradeFile, &tc); err != nil {
+				return nil, err
+			}
+			tradeCfg = &tc
 		}
 	}
 
@@ -274,10 +282,15 @@ func GetConfigCopy() *Config {
 	// If AppConfig had pointers or slices that could be modified, a deep copy would be needed.
 	cfgCopy := &Config{
 		App:         currentCfg.App,
-		Trade:       currentCfg.Trade, // This will be replaced by the caller, but copy for completeness.
 		EnableTrade: currentCfg.EnableTrade,
 		APIKey:      currentCfg.APIKey,
 		APISecret:   currentCfg.APISecret,
+	}
+
+	// Deep copy the TradeConfig if it exists
+	if currentCfg.Trade != nil {
+		tradeCopy := *currentCfg.Trade
+		cfgCopy.Trade = &tradeCopy
 	}
 
 	return cfgCopy
