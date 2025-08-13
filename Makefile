@@ -9,7 +9,7 @@ endif
 -include .env
 export
 
-.PHONY: help up down logs shell clean test build monitor report
+.PHONY: help up down logs shell clean test build monitor report backup restore
 
 # ==============================================================================
 # HELP
@@ -28,9 +28,10 @@ help:
 # ==============================================================================
 # MAIN DOCKER COMPOSE
 # ==============================================================================
-up: ## Start all services including the bot, optimizer, and drift monitor.
+up: ## Start all services. Use NO_RESTORE=1 to skip restoring DB from backup.
 	@echo "Starting all services (bot, optimizer, drift-monitor)..."
 	$(DOCKER_CMD) up -d --build bot drift-monitor optimizer grafana adminer report-generator
+	$(MAKE) restore
 	$(MAKE) migrate
 
 update: ## Pull the latest changes and restart the bot, optimizer, and drift-monitor services.
@@ -47,7 +48,7 @@ migrate: ## Run database migrations
 		for f in $$dir/*.sql; do \
 			if [ -f "$$f" ]; then \
 				echo "Applying $$f..."; \
-				psql -v ON_ERROR_STOP=1 --username="bot" --dbname="coincheck_data" -f "$$f"; \
+				psql -v ON_ERROR_STOP=1 --username="$(DB_USER)" --dbname="$(DB_NAME)" -f "$$f"; \
 			fi; \
 		done; \
 	done'
@@ -56,9 +57,36 @@ monitor: ## Start monitoring services (DB, Grafana) without the bot.
 	@echo "Starting monitoring services (TimescaleDB, Grafana)..."
 	$(DOCKER_CMD) up -d timescaledb grafana
 
-down: ## Stop and remove all application stack containers.
+down: ## Stop containers. Use NO_BACKUP=1 to skip DB backup.
+	$(MAKE) backup
 	@echo "Stopping application stack..."
 	$(DOCKER_CMD) down
+
+# ==============================================================================
+# DATABASE BACKUP/RESTORE
+# ==============================================================================
+backup: ## Create a backup of the database.
+ifeq ($(NO_BACKUP),1)
+	@echo "Skipping database backup because NO_BACKUP is set."
+else
+	@echo "Backing up database..."
+	@mkdir -p ./db/backup
+	$(DOCKER_CMD) exec -T timescaledb pg_dump -U $(DB_USER) -d $(DB_NAME) -c > ./db/backup/backup.sql
+	@echo "Database backup created at ./db/backup/backup.sql"
+endif
+
+restore: ## Restore the database from backup.
+ifeq ($(NO_RESTORE),1)
+	@echo "Skipping database restore because NO_RESTORE is set."
+else
+	@if [ -f ./db/backup/backup.sql ]; then \
+		echo "Restoring database from backup..."; \
+		cat ./db/backup/backup.sql | $(DOCKER_CMD) exec -T timescaledb psql -U $(DB_USER) -d $(DB_NAME); \
+		echo "Database restored successfully."; \
+	else \
+		echo "No backup file found, skipping restore."; \
+	fi
+endif
 
 logs: ## Follow logs from the bot, optimizer, and drift-monitor services.
 	@echo "Following logs for 'bot', 'optimizer', and 'drift-monitor' services..."
