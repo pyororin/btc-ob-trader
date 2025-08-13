@@ -2,7 +2,6 @@
 package config
 
 import (
-	"log"
 	"os"
 	"sync/atomic"
 
@@ -96,7 +95,7 @@ type SlopeFilterConfig struct {
 
 // OrderConfig holds configuration for the execution engine.
 type OrderConfig struct {
-	TimeoutSeconds int `yaml:"timeout_seconds"`
+	TimeoutSeconds  int `yaml:"timeout_seconds"`
 	PollIntervalMs int `yaml:"poll_interval_ms"`
 }
 
@@ -141,68 +140,22 @@ type DBWriterConfig struct {
 
 // StrategyConf holds configuration for long/short strategies.
 type StrategyConf struct {
-	TP float64 `yaml:"tp"` // Take Profit
-	SL float64 `yaml:"sl"` // Stop Loss
+	TP           float64 `yaml:"tp"` // Take Profit
+	SL           float64 `yaml:"sl"` // Stop Loss
 }
 
 // VolConf holds configuration for volatility calculation and dynamic adjustments.
 type VolConf struct {
-	EWMALambda   float64        `yaml:"ewma_lambda"`
+	EWMALambda   float64      `yaml:"ewma_lambda"`
 	DynamicOBI   DynamicOBIConf `yaml:"dynamic_obi"`
 }
 
 // DynamicOBIConf holds configuration for dynamic OBI threshold adjustments.
 type DynamicOBIConf struct {
-	Enabled            FlexBool `yaml:"enabled"`
-	VolatilityFactor   float64  `yaml:"volatility_factor"`
-	MinThresholdFactor float64  `yaml:"min_threshold_factor"`
-	MaxThresholdFactor float64  `yaml:"max_threshold_factor"`
-}
-
-// newSafeTradeConfig creates a 'safe' trade configuration that prevents trading.
-func newSafeTradeConfig() TradeConfig {
-	return TradeConfig{
-		Pair:             "btc_jpy",
-		OrderAmount:      0,
-		EntryPriceOffset: 0,
-		SpreadLimit:      1000000,
-		LotMaxRatio:      0,
-		OrderRatio:       0,
-		Long: StrategyConf{
-			TP: 1000000,
-			SL: 1000000,
-		},
-		Short: StrategyConf{
-			TP: 1000000,
-			SL: 1000000,
-		},
-		Volatility: VolConf{
-			EWMALambda: 0.9,
-			DynamicOBI: DynamicOBIConf{
-				Enabled: false,
-			},
-		},
-		Twap: TwapConfig{
-			Enabled: false,
-		},
-		Signal: SignalConfig{
-			HoldDurationMs:     10000,
-			SlopeFilter:        SlopeFilterConfig{Enabled: false},
-			CVDWindowMinutes:   5,
-			OBIWeight:          1,
-			OFIWeight:          0,
-			CVDWeight:          0,
-			MicroPriceWeight:   0,
-			CompositeThreshold: 1e9, // Extremely high value to prevent signals
-		},
-		Risk: RiskConfig{
-			MaxDrawdownPercent: 100,
-			MaxPositionRatio:   0,
-		},
-		AdaptivePositionSizing: AdaptiveSizingConfig{
-			Enabled: false,
-		},
-	}
+	Enabled          FlexBool `yaml:"enabled"`
+	VolatilityFactor float64  `yaml:"volatility_factor"`
+	MinThresholdFactor float64 `yaml:"min_threshold_factor"`
+	MaxThresholdFactor float64 `yaml:"max_threshold_factor"`
 }
 
 // loadFromFiles loads configuration from app and trade YAML files and environment variables.
@@ -213,36 +166,23 @@ func loadFromFiles(appConfigPath, tradeConfigPath string) (*Config, error) {
 	}
 	appFile, err := os.ReadFile(appConfigPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			log.Printf("WARN: Application config file not found at %s. Using defaults and environment variables.", appConfigPath)
-		} else {
-			return nil, err
-		}
-	} else {
-		if err := yaml.Unmarshal(appFile, &appCfg); err != nil {
-			return nil, err
-		}
+		return nil, err
+	}
+	if err := yaml.Unmarshal(appFile, &appCfg); err != nil {
+		return nil, err
 	}
 
-	// Load trade config
+	// Load trade config (optional)
 	var tradeCfg TradeConfig
 	if tradeConfigPath != "" {
 		tradeFile, err := os.ReadFile(tradeConfigPath)
 		if err != nil {
-			if os.IsNotExist(err) {
-				log.Printf("WARN: Trade config file not found at %s. Using safe defaults to prevent trading.", tradeConfigPath)
-				tradeCfg = newSafeTradeConfig()
-			} else {
-				return nil, err
-			}
-		} else {
-			if err := yaml.Unmarshal(tradeFile, &tradeCfg); err != nil {
-				return nil, err
-			}
+			// If the file is specified but not found, return an error.
+			return nil, err
 		}
-	} else {
-		log.Print("WARN: Trade config path is empty. Using safe defaults to prevent trading.")
-		tradeCfg = newSafeTradeConfig()
+		if err := yaml.Unmarshal(tradeFile, &tradeCfg); err != nil {
+			return nil, err
+		}
 	}
 
 	cfg := &Config{
