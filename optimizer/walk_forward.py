@@ -38,56 +38,62 @@ def run_walk_forward_analysis(job: dict) -> bool:
     wfa_main_dir.mkdir(parents=True, exist_ok=True)
     logging.info(f"WFA results will be stored in: {wfa_main_dir}")
 
-    # 2. Iterate through each fold
-    for i, fold_times in enumerate(folds):
-        fold_id = f"fold_{i+1:02d}"
-        logging.info(f"--- Processing WFA Fold {i+1}/{len(folds)} ({fold_id}) ---")
-        fold_dir = wfa_main_dir / fold_id
+    try:
+        # 2. Iterate through each fold
+        for i, fold_times in enumerate(folds):
+            fold_id = f"fold_{i+1:02d}"
+            logging.info(f"--- Processing WFA Fold {i+1}/{len(folds)} ({fold_id}) ---")
+            fold_dir = wfa_main_dir / fold_id
 
-        try:
-            # a. Export training (IS) and validation (OOS) data for the fold
-            # The Go export script expects timezone-aware RFC3339 format (YYYY-MM-DDTHH:MM:SSZ).
-            time_format = "%Y-%m-%dT%H:%M:%SZ"
-            train_csv, validate_csv = data.export_and_split_data(
-                is_start_time=fold_times['train_start'].strftime(time_format),
-                is_end_time=fold_times['train_end'].strftime(time_format),
-                oos_end_time=fold_times['validate_end'].strftime(time_format),
-                cycle_dir=fold_dir
-            )
-            if not train_csv or not validate_csv:
-                logging.warning(f"Skipping fold {fold_id} due to missing data for the period.")
-                all_fold_results.append({"status": "skipped", "reason": "No data available for this time period."})
-                continue
+            try:
+                # a. Export training (IS) and validation (OOS) data for the fold
+                # The Go export script expects timezone-aware RFC3339 format (YYYY-MM-DDTHH:MM:SSZ).
+                time_format = "%Y-%m-%dT%H:%M:%SZ"
+                train_csv, validate_csv = data.export_and_split_data(
+                    is_start_time=fold_times['train_start'].strftime(time_format),
+                    is_end_time=fold_times['train_end'].strftime(time_format),
+                    oos_end_time=fold_times['validate_end'].strftime(time_format),
+                    cycle_dir=fold_dir
+                )
+                if not train_csv or not validate_csv:
+                    logging.warning(f"Skipping fold {fold_id} due to missing data for the period.")
+                    all_fold_results.append({"status": "skipped", "reason": "No data available for this time period."})
+                    continue
 
-            # b. Create and run an Optuna study on the training data
-            storage_path = f"sqlite:///{fold_dir / 'optuna-study.db'}"
-            fold_study = study.create_study(storage_path=storage_path, study_name=fold_id)
-            study.run_optimization(fold_study, train_csv, n_trials, storage_path)
+                # b. Create and run an Optuna study on the training data
+                storage_path = f"sqlite:///{fold_dir / 'optuna-study.db'}"
+                fold_study = study.create_study(storage_path=storage_path, study_name=fold_id)
+                study.run_optimization(fold_study, train_csv, n_trials, storage_path)
 
-            # c. Take the best parameters and validate them on the validation data
-            fold_result = _validate_fold(fold_study, validate_csv)
-            all_fold_results.append(fold_result)
+                # c. Take the best parameters and validate them on the validation data
+                fold_result = _validate_fold(fold_study, validate_csv)
+                all_fold_results.append(fold_result)
 
-        except Exception as e:
-            logging.error(f"Error processing fold {fold_id}: {e}", exc_info=True)
-            all_fold_results.append({"status": "failed", "reason": str(e)})
+            except Exception as e:
+                logging.error(f"Error processing fold {fold_id}: {e}", exc_info=True)
+                all_fold_results.append({"status": "failed", "reason": str(e)})
 
-    # 3. Aggregate results and find the best overall parameters
-    passed = _aggregate_and_decide(all_fold_results)
+        # 3. Aggregate results and find the best overall parameters
+        passed = _aggregate_and_decide(all_fold_results)
 
-    if passed and all_fold_results:
-        # Find the parameters from the most recent successful fold
-        # Iterate backwards through the results
-        for fold_res in reversed(all_fold_results):
-            if fold_res.get("status") == "passed":
-                best_params = fold_res.get("params")
-                if best_params:
-                    logging.info(f"WFA PASSED. Saving best parameters from the last successful fold.")
-                    study._save_global_best_parameters(best_params)
-                    return True
+        if passed and all_fold_results:
+            # Find the parameters from the most recent successful fold
+            # Iterate backwards through the results
+            for fold_res in reversed(all_fold_results):
+                if fold_res.get("status") == "passed":
+                    best_params = fold_res.get("params")
+                    if best_params:
+                        logging.info(f"WFA PASSED. Saving best parameters from the last successful fold.")
+                        study._save_global_best_parameters(best_params)
+                        return True
 
-    logging.warning("WFA FAILED. No parameter set passed the aggregate criteria.")
-    return False
+        logging.warning("WFA FAILED. No parameter set passed the aggregate criteria.")
+        return False
+    finally:
+        # Clean up the temporary directory for the WFA run
+        if wfa_main_dir.exists():
+            logging.info(f"Cleaning up temporary WFA directory: {wfa_main_dir}")
+            shutil.rmtree(wfa_main_dir)
 
 
 def _validate_fold(fold_study: optuna.Study, validate_csv: Path) -> dict:
