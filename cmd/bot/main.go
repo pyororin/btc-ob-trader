@@ -90,7 +90,11 @@ func newInjector(f *flags, ctx context.Context) (*do.Injector, error) {
 		cfg := do.MustInvoke[*config.Config](i)
 		flags := do.MustInvoke[*flags](i)
 		if !flags.serveMode {
-			setupLogger(cfg.App.LogLevel, flags.configPath, cfg.Trade.Pair)
+			pair := ""
+			if cfg.Trade != nil {
+				pair = cfg.Trade.Pair
+			}
+			setupLogger(cfg.App.LogLevel, flags.configPath, pair)
 		}
 		// Return a valid logger instance, even if setupLogger just configures a global one.
 		// This assumes setupLogger initializes a logger that can be retrieved,
@@ -363,9 +367,30 @@ func logConfigChanges(oldCfg, newCfg *config.Config) {
 		return
 	}
 	compareStructs(reflect.ValueOf(oldCfg.App), reflect.ValueOf(newCfg.App), "App")
-	compareStructs(reflect.ValueOf(oldCfg.Trade), reflect.ValueOf(newCfg.Trade), "Trade")
+
+	// Handle nil pointers for Trade config
+	var oldTrade, newTrade reflect.Value
+	if oldCfg.Trade != nil {
+		oldTrade = reflect.ValueOf(*oldCfg.Trade)
+	}
+	if newCfg.Trade != nil {
+		newTrade = reflect.ValueOf(*newCfg.Trade)
+	}
+
+	if oldTrade.IsValid() && newTrade.IsValid() {
+		compareStructs(oldTrade, newTrade, "Trade")
+	} else if oldTrade.IsValid() && !newTrade.IsValid() {
+		logger.Info("Config changed: Trade config removed.")
+	} else if !oldTrade.IsValid() && newTrade.IsValid() {
+		logger.Info("Config changed: Trade config added.")
+	}
 }
+
 func compareStructs(v1, v2 reflect.Value, prefix string) {
+	// Check for invalid values, which can happen if the original config was nil
+	if !v1.IsValid() || !v2.IsValid() {
+		return
+	}
 	if v1.Kind() != reflect.Struct || v2.Kind() != reflect.Struct {
 		return
 	}
@@ -374,6 +399,12 @@ func compareStructs(v1, v2 reflect.Value, prefix string) {
 		field2 := v2.Field(i)
 		fieldName := v1.Type().Field(i).Name
 		currentPrefix := fmt.Sprintf("%s.%s", prefix, fieldName)
+
+		// Check for valid fields before proceeding
+		if !field1.IsValid() || !field2.IsValid() {
+			continue
+		}
+
 		if field1.Kind() == reflect.Struct {
 			compareStructs(field1, field2, currentPrefix)
 			continue
@@ -389,7 +420,11 @@ func setupLogger(logLevel, configPath, pair string) {
 	logger.SetGlobalLogLevel(logLevel)
 	logger.Info("OBI Scalping Bot starting...")
 	logger.Infof("Loaded configuration from: %s", configPath)
-	logger.Infof("Target pair: %s", pair)
+	if pair != "" {
+		logger.Infof("Target pair: %s", pair)
+	} else {
+		logger.Info("No trade configuration loaded. Running in data collection mode.")
+	}
 }
 
 // startHTTPServer starts the HTTP server for health checks and other API endpoints.
@@ -498,7 +533,7 @@ func processSignalsAndExecute(injector *do.Injector, obiCalculator *indicator.OB
 	execEngine := do.MustInvoke[engine.ExecutionEngine](injector)
 	benchmarkService, _ := do.Invoke[*benchmark.Service](injector) // optional
 
-	signalEngine, err := tradingsignal.NewSignalEngine(&cfg.Trade)
+	signalEngine, err := tradingsignal.NewSignalEngine(cfg.Trade)
 	if err != nil {
 		logger.Fatalf("Failed to create signal engine: %v", err)
 	}
@@ -514,7 +549,7 @@ func processSignalsAndExecute(injector *do.Injector, obiCalculator *indicator.OB
 				logger.Info("Signal processing and execution goroutine shutting down.")
 				return
 			case result := <-resultsCh:
-				currentCfg := cfg
+				currentCfg := config.GetConfig()
 				if result.BestBid <= 0 || result.BestAsk <= 0 {
 					logger.Warnf("Skipping signal evaluation due to invalid best bid/ask: BestBid=%.2f, BestAsk=%.2f", result.BestBid, result.BestAsk)
 					continue
@@ -572,7 +607,7 @@ func processSignalsAndExecute(injector *do.Injector, obiCalculator *indicator.OB
 								TP:        tradingSignal.TakeProfit,
 								SL:        tradingSignal.StopLoss,
 							}
-							if bool(currentCfg.Trade.Twap.Enabled) && orderAmount > currentCfg.Trade.Twap.MaxOrderSizeBtc {
+							if currentCfg.Trade != nil && bool(currentCfg.Trade.Twap.Enabled) && orderAmount > currentCfg.Trade.Twap.MaxOrderSizeBtc {
 								go executeTwapOrder(ctx, execEngine, tradeParams)
 							} else {
 								execEngine.PlaceOrder(ctx, tradeParams)
@@ -592,6 +627,10 @@ func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, ba
 	}
 
 	cfg := config.GetConfig()
+	if cfg.Trade == nil {
+		logger.Warn("executeTwapOrder called without trade config. Aborting.")
+		return
+	}
 	totalAmount := baseParams.Amount
 	numOrders := int(math.Floor(totalAmount / cfg.Trade.Twap.MaxOrderSizeBtc))
 	lastOrderSize := totalAmount - float64(numOrders)*cfg.Trade.Twap.MaxOrderSizeBtc
@@ -668,13 +707,25 @@ func runMainLoop(injector *do.Injector, f *flags, sigs chan<- os.Signal) {
 
 		orderBook := indicator.NewOrderBook()
 		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
-		orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, cfg.Trade.Pair)
+
+		pair := "btc_jpy" // Default pair
+		if cfg.Trade != nil {
+			pair = cfg.Trade.Pair
+		}
+
+		orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, pair)
 
 		obiCalculator.Start(ctx)
 		wsClient := coincheck.NewWebSocketClient(orderBookHandler, tradeHandler)
-		go processSignalsAndExecute(injector, obiCalculator, wsClient, nil)
-		go orderMonitor(ctx, execEngine, client, orderBook)
-		go positionMonitor(ctx, execEngine, orderBook)
+
+		if cfg.Trade != nil {
+			logger.Info("Trade configuration loaded, starting trading routines.")
+			go processSignalsAndExecute(injector, obiCalculator, wsClient, nil)
+			go orderMonitor(ctx, execEngine, client, orderBook)
+			go positionMonitor(ctx, execEngine, orderBook)
+		} else {
+			logger.Info("No trade configuration found, running in data collection mode only.")
+		}
 
 		go func() {
 			logger.Info("Connecting to Coincheck WebSocket API...")
@@ -705,6 +756,13 @@ func runSimulation(ctx context.Context, f *flags, sigs chan<- os.Signal, summary
 	defer close(summaryCh) // Ensure channel is closed when done.
 	rand.Seed(1)
 	cfg := config.GetConfig()
+	if cfg.Trade == nil {
+		logger.Fatal("Simulation mode requires a trade configuration file.")
+		summaryCh <- map[string]interface{}{"error": "trade config is missing"}
+		sigs <- syscall.SIGTERM
+		return
+	}
+
 	if !f.jsonOutput {
 		logger.Info("--- SIMULATION MODE ---")
 		logger.Infof("CSV File: %s", f.csvPath)
@@ -716,7 +774,7 @@ func runSimulation(ctx context.Context, f *flags, sigs chan<- os.Signal, summary
 
 	orderBook := indicator.NewOrderBook()
 	replayEngine := engine.NewReplayExecutionEngine(orderBook)
-	signalEngine, err := tradingsignal.NewSignalEngine(&cfg.Trade)
+	signalEngine, err := tradingsignal.NewSignalEngine(cfg.Trade)
 	if err != nil {
 		logger.Fatalf("Failed to create signal engine: %v", err)
 	}
@@ -969,11 +1027,11 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 	rand.Seed(1) // Ensure reproducibility
 
 	simConfig := config.GetConfigCopy()
-	simConfig.Trade = *tradeCfg
+	simConfig.Trade = tradeCfg // tradeCfg is already a pointer
 
 	orderBook := indicator.NewOrderBook()
 	replayEngine := engine.NewReplayExecutionEngine(orderBook)
-	signalEngine, err := tradingsignal.NewSignalEngine(&simConfig.Trade)
+	signalEngine, err := tradingsignal.NewSignalEngine(simConfig.Trade) // Pass the pointer directly
 	if err != nil {
 		return map[string]interface{}{"error": fmt.Sprintf("failed to create signal engine: %v", err)}
 	}
@@ -1429,7 +1487,7 @@ func orderMonitor(ctx context.Context, execEngine engine.ExecutionEngine, client
 // positionMonitor periodically checks the current position for potential partial profit taking.
 func positionMonitor(ctx context.Context, execEngine engine.ExecutionEngine, orderBook *indicator.OrderBook) {
 	cfg := config.GetConfig()
-	if !bool(cfg.Trade.Twap.PartialExitEnabled) {
+	if cfg.Trade == nil || !bool(cfg.Trade.Twap.PartialExitEnabled) {
 		logger.Info("Position monitor (partial exit) is disabled.")
 		return
 	}

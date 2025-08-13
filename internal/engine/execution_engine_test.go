@@ -33,7 +33,7 @@ func setupTest(t *testing.T) (*httptest.Server, *config.Config) {
 				TimeoutSeconds: 1,
 			},
 		},
-		Trade: config.TradeConfig{
+		Trade: &config.TradeConfig{
 			OrderRatio:  0.1,
 			LotMaxRatio: 0.1,
 			Risk: config.RiskConfig{
