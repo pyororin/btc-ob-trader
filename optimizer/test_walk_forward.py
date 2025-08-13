@@ -49,11 +49,12 @@ class TestWalkForwardAnalysis(unittest.TestCase):
         # Check that the last fold does not exceed the current time
         self.assertLessEqual(folds[-1]['validate_end'], mock_now_val)
 
+    @patch('optimizer.walk_forward.shutil')
     @patch('optimizer.walk_forward._generate_wfa_folds')
     @patch('optimizer.walk_forward.data.export_and_split_data')
     @patch('optimizer.walk_forward.study')
     @patch('optimizer.walk_forward.config')
-    def test_run_walk_forward_analysis_success(self, mock_config, mock_study_module, mock_export_data, mock_generate_folds):
+    def test_run_walk_forward_analysis_success(self, mock_config, mock_study_module, mock_export_data, mock_generate_folds, mock_shutil):
         """
         Tests the full WFA orchestration logic for a successful scenario.
         """
@@ -87,6 +88,10 @@ class TestWalkForwardAnalysis(unittest.TestCase):
 
             # Mock config to require 2/3 folds to pass (66% > 60%)
             mock_config.WFA_MIN_SUCCESS_RATIO = 0.6
+            mock_wfa_dir = MagicMock()
+            mock_wfa_dir.exists.return_value = True
+            mock_config.WFA_DIR.__truediv__.return_value = mock_wfa_dir
+
 
             # --- Execution ---
             job = {'n_trials_per_fold': 50}
@@ -101,12 +106,16 @@ class TestWalkForwardAnalysis(unittest.TestCase):
             # Check that the parameters from the LAST successful fold were saved
             mock_study_module._save_global_best_parameters.assert_called_once_with({"p1": 3})
 
+            # Check that the temporary directory is cleaned up
+            mock_shutil.rmtree.assert_called_once_with(mock_wfa_dir)
 
+
+    @patch('optimizer.walk_forward.shutil')
     @patch('optimizer.walk_forward._generate_wfa_folds')
     @patch('optimizer.walk_forward.data.export_and_split_data')
     @patch('optimizer.walk_forward.study')
     @patch('optimizer.walk_forward.config')
-    def test_run_walk_forward_analysis_failure(self, mock_config, mock_study_module, mock_export_data, mock_generate_folds):
+    def test_run_walk_forward_analysis_failure(self, mock_config, mock_study_module, mock_export_data, mock_generate_folds, mock_shutil):
         """
         Tests the full WFA orchestration logic for a failure scenario.
         """
@@ -136,6 +145,9 @@ class TestWalkForwardAnalysis(unittest.TestCase):
 
             # Mock config to require 2/3 folds to pass (33% < 60%)
             mock_config.WFA_MIN_SUCCESS_RATIO = 0.6
+            mock_wfa_dir = MagicMock()
+            mock_wfa_dir.exists.return_value = True
+            mock_config.WFA_DIR.__truediv__.return_value = mock_wfa_dir
 
             # --- Execution ---
             job = {'n_trials_per_fold': 50}
@@ -146,6 +158,9 @@ class TestWalkForwardAnalysis(unittest.TestCase):
 
             # Check that the save function was NOT called
             mock_study_module._save_global_best_parameters.assert_not_called()
+
+            # Check that the temporary directory is cleaned up
+            mock_shutil.rmtree.assert_called_once_with(mock_wfa_dir)
 
 if __name__ == '__main__':
     unittest.main()
