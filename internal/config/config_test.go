@@ -133,3 +133,44 @@ pair: "btc_jpy"
 	assert.Equal(t, "", cfg.App.Database.Password, "DB_PASSWORD should be empty as it was not in file or env")
 	assert.Equal(t, "btc_jpy", cfg.Trade.Pair, "Pair should be loaded from trade config")
 }
+
+// TestLoadConfig_MissingTradeConfigShouldUseSafeDefaults tests that safe defaults are used when trade config is missing.
+func TestLoadConfig_MissingTradeConfigShouldUseSafeDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	appConfigPath := filepath.Join(tmpDir, "app_config.yaml")
+	tradeConfigPath := filepath.Join(tmpDir, "trade_config_that_does_not_exist.yaml")
+
+	// Create a valid app config file
+	createTestAppConfigFile(appConfigPath, "info")
+
+	// Attempt to load config with a non-existent trade config file
+	cfg, err := config.LoadConfig(appConfigPath, tradeConfigPath)
+	require.NoError(t, err, "Loading config should not fail even if trade config is missing")
+	require.NotNil(t, cfg, "Config object should not be nil")
+
+	// Assert that the trade config has been populated with safe default values
+	assert.Equal(t, 1e9, cfg.Trade.Signal.CompositeThreshold, "CompositeThreshold should be the safe default value")
+	assert.Equal(t, 0.0, cfg.Trade.OrderAmount, "OrderAmount should be 0")
+	assert.Equal(t, "btc_jpy", cfg.Trade.Pair, "Pair should have a default value")
+}
+
+// TestLoadConfig_MissingAppConfigShouldUseDefaults tests that default values are used when app config is missing.
+func TestLoadConfig_MissingAppConfigShouldUseDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	appConfigPath := filepath.Join(tmpDir, "app_config_that_does_not_exist.yaml")
+	tradeConfigPath := filepath.Join(tmpDir, "trade_config.yaml")
+
+	// Create a valid trade config file
+	createTestTradeConfigFile(tradeConfigPath, 0.5)
+
+	// Attempt to load config with a non-existent app config file
+	cfg, err := config.LoadConfig(appConfigPath, tradeConfigPath)
+	require.NoError(t, err, "Loading config should not fail even if app config is missing")
+	require.NotNil(t, cfg, "Config object should not be nil")
+
+	// Assert that the app config has been populated with default values
+	assert.Equal(t, "info", cfg.App.LogLevel, "LogLevel should be the default 'info'")
+
+	// Assert that the trade config was loaded correctly
+	assert.Equal(t, 0.5, cfg.Trade.Signal.CompositeThreshold, "Trade config should still be loaded correctly")
+}
