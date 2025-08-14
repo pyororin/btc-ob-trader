@@ -86,7 +86,12 @@ else
 		$(DOCKER_CMD) exec -T timescaledb dropdb -U $(DB_USER) --if-exists $(DB_NAME); \
 		$(DOCKER_CMD) exec -T timescaledb createdb -U $(DB_USER) $(DB_NAME); \
 		$(DOCKER_CMD) exec -T timescaledb psql -U $(DB_USER) -d $(DB_NAME) -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"; \
-		cat ./db/backup/backup.dump | $(DOCKER_CMD) exec -T timescaledb pg_restore -U $(DB_USER) -d $(DB_NAME); \
+		echo "Restoring pre-data section (schema)..."; \
+		cat ./db/backup/backup.dump | $(DOCKER_CMD) exec -T timescaledb pg_restore --section=pre-data -U $(DB_USER) -d $(DB_NAME); \
+		echo "Restoring data section..."; \
+		cat ./db/backup/backup.dump | $(DOCKER_CMD) exec -T timescaledb pg_restore --section=data -U $(DB_USER) -d $(DB_NAME); \
+		echo "Restoring post-data section (indexes, constraints)..."; \
+		cat ./db/backup/backup.dump | $(DOCKER_CMD) exec -T timescaledb pg_restore --section=post-data -U $(DB_USER) -d $(DB_NAME); \
 		echo "Database restored successfully."; \
 	else \
 		echo "No backup file found, skipping restore."; \
