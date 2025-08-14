@@ -15,13 +15,14 @@ var globalConfig atomic.Value
 
 // AppConfig defines the structure for application-level configuration.
 type AppConfig struct {
-	LogLevel  string          `yaml:"log_level"`
-	Order     OrderConfig     `yaml:"order"`
-	Database  DatabaseConfig  `yaml:"database"`
-	DBWriter  DBWriterConfig  `yaml:"db_writer"`
-	Replay    ReplayConfig    `yaml:"replay"`
-	PnlReport PnlReportConfig `yaml:"pnl_report"`
-	Alert     AlertConfig     `yaml:"alert"`
+	LogLevel                 string          `yaml:"log_level"`
+	ObiCalculatorChannelSize int             `yaml:"obi_calculator_channel_size"`
+	Order                    OrderConfig     `yaml:"order"`
+	Database                 DatabaseConfig  `yaml:"database"`
+	DBWriter                 DBWriterConfig  `yaml:"db_writer"`
+	Replay                   ReplayConfig    `yaml:"replay"`
+	PnlReport                PnlReportConfig `yaml:"pnl_report"`
+	Alert                    AlertConfig     `yaml:"alert"`
 }
 
 // TradeConfig defines the structure for trading strategy configuration.

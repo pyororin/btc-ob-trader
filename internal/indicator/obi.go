@@ -23,12 +23,15 @@ type OBICalculator struct {
 }
 
 // NewOBICalculator creates a new OBI calculator.
-func NewOBICalculator(ob *OrderBook, interval time.Duration) *OBICalculator {
+func NewOBICalculator(ob *OrderBook, interval time.Duration, channelSize int) *OBICalculator {
+	if channelSize <= 0 {
+		channelSize = 100 // Default value if provided size is invalid
+	}
 	return &OBICalculator{
 		orderBook: ob,
 		interval:  interval,
 		done:      make(chan struct{}),
-		output:    make(chan OBIResult, 100), // Buffered channel to avoid blocking
+		output:    make(chan OBIResult, channelSize),
 	}
 }
 
