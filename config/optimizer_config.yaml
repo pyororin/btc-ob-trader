@@ -90,13 +90,13 @@ stability_analysis:
 # 新しい本番パラメータ候補の有効性を、過去データを用いたフォワードテストで検証します。
 wfa:
   # WFAで分析対象とする全体の期間（日数）。
-  total_days: 7
+  total_days: 0.1667
   # 上記期間内に作成する「学習/検証」スプリット（fold）の数。
   n_splits: 5
   # 1つのスプリットにおける学習（最適化）期間の日数。
-  train_days: 1
+  train_days: 0.08
   # 1つのスプリットにおける検証期間の日数。
-  validate_days: 0.5
+  validate_days: 0.015
   # 1学習スプリットごとに実行するOptunaの試行回数。
   n_trials_per_fold: 200
   # WFAを「成功」とみなし本番パラメータを更新するために必要となる、
