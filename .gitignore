@@ -40,3 +40,7 @@ data/params/tmp*.yaml
 
 # 単発の order book CSV ファイル（例: 日付入りファイル）
 order_book_updates_*.csv
+
+data/wfa_runs/
+data/wfo_results/
+report/
