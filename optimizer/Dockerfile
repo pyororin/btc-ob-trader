@@ -12,11 +12,9 @@ RUN go mod download
 
 COPY . .
 
-# Build both Go binaries.
-# The application expects them to be in /app/bin.
-RUN mkdir -p /app/bin && \
-    CGO_ENABLED=0 go build -v -o /app/bin/export ./cmd/export && \
-    CGO_ENABLED=0 go build -v -o /app/bin/bot ./cmd/bot
+# Build both Go binaries and place them in a standard PATH location.
+RUN CGO_ENABLED=0 go build -v -o /usr/local/bin/export ./cmd/export && \
+    CGO_ENABLED=0 go build -v -o /usr/local/bin/bot ./cmd/bot
 
 # ---- Builder Stage ----
 # This stage installs build dependencies, creates a virtual environment, and installs Python packages.
@@ -55,10 +53,12 @@ COPY --from=builder $VENV_PATH $VENV_PATH
 # Set the PATH to use the venv
 ENV PATH="$VENV_PATH/bin:$PATH"
 
-# Copy the Go binaries from the go-builder stage
-COPY --from=go-builder /app/bin /app/bin
+# Copy the Go binaries from the go-builder stage into a standard PATH location.
+COPY --from=go-builder /usr/local/bin/export /usr/local/bin/export
+COPY --from=go-builder /usr/local/bin/bot /usr/local/bin/bot
 
 # Copy the application's code into the container.
+# This is done after copying binaries and setting up the venv.
 COPY ./optimizer /app/optimizer
 
 # Set environment variables to control thread usage by numerical libraries,
