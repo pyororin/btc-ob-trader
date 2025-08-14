@@ -730,7 +730,10 @@ func runMainLoop(injector *do.Injector, f *flags, sigs chan<- os.Signal) {
 		runServerMode(ctx, f, sigs)
 	} else if f.simulateMode {
 		summaryCh := make(chan map[string]interface{}, 1)
-		go runSimulation(ctx, f, sigs, summaryCh)
+		// Create a deep copy of the config for the simulation to avoid race conditions
+		// with the file watcher.
+		simConfig := config.GetConfigCopy()
+		go runSimulation(ctx, f, sigs, summaryCh, simConfig)
 
 		summary := <-summaryCh
 		output, err := json.Marshal(summary)
@@ -794,13 +797,12 @@ func waitForShutdownSignal(sigs <-chan os.Signal) {
 }
 
 // runSimulation runs a backtest using data from a CSV file and sends the summary through a channel.
-func runSimulation(ctx context.Context, f *flags, sigs chan<- os.Signal, summaryCh chan<- map[string]interface{}) {
+func runSimulation(ctx context.Context, f *flags, sigs chan<- os.Signal, summaryCh chan<- map[string]interface{}, cfg *config.Config) {
 	defer close(summaryCh) // Ensure channel is closed when done.
 	rand.Seed(1)
-	cfg := config.GetConfig()
-	if cfg.Trade == nil {
-		logger.Fatal("Simulation mode requires a trade configuration file.")
-		summaryCh <- map[string]interface{}{"error": "trade config is missing"}
+	if cfg == nil || cfg.Trade == nil {
+		logger.Fatal("Simulation mode requires a valid configuration.")
+		summaryCh <- map[string]interface{}{"error": "trade or app config is missing"}
 		sigs <- syscall.SIGTERM
 		return
 	}
