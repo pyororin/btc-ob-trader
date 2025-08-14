@@ -181,12 +181,14 @@ local-build: ## Build the Go application binary locally without Docker.
 	@mkdir -p build
 	go build -ldflags="-s -w" -o build/obi-scalp-bot cmd/bot/main.go
 	go build -ldflags="-s -w" -o build/report cmd/report/main.go
+	go build -ldflags="-s -w" -o build/export cmd/export/main.go
 
 build: ## Build the Go application binary inside the container.
 	@echo "Building Go application binary..."
 	@mkdir -p build
 	$(DOCKER_RUN_GO) go build -a -ldflags="-s -w" -o build/obi-scalp-bot cmd/bot/main.go
 	$(DOCKER_RUN_GO) go build -a -ldflags="-s -w" -o build/report cmd/report/main.go
+	$(DOCKER_RUN_GO) go build -a -ldflags="-s -w" -o build/export cmd/export/main.go
 
 build-image: ## Build the Docker image for the bot.
 	@echo "Building Docker image..."
