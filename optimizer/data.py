@@ -36,10 +36,9 @@ def export_and_split_data(
     # Also clean the shared simulation export dir to easily find the new file
     _cleanup_directory(config.SIMULATION_DIR)
 
-    # Use the compiled export binary from the project's bin directory.
-    export_binary_path = config.BIN_DIR / 'export'
+    # The 'export' command is expected to be in the system's PATH.
     cmd = [
-        str(export_binary_path),
+        'export',
         f'--start={is_start_time}',
         f'--end={oos_end_time}',
         '--no-zip'
@@ -73,9 +72,8 @@ def export_and_split_data(
         logging.error(f"Failed to export data: {e.stderr}")
         return None, None
     except FileNotFoundError:
-        # Corrected the misleading error message.
-        logging.error(f"Could not find the export executable at '{export_binary_path}'. "
-                      "Ensure the Go binaries have been compiled.")
+        logging.error(f"Could not find the 'export' executable. "
+                      "Ensure it is in the system's PATH and the Dockerfile has built it correctly.")
         return None, None
 
 
@@ -182,9 +180,9 @@ def export_and_split_data_for_daemon(total_hours: float, oos_hours: float) -> Tu
     _cleanup_directory(daemon_dir)
 
     import math
-    export_binary_path = config.BIN_DIR / 'export'
+    # The 'export' command is expected to be in the system's PATH.
     cmd = [
-        str(export_binary_path),
+        'export',
         f'--hours-before={math.ceil(total_hours)}',
         '--no-zip'
     ]
