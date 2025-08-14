@@ -525,9 +525,30 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter dbwriter.DBWriter, p
 	return orderBookHandler, tradeHandler
 }
 
+// marketState holds the latest market data in a thread-safe way.
+type marketState struct {
+	mu          sync.RWMutex
+	latestOBI   indicator.OBIResult
+	hasFreshOBI bool
+}
+
+// setOBI updates the latest OBI result.
+func (ms *marketState) setOBI(obi indicator.OBIResult) {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	ms.latestOBI = obi
+	ms.hasFreshOBI = true
+}
+
+// getLatestOBI returns the latest OBI result.
+func (ms *marketState) getLatestOBI() (indicator.OBIResult, bool) {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	return ms.latestOBI, ms.hasFreshOBI
+}
+
 // processSignalsAndExecute subscribes to indicators, evaluates signals, and executes trades.
 func processSignalsAndExecute(injector *do.Injector, obiCalculator *indicator.OBICalculator, webSocketClient *coincheck.WebSocketClient, wg *sync.WaitGroup) {
-	// ... (dependencies are now invoked from injector)
 	ctx := do.MustInvoke[context.Context](injector)
 	cfg := do.MustInvoke[*config.Config](injector)
 	execEngine := do.MustInvoke[engine.ExecutionEngine](injector)
@@ -538,17 +559,47 @@ func processSignalsAndExecute(injector *do.Injector, obiCalculator *indicator.OB
 		logger.Fatalf("Failed to create signal engine: %v", err)
 	}
 
+	state := &marketState{}
+
+	// Goroutine to receive OBI results and update the shared state
 	resultsCh := obiCalculator.Subscribe()
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case result := <-resultsCh:
+				state.setOBI(result)
+			}
+		}
+	}()
+
+	// Goroutine to process signals at a regular interval
 	go func() {
 		if wg != nil {
 			defer wg.Done()
 		}
+		// Use a ticker to evaluate signals at a controlled interval
+		interval := time.Duration(cfg.App.SignalEvaluationIntervalMs) * time.Millisecond
+		if interval == 0 {
+			// Fallback to a sensible default if the config value is missing or zero
+			interval = 500 * time.Millisecond
+			logger.Warnf("SignalEvaluationIntervalMs is not set or is zero. Falling back to default: %v", interval)
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
 		for {
 			select {
 			case <-ctx.Done():
 				logger.Info("Signal processing and execution goroutine shutting down.")
 				return
-			case result := <-resultsCh:
+			case <-ticker.C:
+				result, hasFreshOBI := state.getLatestOBI()
+				if !hasFreshOBI {
+					continue
+				}
+
 				currentCfg := config.GetConfig()
 				if result.BestBid <= 0 || result.BestAsk <= 0 {
 					logger.Warnf("Skipping signal evaluation due to invalid best bid/ask: BestBid=%.2f, BestAsk=%.2f", result.BestBid, result.BestAsk)
@@ -560,11 +611,15 @@ func processSignalsAndExecute(injector *do.Injector, obiCalculator *indicator.OB
 				}
 				var trades []coincheck.TradeData
 				if webSocketClient != nil {
+					// This call might need to be adjusted if it's blocking or not returning fresh data.
+					// For now, we assume it returns recent trades.
 					trades = webSocketClient.GetTrades()
 				}
 				cvdTrades := convertTrades(trades)
 
-				signalEngine.UpdateMarketData(result.Timestamp, midPrice, result.BestBid, result.BestAsk, 1.0, 1.0, cvdTrades)
+				// Use a dummy size for now. This might need to be updated with actual data if available.
+				bestBidSize, bestAskSize := 1.0, 1.0
+				signalEngine.UpdateMarketData(result.Timestamp, midPrice, result.BestBid, result.BestAsk, bestBidSize, bestAskSize, cvdTrades)
 
 				logger.Debugf("Evaluating OBI: %.4f, Long Threshold: %.4f, Short Threshold: %.4f",
 					result.OBI8, signalEngine.GetCurrentLongOBIThreshold(), signalEngine.GetCurrentShortOBIThreshold())
@@ -579,12 +634,8 @@ func processSignalsAndExecute(injector *do.Injector, obiCalculator *indicator.OB
 					}
 
 					if orderType != "" {
-						finalPrice := 0.0
-						if orderType == "buy" {
-							finalPrice = result.BestAsk
-						} else {
-							finalPrice = result.BestBid
-						}
+						// The entry price is now calculated within the signal
+						finalPrice := tradingSignal.EntryPrice
 
 						orderAmount := currentCfg.Trade.OrderAmount
 
