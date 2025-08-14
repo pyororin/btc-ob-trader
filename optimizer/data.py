@@ -36,8 +36,10 @@ def export_and_split_data(
     # Also clean the shared simulation export dir to easily find the new file
     _cleanup_directory(config.SIMULATION_DIR)
 
+    # Use the compiled export binary from the project's bin directory.
+    export_binary_path = config.BIN_DIR / 'export'
     cmd = [
-        '/usr/local/bin/export',
+        str(export_binary_path),
         f'--start={is_start_time}',
         f'--end={oos_end_time}',
         '--no-zip'
@@ -71,7 +73,9 @@ def export_and_split_data(
         logging.error(f"Failed to export data: {e.stderr}")
         return None, None
     except FileNotFoundError:
-        logging.error(f"Could not find 'go' executable. Ensure Go is installed and in the system's PATH.")
+        # Corrected the misleading error message.
+        logging.error(f"Could not find the export executable at '{export_binary_path}'. "
+                      "Ensure the Go binaries have been compiled.")
         return None, None
 
 
@@ -178,8 +182,9 @@ def export_and_split_data_for_daemon(total_hours: float, oos_hours: float) -> Tu
     _cleanup_directory(daemon_dir)
 
     import math
+    export_binary_path = config.BIN_DIR / 'export'
     cmd = [
-        '/usr/local/bin/export',
+        str(export_binary_path),
         f'--hours-before={math.ceil(total_hours)}',
         '--no-zip'
     ]

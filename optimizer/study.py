@@ -43,6 +43,7 @@ def _run_single_phase_optimization(
 ):
     """Helper function to run one phase of optimization."""
     study.set_user_attr('current_csv_path', str(is_csv_path))
+    study.set_user_attr('phase_name', phase_name)
     objective_func = Objective(study)
 
     logging.info(f"Starting {phase_name} optimization with {is_csv_path} for {n_trials} trials.")
@@ -51,7 +52,7 @@ def _run_single_phase_optimization(
     study.optimize(
         objective_func,
         n_trials=n_trials,
-        n_jobs=1,
+        n_jobs=-1,
         show_progress_bar=False,
         catch=(Exception,),
         callbacks=[callback_with_n_trials]
