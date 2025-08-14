@@ -801,9 +801,9 @@ func runSimulation(ctx context.Context, f *flags, sigs chan<- os.Signal, summary
 	defer close(summaryCh) // Ensure channel is closed when done.
 	rand.Seed(1)
 	if cfg == nil || cfg.Trade == nil {
-		logger.Fatal("Simulation mode requires a valid configuration.")
+		logger.Error("Simulation mode requires a valid configuration, but it was nil.")
 		summaryCh <- map[string]interface{}{"error": "trade or app config is missing"}
-		sigs <- syscall.SIGTERM
+		// Do not send SIGTERM here, let the main loop handle it after printing the summary.
 		return
 	}
 
