@@ -122,6 +122,14 @@ func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
 		CompositeThreshold:    tradeCfg.Signal.CompositeThreshold,
 	}
 
+	logger.Debugf("[SignalEngine] Initialized with weights: OBI=%.2f, OFI=%.2f, CVD=%.2f, MicroPrice=%.2f, Threshold=%.2f",
+		engineCfg.OBIWeight,
+		engineCfg.OFIWeight,
+		engineCfg.CVDWeight,
+		engineCfg.MicroPriceWeight,
+		engineCfg.CompositeThreshold,
+	)
+
 	return &SignalEngine{
 		config:                   engineCfg,
 		volatilityCalc:           indicator.NewVolatilityCalculator(tradeCfg.Volatility.EWMALambda),

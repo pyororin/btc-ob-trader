@@ -145,10 +145,12 @@ func (w *TimescaleWriter) Close() {
 	// Final flush
 	w.flushBuffers()
 
-	if w.pool != nil {
-		w.pool.Close()
-		w.logger.Info("TimescaleDB connection pool closed")
-	}
+	// The writer should not close the pool it did not create.
+	// The creator of the pool is responsible for its lifecycle.
+	// if w.pool != nil {
+	// 	w.pool.Close()
+	// 	w.logger.Info("TimescaleDB connection pool closed")
+	// }
 }
 
 func (w *TimescaleWriter) run() {
