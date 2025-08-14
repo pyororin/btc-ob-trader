@@ -92,6 +92,7 @@ WFA_TRAIN_DAYS = WFA_CONFIG.get('train_days', 4)
 WFA_VALIDATE_DAYS = WFA_CONFIG.get('validate_days', 2)
 WFA_N_TRIALS_PER_FOLD = WFA_CONFIG.get('n_trials_per_fold', 200)
 WFA_MIN_SUCCESS_RATIO = WFA_CONFIG.get('min_success_ratio', 0.6)
+WFA_MAX_RUNS_TO_KEEP = WFA_CONFIG.get('max_runs_to_keep', 20)
 
 
 # Drift Monitor Settings

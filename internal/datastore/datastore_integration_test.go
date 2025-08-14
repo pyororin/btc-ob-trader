@@ -1,3 +1,6 @@
+//go:build sqltest
+// +build sqltest
+
 package datastore_test
 
 import (
@@ -26,7 +29,7 @@ func setupTestDatabase(t *testing.T) (pool *pgxpool.Pool, cleanup func()) {
 
 	// Define the container request
 	container, err := postgres.Run(ctx,
-		"timescale/timescaledb:latest-pg15",
+		"timescale/timescaledb:2.11.2-pg14",
 		postgres.WithDatabase("test-db"),
 		postgres.WithUsername("test-user"),
 		postgres.WithPassword("test-password"),

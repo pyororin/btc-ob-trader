@@ -12,6 +12,34 @@ from .utils import nest_params
 from .simulation import run_simulation
 
 
+def _rotate_wfa_runs():
+    """
+    Cleans up old WFA run directories to prevent them from accumulating.
+    This is a self-healing mechanism for runs that might have been interrupted
+    before their own cleanup could complete.
+    """
+    if not config.WFA_DIR.exists() or not config.WFA_MAX_RUNS_TO_KEEP > 0:
+        return
+
+    try:
+        # Get all 'wfa_*' directories, which are assumed to be from past runs
+        past_runs = sorted(
+            [d for d in config.WFA_DIR.iterdir() if d.is_dir() and d.name.startswith('wfa_')],
+            key=lambda d: d.name,  # Sort by name (wfa_YYYYMMDD_HHMMSS)
+            reverse=True
+        )
+
+        if len(past_runs) > config.WFA_MAX_RUNS_TO_KEEP:
+            runs_to_delete = past_runs[config.WFA_MAX_RUNS_TO_KEEP:]
+            logging.info(f"Rotating WFA runs: Found {len(past_runs)} runs, keeping {config.WFA_MAX_RUNS_TO_KEEP}, deleting {len(runs_to_delete)}.")
+            for old_run_dir in runs_to_delete:
+                logging.debug(f"Deleting old WFA run directory: {old_run_dir}")
+                shutil.rmtree(old_run_dir)
+    except Exception as e:
+        # We log errors but don't block the main WFA process
+        logging.error(f"Error during WFA run rotation: {e}", exc_info=True)
+
+
 def run_walk_forward_analysis(job: dict) -> bool:
     """
     Orchestrates a full Walk-Forward Analysis.
@@ -23,6 +51,9 @@ def run_walk_forward_analysis(job: dict) -> bool:
     Returns:
         True if the WFA passes and the parameters should be updated, False otherwise.
     """
+    # First, perform cleanup of any old runs that might have been left behind.
+    _rotate_wfa_runs()
+
     logging.info("--- Starting Walk-Forward Analysis ---")
     n_trials = job.get('n_trials_per_fold', config.WFA_N_TRIALS_PER_FOLD)
 
