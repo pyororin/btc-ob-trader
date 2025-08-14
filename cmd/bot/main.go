@@ -98,14 +98,14 @@ func newInjector(f *flags, ctx context.Context) (*do.Injector, error) {
 
 	// Provide Config
 	do.Provide(injector, func(i *do.Injector) (*config.Config, error) {
-		flags := safeMustInvoke[*flags](i)
+		flags := do.MustInvoke[*flags](i)
 		return setupConfig(flags.configPath, flags.tradeConfigPath)
 	})
 
 	// Provide Logger
 	do.Provide(injector, func(i *do.Injector) (*zap.Logger, error) {
-		cfg := safeMustInvoke[*config.Config](i)
-		flags := safeMustInvoke[*flags](i)
+		cfg := do.MustInvoke[*config.Config](i)
+		flags := do.MustInvoke[*flags](i)
 		if !flags.serveMode {
 			pair := ""
 			if cfg.Trade != nil {
@@ -128,12 +128,12 @@ func newInjector(f *flags, ctx context.Context) (*do.Injector, error) {
 
 	// Provide DB Connection Pool
 	do.Provide(injector, func(i *do.Injector) (*pgxpool.Pool, error) {
-		flags := safeMustInvoke[*flags](i)
+		flags := do.MustInvoke[*flags](i)
 		if flags.simulateMode || flags.serveMode {
 			return nil, nil // No DB connection in simulation/server mode
 		}
-		cfg := safeMustInvoke[*config.Config](i)
-		ctx := safeMustInvoke[context.Context](i)
+		cfg := do.MustInvoke[*config.Config](i)
+		ctx := do.MustInvoke[context.Context](i)
 		dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s&timezone=Asia/Tokyo",
 			cfg.App.Database.User, cfg.App.Database.Password, cfg.App.Database.Host, cfg.App.Database.Port, cfg.App.Database.Name, cfg.App.Database.SSLMode)
 		return pgxpool.New(ctx, dbURL)
@@ -141,16 +141,16 @@ func newInjector(f *flags, ctx context.Context) (*do.Injector, error) {
 
 	// Provide DB Writer
 	do.Provide(injector, func(i *do.Injector) (dbwriter.DBWriter, error) {
-		pool, _ := safeInvoke[*pgxpool.Pool](i) // Can be nil in simulate mode
-		cfg := safeMustInvoke[*config.Config](i)
-		logger := safeMustInvoke[*zap.Logger](i)
+		pool, _ := do.Invoke[*pgxpool.Pool](i) // Can be nil in simulate mode
+		cfg := do.MustInvoke[*config.Config](i)
+		logger := do.MustInvoke[*zap.Logger](i)
 		return dbwriter.NewTimescaleWriter(pool, cfg.App.DBWriter, logger)
 	})
 
 	// Provide Datastore Repository
 	do.Provide(injector, func(i *do.Injector) (datastore.Repository, error) {
 		// Use Invoke instead of MustInvoke to handle the case where the DB is not available.
-		pool, err := safeInvoke[*pgxpool.Pool](i)
+		pool, err := do.Invoke[*pgxpool.Pool](i)
 		if err != nil || pool == nil {
 			// If the pool is not available, provide a nil repository.
 			// This makes the datastore an optional dependency.
@@ -161,14 +161,14 @@ func newInjector(f *flags, ctx context.Context) (*do.Injector, error) {
 
 	// Provide Notifier
 	do.Provide(injector, func(i *do.Injector) (alert.Notifier, error) {
-		cfg := safeMustInvoke[*config.Config](i)
+		cfg := do.MustInvoke[*config.Config](i)
 		return alert.NewDiscordNotifier(cfg.App.Alert.Discord)
 	})
 
 	// Provide Benchmark Service
 	do.Provide(injector, func(i *do.Injector) (*benchmark.Service, error) {
-		writer := safeMustInvoke[dbwriter.DBWriter](i)
-		logger := safeMustInvoke[*zap.Logger](i)
+		writer := do.MustInvoke[dbwriter.DBWriter](i)
+		logger := do.MustInvoke[*zap.Logger](i)
 		if writer == nil {
 			return nil, nil
 		}
@@ -177,13 +177,13 @@ func newInjector(f *flags, ctx context.Context) (*do.Injector, error) {
 
 	// Provide Coincheck Client
 	do.Provide(injector, func(i *do.Injector) (*coincheck.Client, error) {
-		cfg := safeMustInvoke[*config.Config](i)
+		cfg := do.MustInvoke[*config.Config](i)
 		return coincheck.NewClient(cfg.APIKey, cfg.APISecret), nil
 	})
 
 	// Provide Execution Engine
 	do.Provide(injector, func(i *do.Injector) (engine.ExecutionEngine, error) {
-		flags := safeMustInvoke[*flags](i)
+		flags := do.MustInvoke[*flags](i)
 		if flags.simulateMode {
 			// In simulation mode, we need a ReplayExecutionEngine which depends on an OrderBook.
 			// This part might need adjustment if OrderBook needs to be a shared service.
@@ -191,9 +191,9 @@ func newInjector(f *flags, ctx context.Context) (*do.Injector, error) {
 			return engine.NewReplayExecutionEngine(orderBook), nil
 		}
 		// For live/server mode
-		client := safeMustInvoke[*coincheck.Client](i)
-		writer := safeMustInvoke[dbwriter.DBWriter](i)
-		notifier := safeMustInvoke[alert.Notifier](i)
+		client := do.MustInvoke[*coincheck.Client](i)
+		writer := do.MustInvoke[dbwriter.DBWriter](i)
+		notifier := do.MustInvoke[alert.Notifier](i)
 		return engine.NewLiveExecutionEngine(client, writer, notifier), nil
 	})
 
