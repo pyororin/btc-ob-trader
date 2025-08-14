@@ -15,33 +15,36 @@ class TestConfigRendering(unittest.TestCase):
         Tests if a full set of parameters suggested by the Objective class
         are correctly rendered into a valid, complete YAML config file.
         """
-        # 1. Mock the Optuna Trial object to return a full set of values
+        # 1. Mock the Optuna Trial and Study objects
         trial = MagicMock(spec=optuna.Trial)
+        mock_study = MagicMock(spec=optuna.Study)
+        mock_study.user_attrs = {} # Objective expects user_attrs to exist
 
-        # This list of side effects corresponds to the *active* list of parameters
-        # in objective.py's _suggest_parameters method.
-        # All parameters are now categorical
-        trial.suggest_categorical.side_effect = [
+        # Mock the suggestion methods based on the new config
+        trial.suggest_int.side_effect = [
             80,    # spread_limit
             100,   # long_tp
             -100,  # long_sl
             110,   # short_tp
             -110,  # short_sl
+            100,   # entry_price_offset - Note: Converted to int
+        ]
+        trial.suggest_float.side_effect = [
             1.5,   # obi_weight
             1.4,   # ofi_weight
             1.3,   # cvd_weight
             0.4,   # micro_price_weight
             1.1,   # composite_threshold
             0.2,   # ewma_lambda
-            100.0, # entry_price_offset
-            True,  # dynamic_obi_enabled
             3.0,   # volatility_factor
             0.7,   # min_threshold_factor
             2.5,   # max_threshold_factor
         ]
+        # The only categorical parameter left
+        trial.suggest_categorical.return_value = True # dynamic_obi_enabled
 
         # 2. Instantiate Objective and suggest parameters
-        objective = Objective(study=None)
+        objective = Objective(study=mock_study)
         flat_params = objective._suggest_parameters(trial)
         params = nest_params(flat_params) # Convert to nested structure
 
@@ -64,7 +67,7 @@ class TestConfigRendering(unittest.TestCase):
         # Values for fixed params come from the .template file.
         expected_yaml_structure = {
             'pair': 'btc_jpy', 'order_amount': 0.01, 'spread_limit': 80,
-            'entry_price_offset': 100.0,
+            'entry_price_offset': 100,
             'lot_max_ratio': 1.0, 'order_ratio': 0.95,
             'long': {'tp': 100, 'sl': -100},
             'short': {'tp': 110, 'sl': -110},

@@ -88,6 +88,7 @@ class TestWalkForwardAnalysis(unittest.TestCase):
 
             # Mock config to require 2/3 folds to pass (66% > 60%)
             mock_config.WFA_MIN_SUCCESS_RATIO = 0.6
+            mock_config.WFA_MAX_RUNS_TO_KEEP = 10
             mock_wfa_dir = MagicMock()
             mock_wfa_dir.exists.return_value = True
             mock_config.WFA_DIR.__truediv__.return_value = mock_wfa_dir
@@ -145,6 +146,7 @@ class TestWalkForwardAnalysis(unittest.TestCase):
 
             # Mock config to require 2/3 folds to pass (33% < 60%)
             mock_config.WFA_MIN_SUCCESS_RATIO = 0.6
+            mock_config.WFA_MAX_RUNS_TO_KEEP = 10
             mock_wfa_dir = MagicMock()
             mock_wfa_dir.exists.return_value = True
             mock_config.WFA_DIR.__truediv__.return_value = mock_wfa_dir
