@@ -61,14 +61,7 @@ type AdaptiveSizingConfig struct {
 
 // AlertConfig holds alert settings.
 type AlertConfig struct {
-	Discord DiscordConfig `yaml:"discord"`
-}
-
-// DiscordConfig holds Discord notification settings.
-type DiscordConfig struct {
-	Enabled  FlexBool `yaml:"enabled"`
-	BotToken string   `yaml:"bot_token"`
-	UserID   string   `yaml:"user_id"`
+	Enabled FlexBool `yaml:"enabled"`
 }
 
 // RiskConfig holds risk management settings.
@@ -242,12 +235,6 @@ func loadFromFiles(appConfigPath, tradeConfigPath string) (*Config, error) {
 	}
 	if dbSSLMode := os.Getenv("DB_SSLMODE"); dbSSLMode != "" {
 		cfg.App.Database.SSLMode = dbSSLMode
-	}
-	if discordBotToken := os.Getenv("DISCORD_BOT_TOKEN"); discordBotToken != "" {
-		cfg.App.Alert.Discord.BotToken = discordBotToken
-	}
-	if discordUserID := os.Getenv("DISCORD_USER_ID"); discordUserID != "" {
-		cfg.App.Alert.Discord.UserID = discordUserID
 	}
 
 	// Default to false if the env var is not set or not "true"

@@ -141,8 +141,8 @@ func newInjector(f *flags, ctx context.Context) (*do.Injector, error) {
 
 	// Provide Notifier
 	do.Provide(injector, func(i *do.Injector) (alert.Notifier, error) {
-		cfg := do.MustInvoke[*config.Config](i)
-		return alert.NewDiscordNotifier(cfg.App.Alert.Discord)
+		// Currently, only a NoOpNotifier is supported.
+		return alert.NewNoOpNotifier(), nil
 	})
 
 	// Provide Benchmark Service
