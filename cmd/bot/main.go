@@ -713,13 +713,13 @@ func runMainLoop(injector *do.Injector, f *flags, sigs chan<- os.Signal) {
 
 		orderBookHandler, tradeHandler := setupHandlers(orderBook, dbWriter, pair)
 
-		obiCalculator.Start(ctx)
 		wsClient := coincheck.NewWebSocketClient(orderBookHandler, tradeHandler)
 
 		if cfg.Trade != nil {
 			logger.Info("Trade configuration loaded, starting trading routines.")
 			execEngine := do.MustInvoke[engine.ExecutionEngine](injector)
 			client := do.MustInvoke[*coincheck.Client](injector)
+			obiCalculator.Start(ctx)
 			go processSignalsAndExecute(injector, obiCalculator, wsClient, nil)
 			go orderMonitor(ctx, execEngine, client, orderBook)
 			go positionMonitor(ctx, execEngine, orderBook)
