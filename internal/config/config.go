@@ -2,6 +2,8 @@
 package config
 
 import (
+	"encoding/json"
+	"log"
 	"os"
 	"sync/atomic"
 
@@ -190,6 +192,17 @@ func loadFromFiles(appConfigPath, tradeConfigPath string) (*Config, error) {
 				return nil, err
 			}
 			tradeCfg = &tc
+
+			// --- DIAGNOSTIC LOG ---
+			// Marshal the loaded trade config to JSON for readable output.
+			jsonData, err := json.MarshalIndent(tradeCfg, "", "  ")
+			if err != nil {
+				// Use standard logger as zap logger is not available here. This will print to stderr.
+				log.Printf("[CONFIG_DEBUG] INFO: Failed to marshal trade config for logging: %v", err)
+			} else {
+				log.Printf("[CONFIG_DEBUG] INFO: Loaded trade_config.yaml content:\n%s", string(jsonData))
+			}
+			// --- END DIAGNOSTIC LOG ---
 		}
 	}
 
