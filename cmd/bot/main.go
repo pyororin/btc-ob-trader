@@ -702,8 +702,6 @@ func runMainLoop(injector *do.Injector, f *flags, sigs chan<- os.Signal) {
 		// Live trading setup
 		cfg := do.MustInvoke[*config.Config](injector)
 		dbWriter, _ := do.Invoke[dbwriter.DBWriter](injector)
-		execEngine := do.MustInvoke[engine.ExecutionEngine](injector)
-		client := do.MustInvoke[*coincheck.Client](injector)
 
 		orderBook := indicator.NewOrderBook()
 		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
@@ -720,6 +718,8 @@ func runMainLoop(injector *do.Injector, f *flags, sigs chan<- os.Signal) {
 
 		if cfg.Trade != nil {
 			logger.Info("Trade configuration loaded, starting trading routines.")
+			execEngine := do.MustInvoke[engine.ExecutionEngine](injector)
+			client := do.MustInvoke[*coincheck.Client](injector)
 			go processSignalsAndExecute(injector, obiCalculator, wsClient, nil)
 			go orderMonitor(ctx, execEngine, client, orderBook)
 			go positionMonitor(ctx, execEngine, orderBook)
