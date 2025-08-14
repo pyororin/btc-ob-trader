@@ -81,6 +81,8 @@ ifeq ($(NO_RESTORE),1)
 else
 	@if [ -f ./db/backup/backup.dump ]; then \
 		echo "Wiping and restoring database from backup..."; \
+		echo "Terminating existing connections to the database..." ; \
+		$(DOCKER_CMD) exec -T timescaledb psql -U $(DB_USER) -d postgres -c "SELECT pg_terminate_backend(pg_stat_activity.pid) FROM pg_stat_activity WHERE pg_stat_activity.datname = '$(DB_NAME)' AND pid <> pg_backend_pid();" || true; \
 		$(DOCKER_CMD) exec -T timescaledb dropdb -U $(DB_USER) --if-exists $(DB_NAME); \
 		$(DOCKER_CMD) exec -T timescaledb createdb -U $(DB_USER) $(DB_NAME); \
 		$(DOCKER_CMD) exec -T timescaledb psql -U $(DB_USER) -d $(DB_NAME) -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"; \
