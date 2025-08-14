@@ -18,12 +18,23 @@ CREATE TABLE IF NOT EXISTS order_book_updates (
 SELECT create_hypertable('order_book_updates', 'time', if_not_exists => TRUE);
 
 -- order_book_updates テーブルの圧縮設定
--- 7日経過したチャンクを圧縮
-ALTER TABLE order_book_updates SET (
-    timescaledb.compress,
-    timescaledb.compress_segmentby = 'pair, side',
-    timescaledb.compress_orderby = 'time DESC'
-);
+-- 冪等性を確保するため、未設定の場合のみ実行する
+DO $$
+BEGIN
+    -- timescaledb_information.compression_settings から設定を試みる
+    -- 設定が存在しない場合のみ ALTER TABLE を実行
+    IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.compression_settings
+        WHERE hypertable_name = 'order_book_updates'
+    ) THEN
+        ALTER TABLE order_book_updates SET (
+            timescaledb.compress,
+            timescaledb.compress_segmentby = 'pair, side',
+            timescaledb.compress_orderby = 'time DESC'
+        );
+    END IF;
+END;
+$$;
 -- 圧縮ポリシーの追加 (例: 7日後に圧縮ジョブを実行)
 SELECT add_compression_policy('order_book_updates', INTERVAL '7 days', if_not_exists => TRUE);
 
