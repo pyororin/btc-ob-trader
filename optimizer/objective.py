@@ -75,6 +75,15 @@ class Objective:
         # Run the simulation and get both summary and logs
         summary, stderr_log = simulation.run_simulation(params, sim_csv_path)
 
+        # If the simulation crashes (e.g., Go panic), summary might be None or {}.
+        if not summary:
+            logging.warning(
+                f"Trial {trial.number} failed: simulation returned empty or None summary. "
+                f"This may be due to a crash in the simulation binary."
+            )
+            # Prune the trial to prevent it from being considered a valid candidate.
+            raise optuna.exceptions.TrialPruned()
+
         # Calculate metrics, including those from logs
         self._calculate_and_set_metrics(trial, summary, stderr_log)
 

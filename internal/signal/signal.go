@@ -153,6 +153,21 @@ func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
 
 // UpdateMarketData updates the engine with the latest market data.
 func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, bestBid, bestAsk, bestBidSize, bestAskSize float64, trades []cvd.Trade) {
+	// --- Defensive nil checks for debugging ---
+	if e.volatilityCalc == nil {
+		logger.Error("SignalEngine.volatilityCalc is nil")
+		return // or panic, to make it obvious
+	}
+	if e.cvdCalc == nil {
+		logger.Error("SignalEngine.cvdCalc is nil")
+		return
+	}
+	if e.ofiCalc == nil {
+		logger.Error("SignalEngine.ofiCalc is nil")
+		return
+	}
+	// --- End defensive checks ---
+
 	e.currentMidPrice = currentMidPrice
 	e.bestBid = bestBid
 	e.bestAsk = bestAsk
