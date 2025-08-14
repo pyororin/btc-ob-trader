@@ -196,7 +196,7 @@ func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, 
 	}
 
 	// Update Volatility
-	e.volatilityCalc.Update(e.currentMidPrice)
+	// e.volatilityCalc.Update(e.currentMidPrice) // Temporarily commented out for debugging
 
 	// Update indicators
 	e.microPrice = indicator.CalculateMicroPrice(bestBid, bestAsk, bestBidSize, bestAskSize)
