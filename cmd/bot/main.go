@@ -864,6 +864,9 @@ func runSimulation(ctx context.Context, f *flags, sigs chan<- os.Signal, summary
 				lastObiResult = obiResult
 
 				// Evaluate signal on book update
+				logger.Debugf("[CRASH_DEBUG] Before UpdateMarketData: signalEngine=%p, lastBookTime=%v, lastMidPrice=%.2f, bestBid=%.2f, bestAsk=%.2f, bidSize=%.4f, askSize=%.4f",
+					signalEngine, lastBookTime, lastMidPrice, lastBestBid, lastBestAsk, lastBestBidSize, lastBestAskSize)
+
 				signalEngine.UpdateMarketData(lastBookTime, lastMidPrice, lastBestBid, lastBestAsk, lastBestBidSize, lastBestAskSize, nil)
 				tradingSignal := signalEngine.Evaluate(lastBookTime, lastObiResult.OBI8)
 				if tradingSignal != nil {
