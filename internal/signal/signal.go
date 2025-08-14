@@ -4,7 +4,7 @@ package signal
 import (
 	"time"
 
-	"github.com/shopspring/decimal"
+	// "github.com/shopspring/decimal" // Temporarily commented out for debugging
 	"github.com/your-org/obi-scalp-bot/internal/config"
 	"github.com/your-org/obi-scalp-bot/internal/indicator"
 	"github.com/your-org/obi-scalp-bot/pkg/cvd"
@@ -185,14 +185,15 @@ func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, 
 
 	// Update indicators
 	e.microPrice = indicator.CalculateMicroPrice(bestBid, bestAsk, bestBidSize, bestAskSize)
-	// e.cvdValue = e.cvdCalc.Update(trades, currentTime) // Temporarily commented out for debugging
+	e.cvdValue = e.cvdCalc.Update(trades, currentTime)
 
-	decBestBid := decimal.NewFromFloat(bestBid)
-	decBestAsk := decimal.NewFromFloat(bestAsk)
-	decBestBidSize := decimal.NewFromFloat(bestBidSize)
-	decBestAskSize := decimal.NewFromFloat(bestAskSize)
-	ofiDecimal := e.ofiCalc.UpdateAndCalculateOFI(decBestBid, decBestAsk, decBestBidSize, decBestAskSize)
-	e.ofiValue, _ = ofiDecimal.Float64()
+	// decBestBid := decimal.NewFromFloat(bestBid)
+	// decBestAsk := decimal.NewFromFloat(bestAsk)
+	// decBestBidSize := decimal.NewFromFloat(bestBidSize)
+	// decBestAskSize := decimal.NewFromFloat(bestAskSize)
+	// ofiDecimal := e.ofiCalc.UpdateAndCalculateOFI(decBestBid, decBestAsk, decBestBidSize, decBestAskSize)
+	// e.ofiValue, _ = ofiDecimal.Float64()
+	e.ofiValue = 0.0 // Temporarily set to 0 for debugging
 }
 
 // Evaluate evaluates the current market data and returns a TradingSignal if a new signal is confirmed.
