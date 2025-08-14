@@ -132,8 +132,11 @@ func newInjector(f *flags, ctx context.Context) (*do.Injector, error) {
 
 	// Provide Datastore Repository
 	do.Provide(injector, func(i *do.Injector) (datastore.Repository, error) {
-		pool := do.MustInvoke[*pgxpool.Pool](i)
-		if pool == nil {
+		// Use Invoke instead of MustInvoke to handle the case where the DB is not available.
+		pool, err := do.Invoke[*pgxpool.Pool](i)
+		if err != nil || pool == nil {
+			// If the pool is not available, provide a nil repository.
+			// This makes the datastore an optional dependency.
 			return nil, nil
 		}
 		return datastore.NewTimescaleRepository(pool), nil
@@ -438,7 +441,7 @@ func startHTTPServer(injector *do.Injector) {
 		pnlHandler.RegisterRoutes(r)
 		logger.Info("PnL report endpoint /pnl/latest_report registered.")
 	} else {
-		logger.Warnf("HTTP server unable to get datastore repository for PnL handler: %v", err)
+		logger.Warn("Datastore repository not available, PnL report endpoint will not be registered.", zap.Error(err))
 	}
 
 	go func() {
