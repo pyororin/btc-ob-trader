@@ -153,21 +153,6 @@ func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
 
 // UpdateMarketData updates the engine with the latest market data.
 func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, bestBid, bestAsk, bestBidSize, bestAskSize float64, trades []cvd.Trade) {
-	// --- Defensive nil checks for debugging ---
-	if e.volatilityCalc == nil {
-		logger.Error("SignalEngine.volatilityCalc is nil")
-		return // or panic, to make it obvious
-	}
-	if e.cvdCalc == nil {
-		logger.Error("SignalEngine.cvdCalc is nil")
-		return
-	}
-	if e.ofiCalc == nil {
-		logger.Error("SignalEngine.ofiCalc is nil")
-		return
-	}
-	// --- End defensive checks ---
-
 	e.currentMidPrice = currentMidPrice
 	e.bestBid = bestBid
 	e.bestAsk = bestAsk
@@ -196,11 +181,11 @@ func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, 
 	}
 
 	// Update Volatility
-	// e.volatilityCalc.Update(e.currentMidPrice) // Temporarily commented out for debugging
+	e.volatilityCalc.Update(e.currentMidPrice)
 
 	// Update indicators
 	e.microPrice = indicator.CalculateMicroPrice(bestBid, bestAsk, bestBidSize, bestAskSize)
-	e.cvdValue = e.cvdCalc.Update(trades, currentTime)
+	// e.cvdValue = e.cvdCalc.Update(trades, currentTime) // Temporarily commented out for debugging
 
 	decBestBid := decimal.NewFromFloat(bestBid)
 	decBestAsk := decimal.NewFromFloat(bestAsk)
