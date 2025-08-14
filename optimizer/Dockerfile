@@ -12,8 +12,11 @@ RUN go mod download
 
 COPY . .
 
-# Build the export command
-RUN CGO_ENABLED=0 go build -v -o /usr/local/bin/export ./cmd/export
+# Build both Go binaries.
+# The application expects them to be in /app/bin.
+RUN mkdir -p /app/bin && \
+    CGO_ENABLED=0 go build -v -o /app/bin/export ./cmd/export && \
+    CGO_ENABLED=0 go build -v -o /app/bin/bot ./cmd/bot
 
 # ---- Builder Stage ----
 # This stage installs build dependencies, creates a virtual environment, and installs Python packages.
@@ -52,8 +55,8 @@ COPY --from=builder $VENV_PATH $VENV_PATH
 # Set the PATH to use the venv
 ENV PATH="$VENV_PATH/bin:$PATH"
 
-# Copy the export binary from the go-builder stage
-COPY --from=go-builder /usr/local/bin/export /usr/local/bin/export
+# Copy the Go binaries from the go-builder stage
+COPY --from=go-builder /app/bin /app/bin
 
 # Copy the application's code into the container.
 COPY ./optimizer /app/optimizer
