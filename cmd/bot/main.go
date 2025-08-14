@@ -695,7 +695,7 @@ func runMainLoop(injector *do.Injector, f *flags, sigs chan<- os.Signal) {
 		dbWriter, _ := do.Invoke[dbwriter.DBWriter](injector)
 
 		orderBook := indicator.NewOrderBook()
-		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
+		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond, cfg.App.ObiCalculatorChannelSize)
 
 		pair := "btc_jpy" // Default pair
 		if cfg.Trade != nil {
