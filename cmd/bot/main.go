@@ -40,6 +40,23 @@ import (
 	"go.uber.org/zap"
 )
 
+// injectorMux protects the dependency injector from concurrent access.
+var injectorMux sync.RWMutex
+
+// safeInvoke provides a thread-safe wrapper around do.Invoke.
+func safeInvoke[T any](i *do.Injector) (T, error) {
+	injectorMux.Lock()
+	defer injectorMux.Unlock()
+	return do.Invoke[T](i)
+}
+
+// safeMustInvoke provides a thread-safe wrapper around do.MustInvoke.
+func safeMustInvoke[T any](i *do.Injector) T {
+	injectorMux.Lock()
+	defer injectorMux.Unlock()
+	return do.MustInvoke[T](i)
+}
+
 // SimulationRequest defines the structure for a single simulation run.
 type SimulationRequest struct {
 	TrialID     int                 `json:"trial_id"`
@@ -81,14 +98,14 @@ func newInjector(f *flags, ctx context.Context) (*do.Injector, error) {
 
 	// Provide Config
 	do.Provide(injector, func(i *do.Injector) (*config.Config, error) {
-		flags := do.MustInvoke[*flags](i)
+		flags := safeMustInvoke[*flags](i)
 		return setupConfig(flags.configPath, flags.tradeConfigPath)
 	})
 
 	// Provide Logger
 	do.Provide(injector, func(i *do.Injector) (*zap.Logger, error) {
-		cfg := do.MustInvoke[*config.Config](i)
-		flags := do.MustInvoke[*flags](i)
+		cfg := safeMustInvoke[*config.Config](i)
+		flags := safeMustInvoke[*flags](i)
 		if !flags.serveMode {
 			pair := ""
 			if cfg.Trade != nil {
@@ -111,12 +128,12 @@ func newInjector(f *flags, ctx context.Context) (*do.Injector, error) {
 
 	// Provide DB Connection Pool
 	do.Provide(injector, func(i *do.Injector) (*pgxpool.Pool, error) {
-		flags := do.MustInvoke[*flags](i)
+		flags := safeMustInvoke[*flags](i)
 		if flags.simulateMode || flags.serveMode {
 			return nil, nil // No DB connection in simulation/server mode
 		}
-		cfg := do.MustInvoke[*config.Config](i)
-		ctx := do.MustInvoke[context.Context](i)
+		cfg := safeMustInvoke[*config.Config](i)
+		ctx := safeMustInvoke[context.Context](i)
 		dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s&timezone=Asia/Tokyo",
 			cfg.App.Database.User, cfg.App.Database.Password, cfg.App.Database.Host, cfg.App.Database.Port, cfg.App.Database.Name, cfg.App.Database.SSLMode)
 		return pgxpool.New(ctx, dbURL)
@@ -124,16 +141,16 @@ func newInjector(f *flags, ctx context.Context) (*do.Injector, error) {
 
 	// Provide DB Writer
 	do.Provide(injector, func(i *do.Injector) (dbwriter.DBWriter, error) {
-		pool, _ := do.Invoke[*pgxpool.Pool](i) // Can be nil in simulate mode
-		cfg := do.MustInvoke[*config.Config](i)
-		logger := do.MustInvoke[*zap.Logger](i)
+		pool, _ := safeInvoke[*pgxpool.Pool](i) // Can be nil in simulate mode
+		cfg := safeMustInvoke[*config.Config](i)
+		logger := safeMustInvoke[*zap.Logger](i)
 		return dbwriter.NewTimescaleWriter(pool, cfg.App.DBWriter, logger)
 	})
 
 	// Provide Datastore Repository
 	do.Provide(injector, func(i *do.Injector) (datastore.Repository, error) {
 		// Use Invoke instead of MustInvoke to handle the case where the DB is not available.
-		pool, err := do.Invoke[*pgxpool.Pool](i)
+		pool, err := safeInvoke[*pgxpool.Pool](i)
 		if err != nil || pool == nil {
 			// If the pool is not available, provide a nil repository.
 			// This makes the datastore an optional dependency.
@@ -144,14 +161,14 @@ func newInjector(f *flags, ctx context.Context) (*do.Injector, error) {
 
 	// Provide Notifier
 	do.Provide(injector, func(i *do.Injector) (alert.Notifier, error) {
-		cfg := do.MustInvoke[*config.Config](i)
+		cfg := safeMustInvoke[*config.Config](i)
 		return alert.NewDiscordNotifier(cfg.App.Alert.Discord)
 	})
 
 	// Provide Benchmark Service
 	do.Provide(injector, func(i *do.Injector) (*benchmark.Service, error) {
-		writer := do.MustInvoke[dbwriter.DBWriter](i)
-		logger := do.MustInvoke[*zap.Logger](i)
+		writer := safeMustInvoke[dbwriter.DBWriter](i)
+		logger := safeMustInvoke[*zap.Logger](i)
 		if writer == nil {
 			return nil, nil
 		}
@@ -160,13 +177,13 @@ func newInjector(f *flags, ctx context.Context) (*do.Injector, error) {
 
 	// Provide Coincheck Client
 	do.Provide(injector, func(i *do.Injector) (*coincheck.Client, error) {
-		cfg := do.MustInvoke[*config.Config](i)
+		cfg := safeMustInvoke[*config.Config](i)
 		return coincheck.NewClient(cfg.APIKey, cfg.APISecret), nil
 	})
 
 	// Provide Execution Engine
 	do.Provide(injector, func(i *do.Injector) (engine.ExecutionEngine, error) {
-		flags := do.MustInvoke[*flags](i)
+		flags := safeMustInvoke[*flags](i)
 		if flags.simulateMode {
 			// In simulation mode, we need a ReplayExecutionEngine which depends on an OrderBook.
 			// This part might need adjustment if OrderBook needs to be a shared service.
@@ -174,9 +191,9 @@ func newInjector(f *flags, ctx context.Context) (*do.Injector, error) {
 			return engine.NewReplayExecutionEngine(orderBook), nil
 		}
 		// For live/server mode
-		client := do.MustInvoke[*coincheck.Client](i)
-		writer := do.MustInvoke[dbwriter.DBWriter](i)
-		notifier := do.MustInvoke[alert.Notifier](i)
+		client := safeMustInvoke[*coincheck.Client](i)
+		writer := safeMustInvoke[dbwriter.DBWriter](i)
+		notifier := safeMustInvoke[alert.Notifier](i)
 		return engine.NewLiveExecutionEngine(client, writer, notifier), nil
 	})
 
@@ -435,7 +452,7 @@ func startHTTPServer(injector *do.Injector) {
 	r := chi.NewRouter()
 	r.Get("/health", handler.HealthCheckHandler)
 
-	repo, err := do.Invoke[datastore.Repository](injector)
+	repo, err := safeInvoke[datastore.Repository](injector)
 	if err == nil && repo != nil {
 		pnlHandler := handler.NewPnlHandler(repo)
 		pnlHandler.RegisterRoutes(r)
@@ -531,10 +548,10 @@ func setupHandlers(orderBook *indicator.OrderBook, dbWriter dbwriter.DBWriter, p
 // processSignalsAndExecute subscribes to indicators, evaluates signals, and executes trades.
 func processSignalsAndExecute(injector *do.Injector, obiCalculator *indicator.OBICalculator, webSocketClient *coincheck.WebSocketClient, wg *sync.WaitGroup) {
 	// ... (dependencies are now invoked from injector)
-	ctx := do.MustInvoke[context.Context](injector)
-	cfg := do.MustInvoke[*config.Config](injector)
-	execEngine := do.MustInvoke[engine.ExecutionEngine](injector)
-	benchmarkService, _ := do.Invoke[*benchmark.Service](injector) // optional
+	ctx := safeMustInvoke[context.Context](injector)
+	cfg := safeMustInvoke[*config.Config](injector)
+	execEngine := safeMustInvoke[engine.ExecutionEngine](injector)
+	benchmarkService, _ := safeInvoke[*benchmark.Service](injector) // optional
 
 	signalEngine, err := tradingsignal.NewSignalEngine(cfg.Trade)
 	if err != nil {
@@ -685,7 +702,7 @@ func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, ba
 
 // runMainLoop starts either the live trading, replay, or simulation mode.
 func runMainLoop(injector *do.Injector, f *flags, sigs chan<- os.Signal) {
-	ctx := do.MustInvoke[context.Context](injector)
+	ctx := safeMustInvoke[context.Context](injector)
 
 	if f.serveMode {
 		runServerMode(ctx, f, sigs)
@@ -703,10 +720,10 @@ func runMainLoop(injector *do.Injector, f *flags, sigs chan<- os.Signal) {
 		sigs <- syscall.SIGTERM
 	} else {
 		// Live trading setup
-		cfg := do.MustInvoke[*config.Config](injector)
-		dbWriter, _ := do.Invoke[dbwriter.DBWriter](injector)
-		execEngine := do.MustInvoke[engine.ExecutionEngine](injector)
-		client := do.MustInvoke[*coincheck.Client](injector)
+		cfg := safeMustInvoke[*config.Config](injector)
+		dbWriter, _ := safeInvoke[dbwriter.DBWriter](injector)
+		execEngine := safeMustInvoke[engine.ExecutionEngine](injector)
+		client := safeMustInvoke[*coincheck.Client](injector)
 
 		orderBook := indicator.NewOrderBook()
 		obiCalculator := indicator.NewOBICalculator(orderBook, 300*time.Millisecond)
