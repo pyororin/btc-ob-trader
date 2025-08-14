@@ -65,23 +65,26 @@ down: ## Stop containers. Use NO_BACKUP=1 to skip DB backup.
 # ==============================================================================
 # DATABASE BACKUP/RESTORE
 # ==============================================================================
-backup: ## Create a backup of the database.
+backup: ## Create a backup of the database in custom format.
 ifeq ($(NO_BACKUP),1)
 	@echo "Skipping database backup because NO_BACKUP is set."
 else
 	@echo "Backing up database..."
 	@mkdir -p ./db/backup
-	$(DOCKER_CMD) exec -T timescaledb pg_dump -U $(DB_USER) -d $(DB_NAME) -c > ./db/backup/backup.sql
-	@echo "Database backup created at ./db/backup/backup.sql"
+	$(DOCKER_CMD) exec -T timescaledb pg_dump -U $(DB_USER) -d $(DB_NAME) -Fc > ./db/backup/backup.dump
+	@echo "Database backup created at ./db/backup/backup.dump"
 endif
 
-restore: ## Restore the database from backup.
+restore: ## Restore the database from a custom format backup.
 ifeq ($(NO_RESTORE),1)
 	@echo "Skipping database restore because NO_RESTORE is set."
 else
-	@if [ -f ./db/backup/backup.sql ]; then \
-		echo "Restoring database from backup..."; \
-		cat ./db/backup/backup.sql | $(DOCKER_CMD) exec -T timescaledb psql -U $(DB_USER) -d $(DB_NAME); \
+	@if [ -f ./db/backup/backup.dump ]; then \
+		echo "Wiping and restoring database from backup..."; \
+		$(DOCKER_CMD) exec -T timescaledb dropdb -U $(DB_USER) --if-exists $(DB_NAME); \
+		$(DOCKER_CMD) exec -T timescaledb createdb -U $(DB_USER) $(DB_NAME); \
+		$(DOCKER_CMD) exec -T timescaledb psql -U $(DB_USER) -d $(DB_NAME) -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"; \
+		cat ./db/backup/backup.dump | $(DOCKER_CMD) exec -T timescaledb pg_restore -U $(DB_USER) -d $(DB_NAME); \
 		echo "Database restored successfully."; \
 	else \
 		echo "No backup file found, skipping restore."; \
