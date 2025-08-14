@@ -26,7 +26,7 @@ func setupTestDatabase(t *testing.T) (pool *pgxpool.Pool, cleanup func()) {
 
 	// Define the container request
 	container, err := postgres.Run(ctx,
-		"timescale/timescaledb:2.14-pg15",
+		"timescale/timescaledb:latest-pg15",
 		postgres.WithDatabase("test-db"),
 		postgres.WithUsername("test-user"),
 		postgres.WithPassword("test-password"),
