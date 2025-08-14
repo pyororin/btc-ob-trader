@@ -44,3 +44,4 @@ order_book_updates_*.csv
 data/wfa_runs/
 data/wfo_results/
 report/
+db/backup/backup.dump
