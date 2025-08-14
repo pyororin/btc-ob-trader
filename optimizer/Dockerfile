@@ -13,8 +13,8 @@ RUN go mod download
 COPY . .
 
 # Build both Go binaries and place them in a standard PATH location.
-RUN CGO_ENABLED=0 go build -v -o /usr/local/bin/export ./cmd/export && \
-    CGO_ENABLED=0 go build -v -o /usr/local/bin/bot ./cmd/bot
+RUN CGO_ENABLED=0 go build -v -o /usr/local/bin/export ./cmd/export/main.go && \
+    CGO_ENABLED=0 go build -v -o /usr/local/bin/bot ./cmd/bot/main.go
 
 # ---- Builder Stage ----
 # This stage installs build dependencies, creates a virtual environment, and installs Python packages.
