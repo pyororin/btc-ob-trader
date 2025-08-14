@@ -587,15 +587,6 @@ func processSignalsAndExecute(injector *do.Injector, obiCalculator *indicator.OB
 						}
 
 						orderAmount := currentCfg.Trade.OrderAmount
-						if liveEngine, ok := execEngine.(*engine.LiveExecutionEngine); ok {
-							balance, err := liveEngine.GetBalance()
-							if err != nil {
-								logger.Warnf("Failed to get balance for order sizing: %v", err)
-								continue
-							}
-							currentBtc, _ := strconv.ParseFloat(balance.Btc, 64)
-							orderAmount = currentBtc * currentCfg.Trade.OrderRatio
-						}
 
 						if orderAmount >= 0.001 {
 							tradeParams := engine.TradeParams{
