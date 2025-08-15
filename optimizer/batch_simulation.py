@@ -97,19 +97,21 @@ class BatchSimulator:
         """Stops the simulation server process."""
         if self.process:
             logging.info("Stopping simulation server...")
-            try:
-                self.process.stdin.write("EXIT\n")
-                self.process.stdin.flush()
-            except BrokenPipeError:
-                # Process might have already exited, which is fine
-                logging.warning("Pipe to simulation server was already closed.")
+            if self.process.stdin:
+                try:
+                    # Closing stdin signals EOF to the Go process, allowing it to exit its read loop.
+                    self.process.stdin.close()
+                except BrokenPipeError:
+                    logging.warning("Pipe to simulation server was already closed.")
 
-            self.process.terminate() # Ensure it's terminated
             try:
+                # Wait for the process to terminate gracefully
                 self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 logging.warning("Simulation server did not terminate gracefully, killing.")
                 self.process.kill()
+                # A final wait after killing to clean up zombie process
+                self.process.wait()
 
             self.process = None
             logging.info("Simulation server stopped.")
