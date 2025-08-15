@@ -24,7 +24,7 @@ warm_start_max_trials: 100
 
 # min_trades_for_pruning: IS最適化中、取引回数がこの値に満たない試行を枝刈り（pruning）し、
 # 非効率な探索を早期に打ち切ります。
-min_trades_for_pruning: 5
+min_trades_for_pruning: 1
 
 # dd_penalty_threshold: 相対ドローダウンがこの閾値を超えた試行を枝刈りします。
 # (0.0 ~ 1.0 の範囲、大きいほど許容度が高い)

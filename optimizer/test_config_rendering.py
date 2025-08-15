@@ -21,21 +21,22 @@ class TestConfigRendering(unittest.TestCase):
         mock_study.user_attrs = {} # Objective expects user_attrs to exist
 
         # Mock the suggestion methods based on the new config
+        # The order must match the order in config/optimizer_config.yaml
         trial.suggest_int.side_effect = [
-            80,    # spread_limit
             100,   # long_tp
             -100,  # long_sl
             110,   # short_tp
             -110,  # short_sl
-            100,   # entry_price_offset - Note: Converted to int
+            100,   # entry_price_offset
         ]
         trial.suggest_float.side_effect = [
             1.5,   # obi_weight
             1.4,   # ofi_weight
             1.3,   # cvd_weight
             0.4,   # micro_price_weight
-            1.1,   # composite_threshold
+            0.25,  # composite_threshold
             0.2,   # ewma_lambda
+            # Conditional params below
             3.0,   # volatility_factor
             0.7,   # min_threshold_factor
             2.5,   # max_threshold_factor
@@ -66,7 +67,7 @@ class TestConfigRendering(unittest.TestCase):
         # Values for optimized params come from the side_effect lists above.
         # Values for fixed params come from the .template file.
         expected_yaml_structure = {
-            'pair': 'btc_jpy', 'order_amount': 0.01, 'spread_limit': 80,
+            'pair': 'btc_jpy', 'order_amount': 0.01,
             'entry_price_offset': 100,
             'lot_max_ratio': 1.0, 'order_ratio': 0.95,
             'long': {'tp': 100, 'sl': -100},
@@ -74,7 +75,7 @@ class TestConfigRendering(unittest.TestCase):
             'signal': {
                 'hold_duration_ms': 500, 'cvd_window_minutes': 1, 'obi_weight': 1.5,
                 'ofi_weight': 1.4, 'cvd_weight': 1.3, 'micro_price_weight': 0.4,
-                'composite_threshold': 1.1
+                'composite_threshold': 0.25
             },
             'volatility': {
                 'ewma_lambda': 0.2,
