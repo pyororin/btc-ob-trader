@@ -24,7 +24,11 @@ warm_start_max_trials: 100
 
 # min_trades_for_pruning: IS最適化中、取引回数がこの値に満たない試行を枝刈り（pruning）し、
 # 非効率な探索を早期に打ち切ります。
-min_trades_for_pruning: 10
+min_trades_for_pruning: 5
+
+# dd_penalty_threshold: 相対ドローダウンがこの閾値を超えた試行を枝刈りします。
+# (0.0 ~ 1.0 の範囲、大きいほど許容度が高い)
+dd_penalty_threshold: 0.5
 
 # coarse_to_fine: Coarse-to-Fine（粗から密へ）探索により、効率的に最適解を見つけます。
 # 最初に広い探索空間で有望な領域を特定し（coarse）、次にその領域を深く探索します（fine）。
