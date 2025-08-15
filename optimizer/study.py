@@ -1,3 +1,4 @@
+import numpy as np
 import optuna
 import logging
 import subprocess
@@ -57,7 +58,9 @@ def _run_batch_optimization(study: optuna.Study, is_csv_path: Path, n_trials: in
         batch_requests = []
         for trial in trials:
             flat_params = Objective._suggest_parameters(trial)
-            trial.set_user_attr("params_flat", flat_params) # Store params for later
+            # Convert numpy types to native Python types for JSON serialization
+            serializable_params = {k: (int(v) if isinstance(v, np.integer) else v) for k, v in flat_params.items()}
+            trial.set_user_attr("params_flat", serializable_params) # Store params for later
             batch_requests.append({
                 "trial_id": trial.number,
                 "trade_config": nest_params(flat_params)
