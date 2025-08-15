@@ -122,10 +122,6 @@ analyzer:
 # - type: "categorical" -> suggest_categorical(choices)
 #
 parameter_space:
-  spread_limit:
-    type: "int"
-    low: 20
-    high: 100
   long_tp:
     type: "int"
     low: 50
