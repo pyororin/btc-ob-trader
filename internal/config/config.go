@@ -2,8 +2,6 @@
 package config
 
 import (
-	"encoding/json"
-	"log"
 	"os"
 	"sync/atomic"
 
@@ -157,6 +155,23 @@ type DynamicOBIConf struct {
 
 // loadFromFiles loads configuration from app and trade YAML files and environment variables.
 func loadFromFiles(appConfigPath, tradeConfigPath string) (*Config, error) {
+	var tradeCfgBytes []byte
+	var err error
+
+	if tradeConfigPath != "" {
+		tradeCfgBytes, err = os.ReadFile(tradeConfigPath)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				return nil, err // File exists but couldn't be read
+			}
+			// File does not exist, which is acceptable. tradeCfgBytes remains nil.
+		}
+	}
+	return loadConfigFromBytes(appConfigPath, tradeCfgBytes)
+}
+
+// loadConfigFromBytes loads app config from a file and trade config from a byte slice.
+func loadConfigFromBytes(appConfigPath string, tradeConfigBytes []byte) (*Config, error) {
 	// Load app config
 	appCfg := AppConfig{
 		LogLevel: "info",
@@ -169,36 +184,14 @@ func loadFromFiles(appConfigPath, tradeConfigPath string) (*Config, error) {
 		return nil, err
 	}
 
-	// Load trade config (optional)
+	// Load trade config from bytes (optional)
 	var tradeCfg *TradeConfig
-	if tradeConfigPath != "" {
-		tradeFile, err := os.ReadFile(tradeConfigPath)
-		if err != nil {
-			if !os.IsNotExist(err) {
-				// File exists but couldn't be read (e.g., permissions)
-				return nil, err
-			}
-			// File does not exist, which is an acceptable state.
-			// tradeCfg remains nil.
-		} else {
-			// File exists, so unmarshal it.
-			var tc TradeConfig
-			if err := yaml.Unmarshal(tradeFile, &tc); err != nil {
-				return nil, err
-			}
-			tradeCfg = &tc
-
-			// --- DIAGNOSTIC LOG ---
-			// Marshal the loaded trade config to JSON for readable output.
-			jsonData, err := json.MarshalIndent(tradeCfg, "", "  ")
-			if err != nil {
-				// Use standard logger as zap logger is not available here. This will print to stderr.
-				log.Printf("[CONFIG_DEBUG] INFO: Failed to marshal trade config for logging: %v", err)
-			} else {
-				log.Printf("[CONFIG_DEBUG] INFO: Loaded trade_config.yaml content:\n%s", string(jsonData))
-			}
-			// --- END DIAGNOSTIC LOG ---
+	if len(tradeConfigBytes) > 0 {
+		var tc TradeConfig
+		if err := yaml.Unmarshal(tradeConfigBytes, &tc); err != nil {
+			return nil, err
 		}
+		tradeCfg = &tc
 	}
 
 	cfg := &Config{
@@ -206,13 +199,12 @@ func loadFromFiles(appConfigPath, tradeConfigPath string) (*Config, error) {
 		Trade: tradeCfg,
 	}
 
-	// Preserve API keys from the currently active config if they are not re-set by env vars
+	// Preserve API keys and environment variables
 	currentCfg := GetConfig()
 	if currentCfg != nil {
 		cfg.APIKey = currentCfg.APIKey
 		cfg.APISecret = currentCfg.APISecret
 	}
-
 	if apiKey := os.Getenv("COINCHECK_API_KEY"); apiKey != "" {
 		cfg.APIKey = apiKey
 	}
@@ -222,23 +214,6 @@ func loadFromFiles(appConfigPath, tradeConfigPath string) (*Config, error) {
 	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
 		cfg.App.LogLevel = logLevel
 	}
-	if dbHost := os.Getenv("DB_HOST"); dbHost != "" {
-		cfg.App.Database.Host = dbHost
-	}
-	if dbUser := os.Getenv("DB_USER"); dbUser != "" {
-		cfg.App.Database.User = dbUser
-	}
-	if dbPassword := os.Getenv("DB_PASSWORD"); dbPassword != "" {
-		cfg.App.Database.Password = dbPassword
-	}
-	if dbName := os.Getenv("DB_NAME"); dbName != "" {
-		cfg.App.Database.Name = dbName
-	}
-	if dbSSLMode := os.Getenv("DB_SSLMODE"); dbSSLMode != "" {
-		cfg.App.Database.SSLMode = dbSSLMode
-	}
-
-	// Default to false if the env var is not set or not "true"
 	cfg.EnableTrade = os.Getenv("ENABLE_TRADE") == "true"
 
 	return cfg, nil
@@ -247,6 +222,16 @@ func loadFromFiles(appConfigPath, tradeConfigPath string) (*Config, error) {
 // LoadConfig loads the configuration for the first time and stores it globally.
 func LoadConfig(appConfigPath, tradeConfigPath string) (*Config, error) {
 	cfg, err := loadFromFiles(appConfigPath, tradeConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	globalConfig.Store(cfg)
+	return cfg, nil
+}
+
+// LoadConfigFromBytes loads config with trade config from a byte slice.
+func LoadConfigFromBytes(appConfigPath string, tradeConfigBytes []byte) (*Config, error) {
+	cfg, err := loadConfigFromBytes(appConfigPath, tradeConfigBytes)
 	if err != nil {
 		return nil, err
 	}

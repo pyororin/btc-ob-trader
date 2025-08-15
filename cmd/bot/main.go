@@ -205,6 +205,11 @@ func main() {
 	}
 	defer injector.Shutdown()
 
+	// Eagerly load the configuration to ensure it's available globally.
+	if _, err := do.Invoke[*config.Config](injector); err != nil {
+		logger.Fatalf("Failed to load initial configuration: %v", err)
+	}
+
 	go watchConfigFiles(f.configPath, f.tradeConfigPath, injector)
 
 	if (f.simulateMode || f.serveMode) && f.csvPath == "" && !f.serveMode {
