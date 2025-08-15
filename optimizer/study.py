@@ -3,7 +3,6 @@ import logging
 import subprocess
 import json
 import datetime
-import functools
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from typing import Union, Optional, Tuple, Dict, Any
@@ -38,25 +37,61 @@ def create_study(storage_path: str, study_name: str, sampler: Optional[optuna.sa
         sampler=sampler
     )
 
-def _run_single_phase_optimization(
-    study: optuna.Study, is_csv_path: Path, n_trials: int, phase_name: str
-):
-    """Helper function to run one phase of optimization."""
-    study.set_user_attr('current_csv_path', str(is_csv_path))
-    study.set_user_attr('phase_name', phase_name)
-    objective_func = Objective(study)
+from .batch_simulation import BatchSimulator
+from .utils import nest_params
 
-    logging.info(f"Starting {phase_name} optimization with {is_csv_path} for {n_trials} trials.")
-    callback_with_n_trials = functools.partial(progress_callback, n_trials=n_trials)
+def _run_batch_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int):
+    """
+    Runs a phase of optimization in batch mode using the simulation server.
+    """
+    logging.info(f"Starting batch optimization with {is_csv_path} for {n_trials} trials.")
 
-    study.optimize(
-        objective_func,
-        n_trials=n_trials,
-        n_jobs=-1,
-        show_progress_bar=False,
-        catch=(Exception,),
-        callbacks=[callback_with_n_trials]
-    )
+    simulator = BatchSimulator(is_csv_path)
+    try:
+        simulator.start_server()
+
+        # 1. Ask Optuna for all trial parameters first
+        trials = [study.ask() for _ in range(n_trials)]
+
+        # 2. Prepare the batch request for the Go server
+        batch_requests = []
+        for trial in trials:
+            flat_params = Objective._suggest_parameters(trial)
+            trial.set_user_attr("params_flat", flat_params) # Store params for later
+            batch_requests.append({
+                "trial_id": trial.number,
+                "trade_config": nest_params(flat_params)
+            })
+
+        # 3. Run the entire batch
+        results = simulator.run_batch(batch_requests)
+        results_map = {res['trial_id']: res for res in results}
+
+        # 4. Tell Optuna the results for each trial
+        for trial in trials:
+            result = results_map.get(trial.number)
+            if not result or result.get("error"):
+                # If the simulation for this specific trial failed, prune it.
+                study.tell(trial, state=optuna.trial.TrialState.PRUNED)
+                continue
+
+            summary = result.get("summary", {})
+
+            # Create a dummy objective instance to reuse its methods
+            # This is a bit of a hack, but avoids duplicating the logic.
+            obj_instance = Objective(study)
+            # We need to manually calculate and set metrics as the objective `__call__` is not used.
+            # A dummy stderr log is passed as we don't capture it in batch mode.
+            obj_instance._calculate_and_set_metrics(trial, summary, "")
+
+            # Calculate the final objective value using the same logic as in Objective
+            final_value = obj_instance._calculate_final_penalized_sr(trial)
+
+            study.tell(trial, final_value)
+
+    finally:
+        simulator.stop_server()
+
 
 def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int, storage_path: str):
     """
@@ -65,27 +100,15 @@ def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int, stor
     Otherwise, it runs a single-phase optimization.
     """
     if not config.CTF_ENABLED:
-        _run_single_phase_optimization(study, is_csv_path, n_trials, "single-phase")
+        # Non-CTF mode still uses the old one-by-one method.
+        # This could be updated to use the batch mode as well for a smaller speedup.
+        objective_func = Objective(study)
+        study.optimize(objective_func, n_trials=n_trials, n_jobs=-1, callbacks=[progress_callback])
         return
 
-    # --- Phase 1: Coarse Search with RandomSampler for speed ---
+    # --- Phase 1: Coarse Search (Batch Mode) ---
     logging.info("--- Starting Coarse-to-Fine Optimization: Phase 1 (Coarse Search) ---")
-
-    # Use RandomSampler for the coarse phase for faster, broader exploration.
-    coarse_sampler = optuna.samplers.RandomSampler(seed=42)
-    coarse_study_name = f"{study.study_name}-coarse"
-    coarse_study = create_study(
-        storage_path=storage_path,
-        study_name=coarse_study_name,
-        sampler=coarse_sampler
-    )
-
-    _run_single_phase_optimization(coarse_study, is_csv_path, config.CTF_COARSE_TRIALS, "coarse-phase")
-
-    # After the coarse search, we copy its trials into the main study object
-    # so they can be analyzed for the fine search phase.
-    for trial in coarse_study.trials:
-        study.add_trial(trial)
+    _run_batch_optimization(study, is_csv_path, config.CTF_COARSE_TRIALS)
 
     completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
     if not completed_trials:

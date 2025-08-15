@@ -166,6 +166,30 @@ class Objective:
 
         return final_sr_penalized
 
+    def _calculate_final_penalized_sr(self, trial: optuna.Trial) -> float:
+        """
+        Calculates the final penalized Sharpe Ratio for a trial.
+        This logic is extracted from __call__ to be reusable by the batch simulator.
+        """
+        # For coarse phase, we don't do stability analysis, so the final_sr is just the raw SR.
+        # For other phases, this would need to be enhanced to include stability penalties.
+        # This simplification is acceptable for the current implementation.
+        final_sr = trial.user_attrs.get("sharpe_ratio", 0.0)
+
+        # Apply realization and execution rates as direct penalties
+        realization_rate = trial.user_attrs.get("realization_rate", 0.0)
+        execution_rate = trial.user_attrs.get("execution_rate", 0.0)
+        final_sr_penalized = final_sr * realization_rate * execution_rate
+
+        # Add a new penalty for each unrealized trade
+        unrealized_trades = trial.user_attrs.get("unrealized_trades", 0)
+        sr_penalty_per_unrealized = 0.05
+        additive_penalty = unrealized_trades * sr_penalty_per_unrealized
+        final_sr_penalized -= additive_penalty
+
+        trial.set_user_attr("final_sharpe_ratio_penalized", final_sr_penalized)
+        return final_sr_penalized
+
     def _get_jittered_params(self, trial: optuna.Trial) -> dict:
         """
         Creates a new set of parameters with small random noise applied.
@@ -187,10 +211,13 @@ class Objective:
                 jittered_params[name] = value
         return jittered_params
 
-    def _suggest_parameters(self, trial: optuna.Trial) -> dict:
+    @staticmethod
+    def _suggest_parameters(trial: optuna.Trial) -> dict:
         """
         Suggests a flat dictionary of parameters for a trial based on the search
         space defined in the configuration file.
+        This is a static method so it can be called without an Objective instance,
+        which is useful for preparing batch simulations.
         """
         params = {}
         space = config.PARAMETER_SPACE
