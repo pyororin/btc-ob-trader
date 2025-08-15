@@ -415,7 +415,7 @@ func compareStructs(v1, v2 reflect.Value, prefix string) {
 
 // setupLogger initializes the global logger.
 func setupLogger(logLevel, configPath, pair string) {
-	logger.SetGlobalLogLevel(logLevel)
+	logger.SetGlobalLogLevel("debug") // Force debug logging
 	logger.Info("OBI Scalping Bot starting...")
 	logger.Infof("Loaded configuration from: %s", configPath)
 	if pair != "" {
@@ -1082,7 +1082,14 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 	rand.Seed(1) // Ensure reproducibility
 
 	simConfig := config.GetConfigCopy()
+	if simConfig == nil {
+		return map[string]interface{}{"error": "global config is nil, cannot run simulation"}
+	}
 	simConfig.Trade = tradeCfg // tradeCfg is already a pointer
+
+	if simConfig.Trade == nil {
+		return map[string]interface{}{"error": "trade config for trial is nil"}
+	}
 
 	orderBook := indicator.NewOrderBook()
 	replayEngine := engine.NewReplayExecutionEngine(orderBook)
