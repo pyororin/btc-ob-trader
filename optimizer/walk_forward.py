@@ -9,7 +9,8 @@ from . import study
 from . import config
 from . import data
 from .utils import nest_params
-from .simulation import run_simulation
+from .proc_manager import SimulationManager
+from .simulation import SimulationRunner
 
 
 def _rotate_wfa_runs():
@@ -149,7 +150,15 @@ def _validate_fold(fold_study: optuna.Study, validate_csv: Path) -> dict:
     logging.info(f"Best IS trial for fold: #{best_is_trial.number}")
 
     # Run simulation with the best parameters on the validation data
-    validation_summary, _ = run_simulation(nest_params(best_is_trial.params), validate_csv)
+    logging.info(f"Running validation simulation for fold with {validate_csv}...")
+    validation_summary = {}
+    try:
+        with SimulationManager(csv_path=validate_csv) as sim_manager:
+            runner = SimulationRunner(sim_manager, trial_id=best_is_trial.number)
+            # Note: runner.run expects flat params
+            validation_summary, _ = runner.run(best_is_trial.params)
+    except Exception as e:
+        logging.error(f"Validation simulation process failed: {e}", exc_info=True)
 
     if not validation_summary:
         logging.warning("Validation simulation failed or returned empty results.")

@@ -10,7 +10,7 @@ from typing import Union, Optional, Tuple, Dict, Any
 
 from . import config
 from .objective import Objective
-from .simulation import run_simulation
+from .proc_manager import SimulationManager
 from .utils import nest_params, finalize_for_yaml
 from .sampler import KDESampler
 
@@ -41,22 +41,26 @@ def create_study(storage_path: str, study_name: str, sampler: Optional[optuna.sa
 def _run_single_phase_optimization(
     study: optuna.Study, is_csv_path: Path, n_trials: int, phase_name: str
 ):
-    """Helper function to run one phase of optimization."""
-    study.set_user_attr('current_csv_path', str(is_csv_path))
+    """
+    Helper function to run one phase of optimization using a long-running
+    simulation process.
+    """
     study.set_user_attr('phase_name', phase_name)
-    objective_func = Objective(study)
-
     logging.info(f"Starting {phase_name} optimization with {is_csv_path} for {n_trials} trials.")
-    callback_with_n_trials = functools.partial(progress_callback, n_trials=n_trials)
 
-    study.optimize(
-        objective_func,
-        n_trials=n_trials,
-        n_jobs=-1,
-        show_progress_bar=False,
-        catch=(Exception,),
-        callbacks=[callback_with_n_trials]
-    )
+    # Use SimulationManager to manage the Go process lifecycle
+    with SimulationManager(csv_path=is_csv_path) as sim_manager:
+        objective_func = Objective(study, sim_manager)
+        callback_with_n_trials = functools.partial(progress_callback, n_trials=n_trials)
+
+        study.optimize(
+            objective_func,
+            n_trials=n_trials,
+            n_jobs=-1,  # Optuna will parallelize calls to objective_func
+            show_progress_bar=False,
+            catch=(Exception,),
+            callbacks=[callback_with_n_trials]
+        )
 
     # --- Log Pruning Statistics ---
     pruned_trials = study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.PRUNED])
@@ -208,38 +212,43 @@ def _get_oos_candidates(sorted_trials: list[optuna.trial.Trial]) -> list[dict]:
         })
     return candidates
 
+from .simulation import SimulationRunner
+
 def _perform_oos_validation(candidates: list, oos_csv_path: Path) -> Optional[Dict[str, Any]]:
     """
     Iteratively validates candidates and returns the results of the first one that passes.
-
-    Returns:
-        A dictionary containing the params, summary, and source of the passing candidate, or None.
+    This also uses the SimulationManager to run OOS simulations efficiently.
     """
-    for i, candidate in enumerate(candidates):
-        logging.info(f"--- Running OOS Validation attempt #{i+1} (source: {candidate['source']}) ---")
-        nested_params = nest_params(candidate['params'])
-        oos_summary = run_simulation(nested_params, oos_csv_path)
+    logging.info(f"--- Starting OOS Validation for {len(candidates)} candidates ---")
+    with SimulationManager(csv_path=oos_csv_path) as sim_manager:
+        for i, candidate in enumerate(candidates):
+            logging.info(f"--- Running OOS Validation attempt #{i+1} (source: {candidate['source']}) ---")
 
-        if not isinstance(oos_summary, dict) or not oos_summary:
-            logging.warning("OOS simulation failed or returned empty results.")
-            continue
+            runner = SimulationRunner(sim_manager, trial_id=candidate['trial'].number)
+            oos_summary, _ = runner.run(candidate['params'])
 
-        logging.info(
-            f"OOS Result: PF={oos_summary.get('ProfitFactor', 0.0):.2f}, "
-            f"SR={oos_summary.get('SharpeRatio', 0.0):.2f}, "
-            f"Trades={oos_summary.get('TotalTrades', 0)}"
-        )
+            if not isinstance(oos_summary, dict) or not oos_summary:
+                logging.warning("OOS simulation failed or returned empty results.")
+                continue
 
-        if _is_oos_passed(oos_summary):
-            return {
-                'params': candidate['params'],
-                'summary': oos_summary,
-                'source': candidate['source']
-            }
-        else:
-            fail_reason = _get_oos_fail_reason(oos_summary)
-            logging.warning(f"OOS validation FAILED for attempt #{i+1} ({fail_reason}).")
+            logging.info(
+                f"OOS Result: PF={oos_summary.get('ProfitFactor', 0.0):.2f}, "
+                f"SR={oos_summary.get('SharpeRatio', 0.0):.2f}, "
+                f"Trades={oos_summary.get('TotalTrades', 0)}"
+            )
 
+            if _is_oos_passed(oos_summary):
+                logging.info(f"OOS validation PASSED for attempt #{i+1}.")
+                return {
+                    'params': candidate['params'],
+                    'summary': oos_summary,
+                    'source': candidate['source']
+                }
+            else:
+                fail_reason = _get_oos_fail_reason(oos_summary)
+                logging.warning(f"OOS validation FAILED for attempt #{i+1} ({fail_reason}).")
+
+    logging.error("All OOS validation attempts failed.")
     return None
 
 def _is_oos_passed(oos_summary: dict) -> bool:
@@ -288,12 +297,11 @@ def _save_global_best_parameters(flat_params: dict):
     except Exception as e:
         logging.error(f"Failed to save the best parameter config file: {e}")
 
-from .simulation import run_simulation, run_simulation_in_debug_mode
-
 def analyze_and_validate_for_daemon(study: optuna.Study, oos_csv_path: Path) -> bool:
     """
     Analyzes a study and saves the best config file if OOS validation passes.
-    This is the legacy function used by the daemon.
+    This is the legacy function used by the daemon. It now also uses the
+    server-based simulation model for efficiency.
     """
     logging.info("Daemon mode: Analyzing results and performing OOS validation.")
     completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
@@ -305,50 +313,45 @@ def analyze_and_validate_for_daemon(study: optuna.Study, oos_csv_path: Path) -> 
     completed_trials.sort(key=lambda t: t.value, reverse=True)
     candidates = _get_oos_candidates(completed_trials)
 
-    for i, candidate in enumerate(candidates):
-        if i >= config.MAX_RETRY:
-            logging.warning(f"Reached max_retry limit of {config.MAX_RETRY}. Stopping OOS validation.")
-            break
+    # Use the SimulationManager for all OOS runs in this function
+    with SimulationManager(csv_path=oos_csv_path) as sim_manager:
+        for i, candidate in enumerate(candidates):
+            if i >= config.MAX_RETRY:
+                logging.warning(f"Reached max_retry limit of {config.MAX_RETRY}. Stopping OOS validation.")
+                break
 
-        is_trial = candidate.get('trial')
-        is_metrics = is_trial.user_attrs if is_trial else {}
-        is_trades = is_metrics.get('trades', 'N/A')
-        is_sr = is_metrics.get('sharpe_ratio', 'N/A')
-        is_pf = is_metrics.get('profit_factor', 'N/A')
+            is_trial = candidate.get('trial')
+            is_metrics = is_trial.user_attrs if is_trial else {}
+            is_trades = is_metrics.get('trades', 'N/A')
+            is_sr = is_metrics.get('sharpe_ratio', 'N/A')
+            is_pf = is_metrics.get('profit_factor', 'N/A')
 
-        logging.info(f"--- Running OOS Validation attempt #{i+1} (source: {candidate['source']}) ---")
-        logging.info(
-            f"IS metrics for this candidate: "
-            f"Trades={is_trades}, SR={is_sr:.2f}, PF={is_pf:.2f}"
-        )
+            logging.info(f"--- Running OOS Validation attempt #{i+1} (source: {candidate['source']}) ---")
+            logging.info(
+                f"IS metrics for this candidate: "
+                f"Trades={is_trades}, SR={is_sr:.2f}, PF={is_pf:.2f}"
+            )
 
-        nested_params = nest_params(candidate['params'])
-        oos_summary = run_simulation(nested_params, oos_csv_path)
+            runner = SimulationRunner(sim_manager, trial_id=candidate['trial'].number)
+            oos_summary, _ = runner.run(candidate['params'])
 
-        if not isinstance(oos_summary, dict) or not oos_summary:
-            logging.warning("OOS simulation failed or returned empty results.")
-            # Run in debug mode to see logs from Go
-            run_simulation_in_debug_mode(nested_params, oos_csv_path)
-            continue
+            if not isinstance(oos_summary, dict) or not oos_summary:
+                logging.warning("OOS simulation failed or returned empty results.")
+                continue
 
-        logging.info(
-            f"OOS Result: PF={oos_summary.get('ProfitFactor', 0.0):.2f}, "
-            f"SR={oos_summary.get('SharpeRatio', 0.0):.2f}, "
-            f"Trades={oos_summary.get('TotalTrades', 0)}"
-        )
+            logging.info(
+                f"OOS Result: PF={oos_summary.get('ProfitFactor', 0.0):.2f}, "
+                f"SR={oos_summary.get('SharpeRatio', 0.0):.2f}, "
+                f"Trades={oos_summary.get('TotalTrades', 0)}"
+            )
 
-        # If OOS validation results in zero trades, run a debug simulation to get more insight.
-        if oos_summary.get('TotalTrades', 0) == 0:
-            logging.warning("OOS simulation resulted in 0 trades. Running in debug mode to get Go logs...")
-            run_simulation_in_debug_mode(nested_params, oos_csv_path)
-
-        if _is_oos_passed(oos_summary):
-            logging.info(f"OOS validation PASSED for attempt #{i+1}.")
-            _save_global_best_parameters(candidate['params'])
-            return True
-        else:
-            fail_reason = _get_oos_fail_reason(oos_summary)
-            logging.warning(f"OOS validation FAILED for attempt #{i+1} ({fail_reason}).")
+            if _is_oos_passed(oos_summary):
+                logging.info(f"OOS validation PASSED for attempt #{i+1}.")
+                _save_global_best_parameters(candidate['params'])
+                return True
+            else:
+                fail_reason = _get_oos_fail_reason(oos_summary)
+                logging.warning(f"OOS validation FAILED for attempt #{i+1} ({fail_reason}).")
 
     logging.error("OOS validation failed for all attempted parameter sets.")
     return False

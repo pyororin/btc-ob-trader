@@ -38,26 +38,30 @@ def calculate_max_drawdown(pnl_history: list[float]) -> tuple[float, float]:
     return max_drawdown, float(relative_drawdown)
 
 
+from .proc_manager import SimulationManager
+from .simulation import SimulationRunner
+
 class Objective:
     """
     An objective function class for Optuna optimization.
 
     This class encapsulates the logic for a single trial, including:
     - Suggesting parameters.
-    - Running the simulation.
+    - Running the simulation via a SimulationRunner.
     - Calculating performance metrics.
     - Implementing pruning logic.
     """
-    def __init__(self, study: optuna.Study):
+    def __init__(self, study: optuna.Study, sim_manager: SimulationManager):
         """
         Initializes the Objective class.
 
         Args:
-            study: The Optuna study object, used to access user attributes
-                   like the path to the simulation data CSV.
+            study: The Optuna study object.
+            sim_manager: The SimulationManager that controls the Go process.
         """
         self.study = study
         self.phase_name = self.study.user_attrs.get('phase_name', 'unknown')
+        self.sim_manager = sim_manager
 
     def __call__(self, trial: optuna.Trial) -> float:
         """
@@ -65,15 +69,10 @@ class Objective:
         The objective is to maximize a penalized Sharpe Ratio.
         """
         flat_params = self._suggest_parameters(trial)
-        params = nest_params(flat_params)
 
-        sim_csv_path = self.study.user_attrs.get('current_csv_path')
-        if not sim_csv_path:
-            logging.error("Simulation CSV path not found in study user attributes.")
-            raise optuna.exceptions.TrialPruned()
-
-        # Run the simulation and get both summary and logs
-        summary, stderr_log = simulation.run_simulation(params, sim_csv_path)
+        # Run the simulation using the new runner
+        runner = SimulationRunner(self.sim_manager, trial.number)
+        summary, stderr_log = runner.run(flat_params)
 
         # If the simulation crashes (e.g., Go panic), summary might be None or {}.
         if not summary:
@@ -119,10 +118,11 @@ class Objective:
         # This is computationally expensive and should only be run during the fine-tuning phase.
         if self.phase_name != 'coarse-phase':
             jitter_summaries = []
+            # Use the existing runner to perform stability checks
             for i in range(config.STABILITY_CHECK_N_RUNS):
                 jittered_flat_params = self._get_jittered_params(trial)
-                jittered_nested_params = nest_params(jittered_flat_params)
-                jitter_summary, _ = simulation.run_simulation(jittered_nested_params, sim_csv_path)
+                # The runner is already instantiated, we can just call its `run` method
+                jitter_summary, _ = runner.run(jittered_flat_params)
                 if jitter_summary and jitter_summary.get('SharpeRatio') is not None:
                     jitter_summaries.append(jitter_summary)
 

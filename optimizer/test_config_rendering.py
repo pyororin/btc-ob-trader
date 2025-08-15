@@ -45,7 +45,8 @@ class TestConfigRendering(unittest.TestCase):
         trial.suggest_categorical.return_value = True # dynamic_obi_enabled
 
         # 2. Instantiate Objective and suggest parameters
-        objective = Objective(study=mock_study)
+        mock_sim_manager = MagicMock(spec=Objective.__init__.__annotations__['sim_manager'])
+        objective = Objective(study=mock_study, sim_manager=mock_sim_manager)
         flat_params = objective._suggest_parameters(trial)
         params = nest_params(flat_params) # Convert to nested structure
 

@@ -1,164 +1,102 @@
-import subprocess
 import json
-import os
-import tempfile
 import logging
-from pathlib import Path
-from jinja2 import Environment, FileSystemLoader
-import re
+import threading
+from typing import Dict, Any, Tuple
 
-from . import config
-from .utils import finalize_for_yaml
+from .proc_manager import SimulationManager
+from .utils import nest_params
 
+# A lock to ensure that only one thread communicates with the simulation process at a time.
+# This is crucial because we are using a single, shared simulation process.
+process_lock = threading.Lock()
 
-def run_simulation_in_debug_mode(params: dict, sim_csv_path: Path):
+class SimulationRunner:
     """
-    Runs a Go simulation without JSON output to capture detailed logs for debugging.
-    This is intended for cases where a normal simulation yields 0 trades.
+    Handles running a single simulation trial by communicating with a long-running
+    Go simulation process managed by SimulationManager.
     """
-    temp_config_file = None
-    logging.info(f"--- Starting simulation in DEBUG mode for CSV: {sim_csv_path} ---")
-    try:
-        # 1. Create a temporary config file
-        env = Environment(
-            loader=FileSystemLoader(searchpath=config.PARAMS_DIR),
-            finalize=finalize_for_yaml
-        )
-        template = env.get_template(config.CONFIG_TEMPLATE_PATH.name)
-        config_yaml_str = template.render(params)
+    def __init__(self, sim_manager: SimulationManager, trial_id: int):
+        """
+        Initializes the SimulationRunner.
 
-        with tempfile.NamedTemporaryFile(
-            mode='w', delete=False, suffix='.yaml', dir=str(config.PARAMS_DIR)
-        ) as temp_f:
-            temp_config_file = Path(temp_f.name)
-            temp_f.write(config_yaml_str)
+        Args:
+            sim_manager: The SimulationManager instance that holds the running process.
+            trial_id: The Optuna trial ID, used for tagging requests.
+        """
+        self._manager = sim_manager
+        self._trial_id = trial_id
 
-        # 2. Construct the command to run the Go simulation WITHOUT --json-output
-        command = [
-            str(config.SIMULATION_BINARY_PATH),
-            '--simulate',
-            f'--trade-config={temp_config_file}',
-            f'--csv={sim_csv_path}',
-        ]
-        logging.info(f"Executing debug command: {' '.join(command)}")
+    def run(self, flat_params: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
+        """
+        Runs a single simulation trial.
 
-        # 3. Execute the command
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,  # Don't raise error on non-zero exit
-            cwd=config.APP_ROOT
-        )
+        This method serializes the parameters to JSON, sends them to the Go
+        process's stdin, and reads the JSON result from its stdout.
 
-        # 4. Log the output from stderr, which should contain the Go app's logs
-        if result.stderr:
-            logging.info("--- Captured Go Simulation Logs (stderr) ---")
-            # Log line by line to preserve formatting
-            for line in result.stderr.splitlines():
-                logging.info(line)
-            logging.info("--- End of Captured Go Simulation Logs ---")
-        else:
-            logging.warning("Debug simulation ran but produced no output on stderr.")
+        Args:
+            flat_params: A flat dictionary of parameters for the trial.
 
-        if result.stdout:
-            logging.info("--- Captured Go Simulation Output (stdout) ---")
-            for line in result.stdout.splitlines():
-                logging.info(line)
-            logging.info("--- End of Captured Go Simulation Output ---")
+        Returns:
+            A tuple containing:
+            - A dictionary with the simulation summary results.
+            - An empty string (stderr is now logged by SimulationManager's thread).
+            Returns ({}, "") if the simulation fails.
+        """
+        # Ensure that only one thread can write/read to/from the process at a time.
+        with process_lock:
+            if not self._manager.stdin or not self._manager.stdout:
+                logging.error("SimulationRunner: Stdin/Stdout not available.")
+                return {}, ""
 
-    except Exception as e:
-        logging.error(f"An error occurred during the debug simulation run: {e}", exc_info=True)
-    finally:
-        # 5. Manually clean up the temporary config file
-        if temp_config_file and temp_config_file.exists():
             try:
-                os.remove(temp_config_file)
-            except OSError as e:
-                logging.error(f"Failed to remove temporary config file {temp_config_file}: {e}")
+                # 1. Nest the flat parameters into the structure the Go app expects.
+                nested_params = nest_params(flat_params)
 
+                # 2. Construct the request object.
+                #    The Go server expects a list of simulations, but we run one at a time.
+                request = {
+                    "csv_path": str(self._manager._csv_path), # Pass the CSV path in the request
+                    "simulations": [
+                        {
+                            "trial_id": self._trial_id,
+                            "trade_config": nested_params,
+                        }
+                    ]
+                }
+                request_json = json.dumps(request)
 
-def run_simulation(params: dict, sim_csv_path: Path) -> tuple[dict, str]:
-    """
-    Runs a single Go simulation for a given set of parameters.
+                # 3. Send the request to the Go process.
+                self._manager.stdin.write(request_json + "\n")
+                self._manager.stdin.flush()
 
-    This function takes a dictionary of parameters, renders a temporary trade
-    configuration file using a Jinja2 template, and then executes the Go
-    simulation binary via a subprocess. It captures and parses the JSON
-    output from the simulation.
+                # 4. Read the result from the Go process.
+                result_line = self._manager.stdout.readline()
+                if not result_line:
+                    logging.error(f"Trial {self._trial_id}: Did not receive any data from simulation process stdout.")
+                    return {}, ""
 
-    Args:
-        params: A dictionary of parameters for the trading strategy.
-        sim_csv_path: The path to the CSV file containing the market data for the simulation.
+                # 5. Parse the result. The Go app sends back a list of results.
+                response = json.loads(result_line)
+                if not isinstance(response, list) or not response:
+                    logging.error(f"Trial {self._trial_id}: Invalid or empty response: {response}")
+                    return {}, ""
 
-    Returns:
-        A tuple containing:
-        - A dictionary with the simulation summary results.
-        - A string with the stderr log output.
-        Returns ({}, "") if the simulation fails.
-    """
-    temp_config_file = None
-    try:
-        # 1. Create a temporary config file from the template
-        env = Environment(
-            loader=FileSystemLoader(searchpath=config.PARAMS_DIR),
-            finalize=finalize_for_yaml
-        )
-        template = env.get_template(config.CONFIG_TEMPLATE_PATH.name)
-        config_yaml_str = template.render(params)
+                # We only sent one simulation, so we only care about the first result.
+                sim_result = response[0]
 
-        with tempfile.NamedTemporaryFile(
-            mode='w', delete=False, suffix='.yaml', dir=str(config.PARAMS_DIR)
-        ) as temp_f:
-            temp_config_file = Path(temp_f.name)
-            temp_f.write(config_yaml_str)
+                if sim_result.get("error"):
+                    logging.error(f"Trial {self._trial_id}: Simulation returned an error: {sim_result['error']}")
+                    return {}, ""
 
-        # 2. Construct the command to run the Go simulation
-        command = [
-            str(config.SIMULATION_BINARY_PATH),
-            '--simulate',
-            f'--trade-config={temp_config_file}',
-            f'--csv={sim_csv_path}',
-            '--json-output'
-        ]
+                return sim_result.get("summary", {}), ""
 
-        # 3. Execute the command
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,  # Set to False to handle non-zero exit codes manually
-            cwd=config.APP_ROOT
-        )
-
-        # 4. Check for errors
-        if result.returncode != 0:
-            logging.warning(f"Simulation for {temp_config_file} exited with code {result.returncode}. Stderr: {result.stderr}")
-            # Even if it fails, try to parse stdout as it might contain partial results or a valid summary.
-            # A common case is a non-zero exit code for simulations with zero trades.
-
-        # 5. Parse the JSON output from stdout
-        try:
-            summary = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            # If stdout is not valid JSON, treat it as a failure.
-            logging.error(f"Failed to parse simulation JSON output for {temp_config_file}.")
-            logging.error(f"Received stdout: {result.stdout}")
-            logging.error(f"Received stderr: {result.stderr}")
-            return {}, result.stderr  # Return empty dict and the logs
-
-        return summary, result.stderr
-
-    except FileNotFoundError:
-        logging.error(f"Template file not found at {config.CONFIG_TEMPLATE_PATH}")
-        return {}, ""
-    except Exception as e:
-        logging.error(f"An unexpected error occurred in run_simulation: {e}", exc_info=True)
-        return {}, "" # Return empty results on unexpected errors
-    finally:
-        # 6. Manually clean up the temporary config file
-        if temp_config_file and temp_config_file.exists():
-            try:
-                os.remove(temp_config_file)
-            except OSError as e:
-                logging.error(f"Failed to remove temporary config file {temp_config_file}: {e}")
+            except (IOError, BrokenPipeError) as e:
+                logging.error(f"Trial {self._trial_id}: Communication error with simulation process: {e}")
+                # The process likely died. The manager should handle restarting it if necessary.
+                raise
+            except json.JSONDecodeError as e:
+                logging.error(f"Trial {self._trial_id}: Failed to decode JSON response: {e}. Response: '{result_line}'")
+                return {}, ""
+            except Exception as e:
+                logging.error(f"Trial {self._trial_id}: An unexpected error occurred in SimulationRunner: {e}", exc_info=True)
+                return {}, ""

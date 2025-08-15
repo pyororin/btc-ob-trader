@@ -2,7 +2,8 @@ import unittest
 from unittest.mock import patch, MagicMock
 import optuna
 
-from optimizer.objective import Objective
+from unittest.mock import patch
+from optimizer.objective import Objective, SimulationManager
 from optimizer import config
 
 class TestObjective(unittest.TestCase):
@@ -29,13 +30,13 @@ class TestObjective(unittest.TestCase):
         self.mock_trial.params = {'param1': 0.5}
         self.mock_trial.distributions = {'param1': optuna.distributions.FloatDistribution(0, 1)}
 
-
-        self.objective = Objective(self.mock_study)
+        self.mock_sim_manager = MagicMock(spec=SimulationManager)
+        self.objective = Objective(self.mock_study, self.mock_sim_manager)
 
     def tearDown(self):
         self.trial_user_attrs.clear()
 
-    @patch('optimizer.objective.simulation.run_simulation')
+    @patch('optimizer.simulation.SimulationRunner.run')
     def test_objective_with_successful_simulation(self, mock_run_simulation):
         """Test the objective function returns a penalized Sharpe Ratio."""
         mock_summary = {
@@ -58,7 +59,7 @@ class TestObjective(unittest.TestCase):
         self.assertEqual(self.trial_user_attrs.get("trades"), 50)
         self.assertAlmostEqual(self.trial_user_attrs.get("final_sharpe_ratio_penalized"), expected_sr)
 
-    @patch('optimizer.objective.simulation.run_simulation')
+    @patch('optimizer.simulation.SimulationRunner.run')
     def test_pruning_on_zero_trades(self, mock_run_simulation):
         """Test that the trial is pruned if there are not enough trades."""
         mock_summary = {'TotalTrades': 0}
@@ -69,7 +70,7 @@ class TestObjective(unittest.TestCase):
             self.objective(self.mock_trial)
         self.assertEqual(self.trial_user_attrs.get("trades"), 0)
 
-    @patch('optimizer.objective.simulation.run_simulation')
+    @patch('optimizer.simulation.SimulationRunner.run')
     def test_pruning_on_failed_simulation(self, mock_run_simulation):
         """Test that the trial is pruned if the simulation fails."""
         mock_run_simulation.return_value = ({}, "error log")
@@ -77,7 +78,7 @@ class TestObjective(unittest.TestCase):
         with self.assertRaises(optuna.exceptions.TrialPruned):
             self.objective(self.mock_trial)
 
-    @patch('optimizer.objective.simulation.run_simulation')
+    @patch('optimizer.simulation.SimulationRunner.run')
     def test_pruning_on_high_drawdown(self, mock_run_simulation):
         """Test that a high relative drawdown correctly triggers pruning."""
         mock_summary = {
@@ -90,7 +91,7 @@ class TestObjective(unittest.TestCase):
             self.objective(self.mock_trial)
         self.assertGreater(self.trial_user_attrs.get("relative_drawdown"), 0.25)
 
-    @patch('optimizer.objective.simulation.run_simulation')
+    @patch('optimizer.simulation.SimulationRunner.run')
     def test_execution_rate_logic(self, mock_run_simulation):
         """Test if execution_rate and related metrics are calculated correctly."""
         mock_summary = {'TotalTrades': 10, 'SharpeRatio': 1.5, 'PnlHistory': [10]*10}
@@ -106,7 +107,7 @@ class TestObjective(unittest.TestCase):
         self.assertAlmostEqual(self.trial_user_attrs.get("realization_rate"), 10 / 20)
         self.assertAlmostEqual(self.trial_user_attrs.get("execution_rate"), 10 / (10 + 5))
 
-    @patch('optimizer.objective.simulation.run_simulation')
+    @patch('optimizer.simulation.SimulationRunner.run')
     def test_low_execution_rate_pruning(self, mock_run_simulation):
         """Test that a low execution rate correctly triggers pruning."""
         mock_summary = {'TotalTrades': 5, 'SharpeRatio': 2.0, 'PnlHistory': [10]*5}
