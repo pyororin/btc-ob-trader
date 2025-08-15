@@ -6,8 +6,10 @@ import re
 from sklearn.preprocessing import MinMaxScaler
 
 from . import simulation
-from . import config
+from .proc_manager import SimulationManager
+from .simulation import SimulationRunner
 from .utils import nest_params
+from . import config
 
 
 def calculate_max_drawdown(pnl_history: list[float]) -> tuple[float, float]:
@@ -37,9 +39,6 @@ def calculate_max_drawdown(pnl_history: list[float]) -> tuple[float, float]:
 
     return max_drawdown, float(relative_drawdown)
 
-
-from .proc_manager import SimulationManager
-from .simulation import SimulationRunner
 
 class Objective:
     """
@@ -87,32 +86,26 @@ class Objective:
         self._calculate_and_set_metrics(trial, summary, stderr_log)
 
         # --- Pruning ---
-        pruning_reason = None
         total_trades = trial.user_attrs.get("trades", 0)
         if total_trades < config.MIN_TRADES_FOR_PRUNING:
-            pruning_reason = f"insufficient trades ({total_trades} < {config.MIN_TRADES_FOR_PRUNING})"
+            logging.debug(f"Trial {trial.number} pruned due to insufficient trades: {total_trades} < {config.MIN_TRADES_FOR_PRUNING}")
+            raise optuna.exceptions.TrialPruned()
 
-        if pruning_reason is None:
-            realization_rate = trial.user_attrs.get("realization_rate", 0.0)
-            confirmed_signals = trial.user_attrs.get("confirmed_signals", 0)
-            if confirmed_signals > 10 and realization_rate < 0.1:
-                pruning_reason = f"low realization rate ({realization_rate:.2f})"
+        realization_rate = trial.user_attrs.get("realization_rate", 0.0)
+        confirmed_signals = trial.user_attrs.get("confirmed_signals", 0)
+        if confirmed_signals > 10 and realization_rate < 0.1:
+            logging.debug(f"Trial {trial.number} pruned due to low realization rate: {realization_rate:.2f}")
+            raise optuna.exceptions.TrialPruned()
 
-        if pruning_reason is None:
-            relative_drawdown = trial.user_attrs.get("relative_drawdown", 1.0)
-            if relative_drawdown > config.DD_PENALTY_THRESHOLD:
-                pruning_reason = f"high relative drawdown ({relative_drawdown:.2%})"
+        relative_drawdown = trial.user_attrs.get("relative_drawdown", 1.0)
+        if relative_drawdown > config.DD_PENALTY_THRESHOLD:
+            logging.debug(f"Trial {trial.number} pruned for high relative drawdown: {relative_drawdown:.2%}")
+            raise optuna.exceptions.TrialPruned()
 
-        if pruning_reason is None:
-            execution_rate = trial.user_attrs.get("execution_rate", 0.0)
-            if execution_rate < 0.5:
-                pruning_reason = f"low execution rate ({execution_rate:.2f})"
-
-        if pruning_reason:
-            # Store the reason in the trial's user attributes for analysis
-            trial.set_user_attr("pruning_reason", pruning_reason)
-            logging.debug(f"Trial {trial.number} pruned due to {pruning_reason}")
-            raise optuna.exceptions.TrialPruned(pruning_reason)
+        execution_rate = trial.user_attrs.get("execution_rate", 0.0)
+        if execution_rate < 0.5:
+            logging.debug(f"Trial {trial.number} pruned due to low execution rate: {execution_rate:.2f}")
+            raise optuna.exceptions.TrialPruned()
 
         # --- Stability Analysis (Objective Regularization) ---
         # This is computationally expensive and should only be run during the fine-tuning phase.

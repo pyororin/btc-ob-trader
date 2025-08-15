@@ -3,7 +3,8 @@ from unittest.mock import MagicMock
 import yaml
 import optuna
 
-from optimizer.objective import Objective
+from optimizer.objective import Objective, SimulationManager
+from optimizer.proc_manager import SimulationManager
 from optimizer.config import CONFIG_TEMPLATE_PATH, PARAMS_DIR
 from optimizer.utils import finalize_for_yaml, nest_params
 from jinja2 import Environment, FileSystemLoader
@@ -21,7 +22,6 @@ class TestConfigRendering(unittest.TestCase):
         mock_study.user_attrs = {} # Objective expects user_attrs to exist
 
         # Mock the suggestion methods based on the new config
-        # The order must match the order in config/optimizer_config.yaml
         trial.suggest_int.side_effect = [
             100,   # long_tp
             -100,  # long_sl
@@ -45,7 +45,7 @@ class TestConfigRendering(unittest.TestCase):
         trial.suggest_categorical.return_value = True # dynamic_obi_enabled
 
         # 2. Instantiate Objective and suggest parameters
-        mock_sim_manager = MagicMock(spec=Objective.__init__.__annotations__['sim_manager'])
+        mock_sim_manager = MagicMock(spec=SimulationManager)
         objective = Objective(study=mock_study, sim_manager=mock_sim_manager)
         flat_params = objective._suggest_parameters(trial)
         params = nest_params(flat_params) # Convert to nested structure

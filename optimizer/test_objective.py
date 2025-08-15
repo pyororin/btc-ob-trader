@@ -2,8 +2,8 @@ import unittest
 from unittest.mock import patch, MagicMock
 import optuna
 
-from unittest.mock import patch
-from optimizer.objective import Objective, SimulationManager
+from optimizer.objective import Objective
+from optimizer.proc_manager import SimulationManager
 from optimizer import config
 
 class TestObjective(unittest.TestCase):

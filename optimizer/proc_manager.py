@@ -10,13 +10,6 @@ from . import config
 class SimulationManager:
     """
     Manages a long-running Go simulation process in server mode.
-
-    This class is responsible for:
-    - Starting the simulation process with the '--serve' flag.
-    - Capturing its stdin, stdout, and stderr streams.
-    - Waiting for the process to signal readiness ("READY" on stdout).
-    - Providing access to the process streams.
-    - Ensuring the process is terminated gracefully on exit.
     """
     def __init__(self, csv_path: Path):
         self._csv_path = csv_path
@@ -33,7 +26,6 @@ class SimulationManager:
             str(config.SIMULATION_BINARY_PATH),
             '--serve',
             f'--csv={self._csv_path}',
-            # The app config is loaded from the default path by the Go app
         ]
         logging.info(f"Starting simulation process: {' '.join(command)}")
 
@@ -45,14 +37,12 @@ class SimulationManager:
                 stderr=subprocess.PIPE,
                 text=True,
                 cwd=config.APP_ROOT,
-                bufsize=1  # Line-buffered
+                bufsize=1
             )
 
-            # Start a thread to log stderr output without blocking
             self._log_thread = threading.Thread(target=self._log_stderr, daemon=True)
             self._log_thread.start()
 
-            # Wait for the "READY" signal from stdout
             self._wait_for_ready()
 
         except FileNotFoundError:
@@ -75,11 +65,11 @@ class SimulationManager:
                      logging.warning(f"Could not write EXIT to simulation process stdin: {e}")
 
             try:
-                self._process.terminate() # First, try to terminate gracefully
+                self._process.terminate()
                 self._process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 logging.warning("Process did not terminate gracefully, killing.")
-                self._process.kill() # If it doesn't, kill it
+                self._process.kill()
             except Exception as e:
                 logging.error(f"An error occurred while stopping the process: {e}")
 
@@ -99,7 +89,6 @@ class SimulationManager:
         timeout_seconds = 60
         start_time = time.time()
 
-        # Read line by line from stdout
         for line in iter(self._process.stdout.readline, ''):
             if ready_signal in line:
                 logging.info("Go simulation process is ready.")
@@ -107,7 +96,6 @@ class SimulationManager:
             if time.time() - start_time > timeout_seconds:
                 raise TimeoutError(f"Timed out waiting for '{ready_signal}' signal from simulation process.")
 
-        # If the loop exits, it means the process terminated without sending READY
         raise RuntimeError("Simulation process terminated unexpectedly before sending READY signal.")
 
     def _log_stderr(self):

@@ -19,16 +19,14 @@ class TestSimulationManager(unittest.TestCase):
         waits for the READY signal, and stops it gracefully.
         """
         # --- Mock Popen ---
-        # Mock stdin, stdout, stderr to behave like real streams
         mock_stdin = MagicMock()
         mock_stdout = MagicMock()
         mock_stdout.readline.side_effect = ["line1\n", "READY\n", "line3\n", ""]
 
-        # Make stderr readline block until the test is over
         stderr_event = threading.Event()
         def stderr_readline_side_effect():
-            stderr_event.wait(timeout=2) # Block until event is set
-            return "" # Then return empty string to end the loop
+            stderr_event.wait(timeout=2)
+            return ""
         mock_stderr = MagicMock()
         mock_stderr.readline.side_effect = stderr_readline_side_effect
 
@@ -55,10 +53,9 @@ class TestSimulationManager(unittest.TestCase):
         self.assertTrue(manager._log_thread.is_alive())
 
         # --- Test Stop ---
-        stderr_event.set() # Unblock the stderr thread
+        stderr_event.set()
         manager.stop()
 
-        # Verify that stop commands were issued
         mock_stdin.write.assert_called_with("EXIT\n")
         mock_process.terminate.assert_called_once()
         self.assertIsNone(manager._process)
@@ -70,18 +67,14 @@ class TestSimulationManager(unittest.TestCase):
         Test that the manager raises a TimeoutError if the READY
         signal is not received.
         """
-        # --- Mock Popen ---
-        # Mock a process that never sends "READY"
         mock_stdout = MagicMock()
         mock_stdout.readline.return_value = "some other output\n"
         mock_process = MagicMock()
         mock_process.stdout = mock_stdout
         mock_process.stderr = MagicMock()
-        mock_process.stderr.readline.return_value = "" # Let stderr thread finish
+        mock_process.stderr.readline.return_value = ""
         mock_popen.return_value = mock_process
 
-        # --- Mock time.time to simulate a timeout ---
-        # Provide enough values for start_time, the loop check, and the logger
         mock_time.side_effect = [1.0, 2.0, 62.0, 63.0]
 
         manager = SimulationManager(csv_path=self.mock_csv_path)

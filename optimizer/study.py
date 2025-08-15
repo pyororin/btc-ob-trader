@@ -62,21 +62,6 @@ def _run_single_phase_optimization(
             callbacks=[callback_with_n_trials]
         )
 
-    # --- Log Pruning Statistics ---
-    pruned_trials = study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.PRUNED])
-    if pruned_trials:
-        logging.info(f"--- Pruning Summary for {phase_name} ---")
-        logging.info(f"{len(pruned_trials)} out of {len(study.trials)} trials were pruned.")
-
-        # Count reasons
-        from collections import Counter
-        reasons = [t.user_attrs.get("pruning_reason", "Unknown") for t in pruned_trials]
-        reason_counts = Counter(reasons)
-
-        logging.info("Pruning reasons:")
-        for reason, count in reason_counts.items():
-            logging.info(f"  - {reason}: {count} times")
-
 def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int, storage_path: str):
     """
     Runs the main optimization loop for a given study.
