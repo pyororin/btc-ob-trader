@@ -30,7 +30,7 @@ min_trades_for_pruning: 10
 # 最初に広い探索空間で有望な領域を特定し（coarse）、次にその領域を深く探索します（fine）。
 coarse_to_fine:
   enabled: true
-  coarse_trials: 300
+  coarse_trials: 100
   fine_trials: 200
   top_trials_quantile_for_kde: 0.2
 

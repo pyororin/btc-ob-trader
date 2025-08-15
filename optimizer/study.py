@@ -139,7 +139,7 @@ def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int, stor
         sampler=kde_sampler
     )
 
-    _run_single_phase_optimization(fine_study, is_csv_path, config.CTF_FINE_TRIALS, "fine-phase")
+    _run_batch_optimization(fine_study, is_csv_path, config.CTF_FINE_TRIALS)
 
     # The original study object is now replaced by the fine_study object
     # to allow the rest of the pipeline to analyze the results of the fine phase.
