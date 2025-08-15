@@ -10,7 +10,7 @@
 # log_level: 出力するログの詳細レベル。"debug", "info", "warn", "error"から選択。
 # 通常は "info" を使用し、問題調査時には "debug" に変更します。
 # 環境変数 'LOG_LEVEL' で上書き可能です。
-log_level: "debug"
+log_level: "info"
 
 # obi_calculator_channel_size: OBI計算結果を格納するチャネルのバッファサイズ。
 # インジケーター計算（プロデューサー）とシグナル評価（コンシューマー）の間の

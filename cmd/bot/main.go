@@ -797,11 +797,21 @@ func waitForShutdownSignal(sigs <-chan os.Signal) {
 }
 
 // runSimulation runs a backtest using data from a CSV file and sends the summary through a channel.
-func runSimulation(ctx context.Context, f *flags, sigs chan<- os.Signal, summaryCh chan<- map[string]interface{}, cfg *config.Config) {
+func runSimulation(ctx context.Context, f *flags, sigs chan<- os.Signal, summaryCh chan<- map[string]interface{}, _ *config.Config) {
 	defer close(summaryCh) // Ensure channel is closed when done.
 	rand.Seed(1)
+
+	// --- Load fresh config for this specific simulation run ---
+	cfg, err := config.LoadConfig(f.configPath, f.tradeConfigPath)
+	if err != nil {
+		logger.Errorf("Failed to load simulation-specific config: %v", err)
+		summaryCh <- map[string]interface{}{"error": fmt.Sprintf("failed to load simulation-specific config: %v", err)}
+		return
+	}
+	// --- End of new config loading ---
+
 	if cfg == nil || cfg.Trade == nil {
-		logger.Error("Simulation mode requires a valid configuration, but it was nil.")
+		logger.Error("Simulation mode requires a valid trade configuration, but it was nil.")
 		summaryCh <- map[string]interface{}{"error": "trade or app config is missing"}
 		// Do not send SIGTERM here, let the main loop handle it after printing the summary.
 		return

@@ -143,20 +143,6 @@ def _split_data_by_timestamp(full_dataset_path: Path, split_time_str: str, cycle
     oos_lines = len((oos_path).read_text().splitlines())
     logging.info(f"Split data into IS ({is_path}, {is_lines} lines) and OOS ({oos_path}, {oos_lines} lines)")
 
-    # --- Temporary logging to inspect data ---
-    if is_lines > 1:
-        with open(is_path, 'r') as f_is_read:
-            is_data_lines = f_is_read.readlines()
-        logging.info("--- Start of IS data sample ---")
-        for line in is_data_lines[:6]: # header + 5 lines
-            logging.info(line.strip())
-        logging.info("...")
-        for line in is_data_lines[-5:]:
-            logging.info(line.strip())
-        logging.info("--- End of IS data sample ---")
-    else:
-        logging.warning("IS data file is empty or contains only a header.")
-
     return is_path, oos_path
 
 
