@@ -87,11 +87,31 @@ class Objective:
         # Calculate metrics, including those from logs
         self._calculate_and_set_metrics(trial, summary, stderr_log)
 
-        # --- Pruning ---
         total_trades = trial.user_attrs.get("trades", 0)
+
+        # --- Enhanced Logging for Zero-Trade Trials ---
+        if total_trades == 0:
+            confirmed_signals = trial.user_attrs.get("confirmed_signals", 0)
+            unrealized_trades = trial.user_attrs.get("unrealized_trades", 0)
+
+            reason = "No trade signals were generated."
+            if confirmed_signals > 0:
+                reason = f"{confirmed_signals} signals were generated, but all failed to execute (e.g., due to price movements)."
+
+            logging.info(
+                f"Trial {trial.number} resulted in 0 trades. "
+                f"Reason: {reason} "
+                f"Params: {trial.params} "
+                f"Signals: {confirmed_signals}, Unrealized: {unrealized_trades}"
+            )
+
+        # --- Pruning ---
         if total_trades < config.MIN_TRADES_FOR_PRUNING:
             logging.debug(f"Trial {trial.number} pruned due to insufficient trades: {total_trades} < {config.MIN_TRADES_FOR_PRUNING}")
-            raise optuna.exceptions.TrialPruned()
+            # Add a specific reason for pruning to the trial's user attributes.
+            # This helps in post-analysis to understand why trials were pruned.
+            trial.set_user_attr("pruning_reason", f"insufficient trades ({total_trades} < {config.MIN_TRADES_FOR_PRUNING})")
+            raise optuna.exceptions.TrialPruned(f"Insufficient trades: {total_trades}")
 
         realization_rate = trial.user_attrs.get("realization_rate", 0.0)
         confirmed_signals = trial.user_attrs.get("confirmed_signals", 0)
