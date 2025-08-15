@@ -41,7 +41,9 @@ class TestConfigRendering(unittest.TestCase):
         ]
 
         # 2. Instantiate Objective and suggest parameters
-        objective = Objective(study=None)
+        mock_study = MagicMock()
+        mock_study.user_attrs = {}
+        objective = Objective(study=mock_study)
         flat_params = objective._suggest_parameters(trial)
         params = nest_params(flat_params) # Convert to nested structure
 
