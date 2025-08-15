@@ -72,7 +72,7 @@ def _run_batch_optimization(study: optuna.Study, is_csv_path: Path, n_trials: in
             trial.set_user_attr("params_flat", serializable_params) # Store params for later
             batch_requests.append({
                 "trial_id": trial.number,
-                "trade_config": nest_params(flat_params)
+                "trade_config": nest_params(serializable_params)
             })
 
         # 3. Run the entire batch
