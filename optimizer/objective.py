@@ -84,6 +84,13 @@ class Objective:
             # Prune the trial to prevent it from being considered a valid candidate.
             raise optuna.exceptions.TrialPruned()
 
+        # Log stderr for debugging purposes, especially to see Go logs
+        if stderr_log:
+            logging.info(f"--- Go simulation log for trial {trial.number} ---")
+            for line in stderr_log.splitlines():
+                logging.info(line)
+            logging.info(f"--- End of Go simulation log for trial {trial.number} ---")
+
         # Calculate metrics, including those from logs
         self._calculate_and_set_metrics(trial, summary, stderr_log)
 
