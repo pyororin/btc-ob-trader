@@ -17,11 +17,6 @@ pair: "btc_jpy"
 # order_amount: 1回の取引で発注する基本の量（ロット）。
 order_amount: 0.01
 
-# spread_limit: 取引を許可する最大スプレッド（円）。
-# これよりスプレッドが広い場合、不利な価格での約定を避けるため新規エントリーを見送ります。
-# [最適化対象]
-spread_limit: {{ spread_limit }}
-
 # entry_price_offset: エントリー価格のオフセット（円）。
 # 買い注文では best_ask + offset, 売り注文では best_bid - offset の価格で発注し、
 # 約定の可能性を高めます。スリッページコストとのトレードオフになります。
