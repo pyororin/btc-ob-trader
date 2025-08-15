@@ -124,7 +124,7 @@ class Objective:
                 logging.warning(f"Trial {trial.number}: Too many jittered simulations failed. Using original result without penalty.")
                 jitter_summaries = [summary]
 
-            sharpe_ratios = [res.get('SharpeRatio', 0.0) for res in jitter_summaries]
+            sharpe_ratios = [res.get('sharpe_ratio', 0.0) for res in jitter_summaries]
             mean_sr = np.mean(sharpe_ratios)
             std_sr = np.std(sharpe_ratios)
 
@@ -135,8 +135,8 @@ class Objective:
             # Store metrics derived from stability analysis
             trial.set_user_attr("mean_sharpe_ratio", mean_sr)
             trial.set_user_attr("stdev_sharpe_ratio", std_sr)
-            profit_factors = [res.get('ProfitFactor', 0.0) for res in jitter_summaries]
-            sqns = [res.get('SharpeRatio', 0.0) * np.sqrt(res.get('TotalTrades', 0)) for res in jitter_summaries]
+            profit_factors = [res.get('profit_factor', 0.0) for res in jitter_summaries]
+            sqns = [res.get('sharpe_ratio', 0.0) * np.sqrt(res.get('total_trades', 0)) for res in jitter_summaries]
             trial.set_user_attr("mean_sqn", np.mean(sqns))
             trial.set_user_attr("mean_profit_factor", np.mean(profit_factors))
         else:
@@ -241,12 +241,12 @@ class Objective:
     def _calculate_and_set_metrics(self, trial: optuna.Trial, summary: dict, stderr_log: str):
         """Calculates performance metrics and stores them in the trial's user_attrs."""
         # Metrics from JSON summary
-        total_trades = summary.get('TotalTrades', 0)
-        sharpe_ratio = summary.get('SharpeRatio', 0.0)
-        profit_factor = summary.get('ProfitFactor', 0.0)
-        win_rate = summary.get('WinRate', 0.0)
-        max_drawdown_abs = summary.get('MaxDrawdown', 0.0)
-        pnl_history = summary.get('PnlHistory', [])
+        total_trades = summary.get('total_trades', 0)
+        sharpe_ratio = summary.get('sharpe_ratio', 0.0)
+        profit_factor = summary.get('profit_factor', 0.0)
+        win_rate = summary.get('win_rate', 0.0)
+        max_drawdown_abs = summary.get('max_drawdown', 0.0)
+        pnl_history = summary.get('pnl_history', [])
 
         # Metrics from parsing stderr logs
         confirmed_signals = len(re.findall(r"Confirmed (LONG|SHORT) signal", stderr_log))

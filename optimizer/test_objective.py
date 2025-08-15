@@ -39,8 +39,8 @@ class TestObjective(unittest.TestCase):
     def test_objective_with_successful_simulation(self, mock_run_simulation):
         """Test the objective function returns a penalized Sharpe Ratio."""
         mock_summary = {
-            'TotalTrades': 50, 'SharpeRatio': 2.1, 'ProfitFactor': 1.8,
-            'MaxDrawdown': 500.0, 'PnlHistory': [100, -50, 150]
+            'total_trades': 50, 'sharpe_ratio': 2.1, 'profit_factor': 1.8,
+            'max_drawdown': 500.0, 'pnl_history': [100, -50, 150], 'win_rate': 66.0
         }
         mock_log = "Confirmed LONG signal\n" * 50
         mock_run_simulation.return_value = (mock_summary, mock_log)
@@ -61,7 +61,7 @@ class TestObjective(unittest.TestCase):
     @patch('optimizer.objective.simulation.run_simulation')
     def test_pruning_on_zero_trades(self, mock_run_simulation):
         """Test that the trial is pruned if there are not enough trades."""
-        mock_summary = {'TotalTrades': 0}
+        mock_summary = {'total_trades': 0}
         mock_run_simulation.return_value = (mock_summary, "")
         config.MIN_TRADES_FOR_PRUNING = 5
 
@@ -81,7 +81,7 @@ class TestObjective(unittest.TestCase):
     def test_pruning_on_high_drawdown(self, mock_run_simulation):
         """Test that a high relative drawdown correctly triggers pruning."""
         mock_summary = {
-            'TotalTrades': 50, 'SharpeRatio': 2.0, 'PnlHistory': [500, 500, -800, 300]
+            'total_trades': 50, 'sharpe_ratio': 2.0, 'pnl_history': [500, 500, -800, 300]
         }
         mock_run_simulation.return_value = (mock_summary, "")
         config.DD_PENALTY_THRESHOLD = 0.25
@@ -93,7 +93,7 @@ class TestObjective(unittest.TestCase):
     @patch('optimizer.objective.simulation.run_simulation')
     def test_execution_rate_logic(self, mock_run_simulation):
         """Test if execution_rate and related metrics are calculated correctly."""
-        mock_summary = {'TotalTrades': 10, 'SharpeRatio': 1.5, 'PnlHistory': [10]*10}
+        mock_summary = {'total_trades': 10, 'sharpe_ratio': 1.5, 'pnl_history': [10]*10}
         mock_log = "Confirmed LONG signal\n" * 20 + "order NOT matched\n" * 5
         mock_run_simulation.return_value = (mock_summary, mock_log)
         config.MIN_TRADES_FOR_PRUNING = 5
@@ -109,7 +109,7 @@ class TestObjective(unittest.TestCase):
     @patch('optimizer.objective.simulation.run_simulation')
     def test_low_execution_rate_pruning(self, mock_run_simulation):
         """Test that a low execution rate correctly triggers pruning."""
-        mock_summary = {'TotalTrades': 5, 'SharpeRatio': 2.0, 'PnlHistory': [10]*5}
+        mock_summary = {'total_trades': 5, 'sharpe_ratio': 2.0, 'pnl_history': [10]*5}
         mock_log = "order NOT matched\n" * 10
         mock_run_simulation.return_value = (mock_summary, mock_log)
 
