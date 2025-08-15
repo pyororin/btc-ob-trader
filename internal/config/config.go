@@ -214,6 +214,21 @@ func loadConfigFromBytes(appConfigPath string, tradeConfigBytes []byte) (*Config
 	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
 		cfg.App.LogLevel = logLevel
 	}
+	if dbHost := os.Getenv("DB_HOST"); dbHost != "" {
+		cfg.App.Database.Host = dbHost
+	}
+	if dbUser := os.Getenv("DB_USER"); dbUser != "" {
+		cfg.App.Database.User = dbUser
+	}
+	if dbPassword := os.Getenv("DB_PASSWORD"); dbPassword != "" {
+		cfg.App.Database.Password = dbPassword
+	}
+	if dbName := os.Getenv("DB_NAME"); dbName != "" {
+		cfg.App.Database.Name = dbName
+	}
+	if dbSSLMode := os.Getenv("DB_SSLMODE"); dbSSLMode != "" {
+		cfg.App.Database.SSLMode = dbSSLMode
+	}
 	cfg.EnableTrade = os.Getenv("ENABLE_TRADE") == "true"
 
 	return cfg, nil
