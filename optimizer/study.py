@@ -68,9 +68,24 @@ def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int, stor
         _run_single_phase_optimization(study, is_csv_path, n_trials, "single-phase")
         return
 
-    # --- Phase 1: Coarse Search ---
+    # --- Phase 1: Coarse Search with RandomSampler for speed ---
     logging.info("--- Starting Coarse-to-Fine Optimization: Phase 1 (Coarse Search) ---")
-    _run_single_phase_optimization(study, is_csv_path, config.CTF_COARSE_TRIALS, "coarse-phase")
+
+    # Use RandomSampler for the coarse phase for faster, broader exploration.
+    coarse_sampler = optuna.samplers.RandomSampler(seed=42)
+    coarse_study_name = f"{study.study_name}-coarse"
+    coarse_study = create_study(
+        storage_path=storage_path,
+        study_name=coarse_study_name,
+        sampler=coarse_sampler
+    )
+
+    _run_single_phase_optimization(coarse_study, is_csv_path, config.CTF_COARSE_TRIALS, "coarse-phase")
+
+    # After the coarse search, we copy its trials into the main study object
+    # so they can be analyzed for the fine search phase.
+    for trial in coarse_study.trials:
+        study.add_trial(trial)
 
     completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
     if not completed_trials:
