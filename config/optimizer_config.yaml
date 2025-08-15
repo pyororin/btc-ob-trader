@@ -90,7 +90,7 @@ stability_analysis:
 # 新しい本番パラメータ候補の有効性を、過去データを用いたフォワードテストで検証します。
 wfa:
   # WFAで分析対象とする全体の期間（日数）。
-  total_days: 1
+  total_days: 0.1667
   # 上記期間内に作成する「学習/検証」スプリット（fold）の数。
   n_splits: 5
   # 1つのスプリットにおける学習（最適化）期間の日数。
@@ -127,37 +127,37 @@ parameter_space:
     choices: [20, 40, 60, 80]
   long_tp:
     type: "categorical"
-    choices: [50, 100, 150, 200]
+    choices: [6000, 8000, 9000, 10000, 12000]
   long_sl:
     type: "categorical"
-    choices: [-200, -150, -100, -50]
+    choices: [-4000, -5000, -6000, -7000, -8000]
   short_tp:
     type: "categorical"
-    choices: [50, 100, 150, 200]
+    choices: [6000, 8000, 9000, 10000, 12000]
   short_sl:
     type: "categorical"
-    choices: [-200, -150, -100, -50]
+    choices: [-4000, -5000, -6000, -7000, -8000]
   obi_weight:
     type: "categorical"
-    choices: [0.8, 1.0, 1.2]
+    choices: [0.1, 0.2, 0.3, 0.4]
   ofi_weight:
     type: "categorical"
-    choices: [0.8, 1.0, 1.2]
+    choices: [0.3, 0.4, 0.5, 0.6, 0.7]
   cvd_weight:
     type: "categorical"
-    choices: [0.0, 0.25, 0.5, 0.75, 1.0]
+    choices: [1.0, 1.25, 1.5, 1.75, 2.0]
   micro_price_weight:
     type: "categorical"
-    choices: [0.0, 0.1, 0.2, 0.3, 0.4]
+    choices: [0.1, 0.2, 0.3, 0.4]
   composite_threshold:
     type: "categorical"
-    choices: [0.15, 0.2, 0.25]
+    choices: [0.7, 0.8, 0.9, 1.0, 1.1]
   ewma_lambda:
     type: "categorical"
-    choices: [0.05, 0.1, 0.15, 0.2, 0.25]
+    choices: [0.1, 0.15, 0.2, 0.25, 0.3]
   entry_price_offset:
     type: "categorical"
-    choices: [0, 100, 250, 500]
+    choices: [0, 50, 100, 150, 200]
   dynamic_obi_enabled:
     type: "categorical"
     choices: [true, false]

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/your-org/obi-scalp-bot/internal/exchange/coincheck"
@@ -176,15 +177,28 @@ func StreamMarketEventsFromCSV(ctx context.Context, filePath string) (<-chan Mar
 }
 
 func parseTime(timeStr string) (time.Time, error) {
-	const layout = "2006-01-02 15:04:05.999999-07"
-	t, err := time.Parse(layout, timeStr)
-	if err != nil {
-		t, err = time.Parse(time.RFC3339, timeStr)
-		if err != nil {
-			return time.Time{}, fmt.Errorf("could not parse time '%s' with any known format", timeStr)
+	// Handle the specific format found in the CSV data, which is not quite RFC3339
+	// e.g., "2025-08-03 14:01:05.12764+00"
+	// We need to replace the space with 'T' and ensure the timezone is compliant.
+	correctedStr := strings.Replace(timeStr, " ", "T", 1)
+	if strings.HasSuffix(correctedStr, "+00") {
+		correctedStr = strings.TrimSuffix(correctedStr, "+00") + "Z"
+	}
+
+	layouts := []string{
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05.999999Z07:00",
+		"2006-01-02 15:04:05.999999-07",
+		time.RFC3339,
+	}
+
+	for _, layout := range layouts {
+		t, err := time.Parse(layout, correctedStr)
+		if err == nil {
+			return t, nil
 		}
 	}
-	return t, nil
+	return time.Time{}, fmt.Errorf("could not parse time '%s' (corrected to '%s') with any known format", timeStr, correctedStr)
 }
 
 // LoadMarketEventsFromCSV reads an entire CSV file into memory and returns it as a slice of MarketEvent.
