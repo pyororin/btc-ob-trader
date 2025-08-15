@@ -1,0 +1,35 @@
+pair: "btc_jpy"
+order_amount: 0.01
+spread_limit: 60
+entry_price_offset: 100
+lot_max_ratio: 1.0
+order_ratio: 0.95
+
+long:
+  tp: 100
+  sl: -100
+
+short:
+  tp: 100
+  sl: -100
+
+signal:
+  hold_duration_ms: 500
+  cvd_window_minutes: 1
+  obi_weight: 1.0
+  ofi_weight: 1.0
+  cvd_weight: 0.5
+  micro_price_weight: 0.2
+  composite_threshold: 0.2
+
+volatility:
+  ewma_lambda: 0.1
+  dynamic_obi:
+    enabled: true
+    volatility_factor: 1.0
+    min_threshold_factor: 0.75
+    max_threshold_factor: 1.25
+
+risk:
+  max_drawdown_percent: 25
+  max_position_ratio: 1.0

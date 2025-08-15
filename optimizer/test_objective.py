@@ -61,7 +61,11 @@ class TestObjective(unittest.TestCase):
     @patch('optimizer.objective.simulation.run_simulation')
     def test_pruning_on_zero_trades(self, mock_run_simulation):
         """Test that the trial is pruned if there are not enough trades."""
-        mock_summary = {'total_trades': 0}
+        mock_summary = {
+            'total_trades': 0,
+            'max_composite_score': 0.1,
+            'long_threshold_at_max': 0.15
+        }
         mock_run_simulation.return_value = (mock_summary, "")
         config.MIN_TRADES_FOR_PRUNING = 5
 

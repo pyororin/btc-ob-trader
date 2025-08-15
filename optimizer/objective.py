@@ -89,6 +89,17 @@ class Objective:
 
         # --- Pruning ---
         total_trades = trial.user_attrs.get("trades", 0)
+        if total_trades == 0:
+            max_score = summary.get('max_composite_score', 'N/A')
+            min_score = summary.get('min_composite_score', 'N/A')
+            long_thr = summary.get('long_threshold_at_max', 'N/A')
+            short_thr = summary.get('short_threshold_at_min', 'N/A')
+            logging.info(
+                f"Trial {trial.number}: No trades generated. "
+                f"Diagnostics: Max Score='{max_score}', Long Threshold='{long_thr}', "
+                f"Min Score='{min_score}', Short Threshold='{short_thr}'"
+            )
+
         if total_trades < config.MIN_TRADES_FOR_PRUNING:
             logging.debug(f"Trial {trial.number} pruned due to insufficient trades: {total_trades} < {config.MIN_TRADES_FOR_PRUNING}")
             raise optuna.exceptions.TrialPruned()

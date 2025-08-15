@@ -103,6 +103,12 @@ type SignalEngine struct {
 	currentRegime            Regime
 	hurstExponent            float64
 	lastHurstCalculationTime time.Time
+
+	// Fields for zero-trade diagnostics
+	MaxCompositeScore   float64
+	MinCompositeScore   float64
+	LongThresholdAtMax  float64
+	ShortThresholdAtMin float64
 }
 
 // NewSignalEngine creates a new SignalEngine.
@@ -148,6 +154,8 @@ func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
 		currentRegime:            RegimeUnknown,
 		hurstExponent:            0.0,
 		lastHurstCalculationTime: time.Time{},
+		MaxCompositeScore:        0.0,
+		MinCompositeScore:        0.0,
 	}, nil
 }
 
@@ -210,6 +218,16 @@ func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *Tradin
 
 	longThreshold := e.GetCurrentLongOBIThreshold()
 	shortThreshold := e.GetCurrentShortOBIThreshold()
+
+	// Update diagnostics
+	if compositeScore > e.MaxCompositeScore {
+		e.MaxCompositeScore = compositeScore
+		e.LongThresholdAtMax = longThreshold
+	}
+	if compositeScore < e.MinCompositeScore {
+		e.MinCompositeScore = compositeScore
+		e.ShortThresholdAtMin = shortThreshold
+	}
 
 	logger.Debugf(
 		"[SignalCalc] Composite Score: %.4f (LongThr: %.4f, ShortThr: %.4f) | OBI: %.4f (Val: %.4f, W: %.2f) | OFI: %.4f (Val: %.4f, W: %.2f) | CVD: %.4f (Val: %.4f, W: %.2f) | MicroPrice: %.4f (Diff: %.4f, W: %.2f)",

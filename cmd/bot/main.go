@@ -724,6 +724,10 @@ func executeTwapOrder(ctx context.Context, execEngine engine.ExecutionEngine, ba
 
 // runMainLoop starts either the live trading, replay, or simulation mode.
 func runMainLoop(injector *do.Injector, f *flags, sigs chan<- os.Signal) {
+	// Force the config to be loaded via the injector. This ensures the global
+	// config is set, which is what the simulation flow currently relies on.
+	_ = do.MustInvoke[*config.Config](injector)
+
 	ctx := do.MustInvoke[context.Context](injector)
 
 	if f.serveMode {
@@ -942,7 +946,7 @@ func runSimulation(ctx context.Context, f *flags, sigs chan<- os.Signal, summary
 	if !f.jsonOutput {
 		logger.Info("Simulation finished.")
 	}
-	summary := getSimulationSummaryMap(replayEngine)
+	summary := getSimulationSummaryMap(replayEngine, signalEngine)
 	summaryCh <- summary
 
 	// Signal that the main application can shut down.
@@ -1092,7 +1096,7 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 		select {
 		case <-ctx.Done():
 			logger.Warn("Simulation run cancelled.")
-			return getSimulationSummaryMap(replayEngine)
+			return getSimulationSummaryMap(replayEngine, signalEngine)
 		default:
 			switch event := marketEvent.(type) {
 			case datastore.OrderBookEvent:
@@ -1168,15 +1172,15 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 		}
 	}
 
-	summary := getSimulationSummaryMap(replayEngine)
-	if trades, ok := summary["TotalTrades"].(int); ok && trades == 0 {
+	summary := getSimulationSummaryMap(replayEngine, signalEngine)
+	if trades, ok := summary["total_trades"].(int); ok && trades == 0 {
 		logger.Debug("Simulation finished with 0 trades.")
 	}
 	return summary
 }
 
 // getSimulationSummaryMap is a modified version of printSimulationSummary that returns a map.
-func getSimulationSummaryMap(replayEngine *engine.ReplayExecutionEngine) map[string]interface{} {
+func getSimulationSummaryMap(replayEngine *engine.ReplayExecutionEngine, signalEngine *tradingsignal.SignalEngine) map[string]interface{} {
 	executedTrades := replayEngine.ExecutedTrades
 	totalProfit := replayEngine.GetTotalRealizedPnL()
 	positionSize, avgEntryPrice := replayEngine.GetPosition().Get()
@@ -1216,6 +1220,12 @@ func getSimulationSummaryMap(replayEngine *engine.ReplayExecutionEngine) map[str
 	}
 
 	if totalTrades == 0 {
+		if signalEngine != nil {
+			summary["max_composite_score"] = signalEngine.MaxCompositeScore
+			summary["min_composite_score"] = signalEngine.MinCompositeScore
+			summary["long_threshold_at_max"] = signalEngine.LongThresholdAtMax
+			summary["short_threshold_at_min"] = signalEngine.ShortThresholdAtMin
+		}
 		return summary
 	}
 
