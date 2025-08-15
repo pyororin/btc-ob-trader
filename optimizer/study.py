@@ -59,7 +59,16 @@ def _run_batch_optimization(study: optuna.Study, is_csv_path: Path, n_trials: in
         for trial in trials:
             flat_params = Objective._suggest_parameters(trial)
             # Convert numpy types to native Python types for JSON serialization
-            serializable_params = {k: (int(v) if isinstance(v, np.integer) else v) for k, v in flat_params.items()}
+            serializable_params = {}
+            for k, v in flat_params.items():
+                if isinstance(v, np.integer):
+                    serializable_params[k] = int(v)
+                elif isinstance(v, np.floating):
+                    serializable_params[k] = float(v)
+                elif isinstance(v, np.bool_):
+                    serializable_params[k] = bool(v)
+                else:
+                    serializable_params[k] = v
             trial.set_user_attr("params_flat", serializable_params) # Store params for later
             batch_requests.append({
                 "trial_id": trial.number,
