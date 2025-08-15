@@ -89,13 +89,11 @@ func newInjector(f *flags, ctx context.Context) (*do.Injector, error) {
 	do.Provide(injector, func(i *do.Injector) (*zap.Logger, error) {
 		cfg := do.MustInvoke[*config.Config](i)
 		flags := do.MustInvoke[*flags](i)
-		if !flags.serveMode {
-			pair := ""
-			if cfg.Trade != nil {
-				pair = cfg.Trade.Pair
-			}
-			setupLogger(cfg.App.LogLevel, flags.configPath, pair)
+		pair := ""
+		if cfg.Trade != nil {
+			pair = cfg.Trade.Pair
 		}
+		setupLogger(cfg.App.LogLevel, flags.configPath, pair)
 		// Return a valid logger instance, even if setupLogger just configures a global one.
 		// This assumes setupLogger initializes a logger that can be retrieved,
 		// or we can create one here. For now, we'll create a new one.
@@ -1084,14 +1082,7 @@ func runSingleSimulationInMemory(ctx context.Context, tradeCfg *config.TradeConf
 	rand.Seed(1) // Ensure reproducibility
 
 	simConfig := config.GetConfigCopy()
-	if simConfig == nil {
-		return map[string]interface{}{"error": "global config is nil, cannot run simulation"}
-	}
 	simConfig.Trade = tradeCfg // tradeCfg is already a pointer
-
-	if simConfig.Trade == nil {
-		return map[string]interface{}{"error": "trade config for trial is nil"}
-	}
 
 	orderBook := indicator.NewOrderBook()
 	replayEngine := engine.NewReplayExecutionEngine(orderBook)
