@@ -46,7 +46,7 @@ CONFIG_TEMPLATE_PATH = PARAMS_DIR / 'trade_config.yaml.template'
 BEST_CONFIG_OUTPUT_PATH = PARAMS_DIR / 'trade_config.yaml'
 JOB_FILE = PARAMS_DIR / 'optimization_job.json'
 # The 'bot' command is expected to be in the system's PATH.
-SIMULATION_BINARY_PATH = 'bot'
+SIMULATION_BINARY_PATH = APP_ROOT / 'build' / 'obi-scalp-bot'
 
 # Database URLs
 STORAGE_URL = os.getenv('STORAGE_URL', CONFIG.get('storage_url', DEFAULT_STORAGE_URL))

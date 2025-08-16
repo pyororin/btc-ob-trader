@@ -137,14 +137,12 @@ def _validate_fold(fold_study: optuna.Study, validate_csv: Path) -> dict:
         logging.warning("No trials completed in this fold. Validation skipped.")
         return {"status": "failed", "reason": "No completed trials."}
 
-    # Find the best trial based on the custom objective score
-    metrics_calculator = study.MetricsCalculator(config.OBJECTIVE_WEIGHTS, completed_trials)
-    scored_trials = sorted(
-        [(trial, metrics_calculator.calculate_score(trial)) for trial in completed_trials],
-        key=lambda x: x[1],
-        reverse=True
-    )
-    best_is_trial, _ = scored_trials[0]
+    # For single-objective, the best trial is directly available.
+    try:
+        best_is_trial = fold_study.best_trial
+    except ValueError:
+        logging.warning("Could not find the best trial in this fold. Validation skipped.")
+        return {"status": "failed", "reason": "No best trial found."}
 
     logging.info(f"Best IS trial for fold: #{best_is_trial.number}")
 

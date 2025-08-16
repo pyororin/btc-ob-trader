@@ -180,6 +180,14 @@ class KDESampler(BaseSampler):
         # Sample categorical parameters from discrete distributions
         if self._categorical_models:
             for name, (choices, probs) in self._categorical_models.items():
+                # Normalize probabilities to ensure they sum to 1, avoiding floating point errors.
+                probs_sum = np.sum(probs)
+                if probs_sum > 0:
+                    probs /= probs_sum
+                else:
+                    # If all probabilities are zero, fall back to a uniform distribution.
+                    probs = np.full(len(choices), 1.0 / len(choices))
+
                 params[name] = self._rng.choice(choices, p=probs)
 
         return params
