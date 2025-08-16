@@ -22,7 +22,7 @@
 ## 3. モジュール構成
 
 -   `optimizer/main.py`: ファイル監視ループも含む。
--   `optimizer/study.py`: 1サイクル分のOptuna最適化（IS最適化とOOS検証）を実行し、結果を返す。
+-   `optimizer/study.py`: 1サイクル分のOptuna最適化（IS最適化とOOS検証）を実行し、結果を返す。Coarse-to-Fine最適化が有効な場合、このモジュールは2段階の探索（粗探索と密探索）を管理し、最終的な検証には密探索フェーズの結果（`fine_study`）が使用される。
 -   `optimizer/data.py`: 指定された時間枠のデータをエクスポートし、IS/OOSに分割する。
 -   `optimizer/config.py`: `optimizer_config.yaml`から設定を読み込む。
 -   `optimizer/objective.py`: Optunaの目的関数を定義する。`_suggest_parameters`メソッドは、`optimizer_config.yaml`内の`parameter_space`セクションに基づいてパラメータの探索範囲を動的に決定します。
