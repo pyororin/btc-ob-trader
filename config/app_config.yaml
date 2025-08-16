@@ -71,4 +71,4 @@ db_writer:
 report_generator:
   # interval_minutes: PNLレポートを生成する間隔（分）。
   # 0以下の値を設定すると、デフォルト値（60分）が使用されます。
-  interval_minutes: 5
+  interval_minutes: 10
