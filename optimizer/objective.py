@@ -3,9 +3,11 @@ import numpy as np
 import logging
 import random
 import re
+import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 
 from . import simulation
+from . import reporter  # Import the new reporter module
 from . import config
 from .utils import nest_params
 
@@ -72,10 +74,25 @@ class Objective:
             logging.error("Simulation CSV path not found in study user attributes.")
             raise optuna.exceptions.TrialPruned()
 
-        # Run the simulation and get both summary and logs
-        summary, stderr_log = simulation.run_simulation(params, sim_csv_path)
+        # --- Dynamic Simulation/Reporting ---
+        # Decide whether to run a new simulation or report on existing trades.
+        try:
+            header_df = pd.read_csv(sim_csv_path, nrows=0)
+            is_trade_log = 'is_my_trade' in header_df.columns
+        except Exception as e:
+            logging.error(f"Could not read header from {sim_csv_path}: {e}")
+            is_trade_log = False # Assume it's not a trade log on error
 
-        # If the simulation crashes (e.g., Go panic), summary might be None or {}.
+        if is_trade_log:
+            logging.info(f"Detected trade log file. Calculating metrics directly from: {sim_csv_path}")
+            summary = reporter.calculate_metrics_from_trade_log(sim_csv_path)
+            stderr_log = "" # No stderr log when running the reporter
+        else:
+            logging.info(f"Running Go simulation for: {sim_csv_path}")
+            # Run the simulation and get both summary and logs
+            summary, stderr_log = simulation.run_simulation(params, sim_csv_path)
+
+        # If the simulation or reporting crashes, summary might be None or {}.
         if not summary:
             logging.warning(
                 f"Trial {trial.number} failed: simulation returned empty or None summary. "
@@ -83,6 +100,10 @@ class Objective:
             )
             # Prune the trial to prevent it from being considered a valid candidate.
             raise optuna.exceptions.TrialPruned()
+
+        # Insert the generated report into the database for the drift monitor
+        if is_trade_log:
+            reporter.insert_report_to_db(summary)
 
         # Calculate metrics, including those from logs
         self._calculate_and_set_metrics(trial, summary, stderr_log)
