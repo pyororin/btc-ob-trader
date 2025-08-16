@@ -21,7 +21,6 @@ services:
       - .env
     environment:
       - DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@timescaledb:${DB_PORT}/${DB_NAME}?sslmode=disable
-      - REPORT_INTERVAL_MINUTES=1
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -35,7 +34,6 @@ services:
 - **`build`**: `cmd/report/Dockerfile`を使用して、本サービス専用の軽量なGoバイナリを含むDockerイメージをビルドします。
 - **`environment`**:
     - `DATABASE_URL`: `timescaledb`サービスに接続するための完全な接続文字列を指定します。
-    - `REPORT_INTERVAL_MINUTES=1`: レポート生成処理を実行する間隔を1分に設定しています。
 - **`depends_on`**: `timescaledb`サービスが正常に起動してから本サービスを開始するように依存関係を定義しています。
 - **`restart: unless-stopped`**: サービスが何らかの理由で停止した場合でも、自動的に再起動します。
 
@@ -44,14 +42,15 @@ services:
 ### 3.1. 起動と初期化
 
 1.  コンテナが起動すると、`cmd/report/main.go`の`main`関数が実行されます。
-2.  `DATABASE_URL`環境変数を読み取り、`pgxpool`ライブラリを使って`timescaledb`への接続プールを確立します。
-3.  `REPORT_INTERVAL_MINUTES`環境変数を読み取り、`time.ParseDuration`で`time.Duration`型に変換します。この間隔で時を刻む`time.Ticker`を初期化します。
-4.  アプリケーションの起動時に、まず一度目のレポート生成処理 `runReportGeneration` を即時実行します。
+2.  まず `config/app_config.yaml` ファイルを読み込み、アプリケーション全体の設定をロードします。
+3.  設定ファイル内の情報に基づき、`pgxpool`ライブラリを使って`timescaledb`への接続プールを確立します。
+4.  `app_config.yaml` の `report_generator.interval_minutes` から取得した値に基づき、`time.Ticker`を初期化します。この間隔で定期実行が行われます。
+5.  アプリケーションの起動時に、まず一度目のレポート生成処理 `runReportGeneration` を即時実行します。
 
 ### 3.2. 定期実行ループ
 
 1.  `main`関数は無限ループに入り、`Ticker`からの通知を待ち受けます。
-2.  `docker-compose.yml`の設定に基づき、1分ごとに`Ticker`が通知を発行します。
+2.  `app_config.yaml` の設定に基づき、設定された分数ごとに`Ticker`が通知を発行します。
 3.  通知を受け取るたびに、`runReportGeneration`関数を再度実行します。
 
 ### 3.3. レポート生成処理 (`runReportGeneration`)
@@ -76,9 +75,9 @@ services:
 -   **関心の分離**: 取引を実行する`bot`サービスと、レポートを生成する`report-generator`サービスを分離することで、それぞれの責務が明確になっています。`bot`サービスは取引執行のレイテンシを最優先し、重い集計処理は`report-generator`にオフロードする設計です。
 -   **効率的なデータ処理**: 全ての取引履歴を毎回スキャンするのではなく、最後に処理した取引IDを記録しておくことで、差分データのみを効率的に処理しています。これにより、データベースへの負荷を最小限に抑えています。
 -   **回復力**: `restart: unless-stopped`ポリシーにより、データベース接続の一次的な問題などでサービスが停止しても自動で復旧します。また、差分処理の仕組みにより、停止していた時間分の未処理データを復旧後にまとめて処理することができます。
--   **設定の柔軟性**: レポートの生成間隔を環境変数 `REPORT_INTERVAL_MINUTES` で変更できるため、ユースケース（例: テスト環境ではより短く、本番環境ではより長く）に応じて挙動を容易に調整できます。
+-   **設定の柔軟性**: レポートの生成間隔を `config/app_config.yaml` ファイル内の `report_generator.interval_minutes` で変更できるため、ユースケース（例: テスト環境ではより短く、本番環境ではより長く）に応じて挙動を容易に調整できます。
 
 ## 5. 想定ユースケースとトリガー
 
 -   **ユースケース**: `bot`サービスによって`trades`テーブルに蓄積されていく生の取引データを、`grafana`などのダッシュボードツールで可視化・分析しやすいように、事前に集計・加工しておく。
--   **トリガー**: サービスの起動時、およびその後`REPORT_INTERVAL_MINUTES`で設定された時間間隔（デフォルトでは1分）ごとに自動的に実行されます。
+-   **トリガー**: サービスの起動時、およびその後 `config/app_config.yaml` で設定された時間間隔ごとに自動的に実行されます。

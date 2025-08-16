@@ -3,24 +3,32 @@ package main
 import (
 	"context"
 	"errors"
-	"os"
+	"fmt"
+	"log"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/your-org/obi-scalp-bot/internal/config"
 	"github.com/your-org/obi-scalp-bot/internal/datastore"
 	"github.com/your-org/obi-scalp-bot/internal/report"
 	"github.com/your-org/obi-scalp-bot/pkg/logger"
 )
 
 func main() {
+	// --- Load Configuration ---
+	cfg, err := config.LoadConfig("config/app_config.yaml", "")
+	if err != nil {
+		// If config fails to load, we can't even start the logger properly.
+		// Log to a temporary basic logger and exit.
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
 	// --- Logger Setup ---
-	l := logger.NewLogger("info") // Use "info" as a default log level
+	l := logger.NewLogger(cfg.App.LogLevel)
 
 	// --- Database Connection ---
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		l.Fatal("DATABASE_URL environment variable is not set.")
-	}
+	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s&timezone=Asia/Tokyo",
+		cfg.App.Database.User, cfg.App.Database.Password, cfg.App.Database.Host, cfg.App.Database.Port, cfg.App.Database.Name, cfg.App.Database.SSLMode)
 
 	dbpool, err := pgxpool.New(context.Background(), dbURL)
 	if err != nil {
@@ -32,12 +40,12 @@ func main() {
 	reportService := report.NewService(dbpool)
 
 	// --- Ticker for Periodic Report Generation ---
-	// Read interval from environment variable, default to 1 hour
-	intervalStr := os.Getenv("REPORT_INTERVAL_MINUTES")
-	interval, err := time.ParseDuration(intervalStr + "m")
-	if err != nil || interval <= 0 {
-		interval = 1 * time.Hour
+	intervalMinutes := cfg.App.ReportGenerator.IntervalMinutes
+	if intervalMinutes <= 0 {
+		l.Warnf("Invalid interval_minutes (%d) in config, defaulting to 60 minutes.", intervalMinutes)
+		intervalMinutes = 60
 	}
+	interval := time.Duration(intervalMinutes) * time.Minute
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

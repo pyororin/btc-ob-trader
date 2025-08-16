@@ -17,9 +17,15 @@ type AppConfig struct {
 	ObiCalculatorChannelSize   int            `yaml:"obi_calculator_channel_size"`
 	SignalEvaluationIntervalMs int            `yaml:"signal_evaluation_interval_ms"`
 	Order                      OrderConfig    `yaml:"order"`
-	Database                   DatabaseConfig `yaml:"database"`
-	DBWriter                   DBWriterConfig `yaml:"db_writer"`
-	Replay                     ReplayConfig   `yaml:"replay"`
+	Database                   DatabaseConfig        `yaml:"database"`
+	DBWriter                   DBWriterConfig        `yaml:"db_writer"`
+	Replay                     ReplayConfig          `yaml:"replay"`
+	ReportGenerator            ReportGeneratorConfig `yaml:"report_generator"`
+}
+
+// ReportGeneratorConfig holds configuration for the PNL report generator.
+type ReportGeneratorConfig struct {
+	IntervalMinutes int `yaml:"interval_minutes"`
 }
 
 // TradeConfig defines the structure for trading strategy configuration.
