@@ -305,3 +305,56 @@ func TestSignalEngine_CVDAndTimeWindow(t *testing.T) {
 	assert.Equal(t, SignalNone, engine.currentSignal, "Current signal should revert to None")
 	assert.Equal(t, 0.0, engine.cvdValue, "CVD should decay to zero after window passes")
 }
+
+func TestSignalEngine_SpreadFilter(t *testing.T) {
+	weights := map[string]float64{"obi": 1.0, "ofi": 0.0, "cvd": 0.0, "microprice": 0.0}
+	engine := newTestSignalEngine(0, 0.1, weights)
+
+	// Set a spread limit of 50
+	engine.config.SpreadLimit = 50.0
+
+	// --- Scenario 1: Spread is wider than the limit ---
+	// Set a strong OBI, but a wide spread
+	bestBid := 5000000.0
+	bestAsk := 5000100.0 // Spread is 100, which is > 50
+	obiValue := 0.8       // Strong long signal
+
+	engine.UpdateMarketData(time.Now(), (bestBid+bestAsk)/2, bestBid, bestAsk, 1.0, 1.0, nil)
+	signal := engine.Evaluate(time.Now(), obiValue)
+
+	assert.Nil(t, signal, "Signal should be nil because spread is too wide")
+
+	// --- Scenario 2: Spread is narrower than the limit ---
+	// Set a strong OBI with a narrow spread
+	bestBid = 5000000.0
+	bestAsk = 5000020.0 // Spread is 20, which is < 50
+	obiValue = 0.8      // Strong long signal
+
+	engine.UpdateMarketData(time.Now(), (bestBid+bestAsk)/2, bestBid, bestAsk, 1.0, 1.0, nil)
+	signal = engine.Evaluate(time.Now(), obiValue) // First call sets the state
+	assert.Nil(t, signal, "First call with valid spread should set state and return nil")
+	assert.Equal(t, SignalLong, engine.currentSignal)
+
+	signal = engine.Evaluate(time.Now(), obiValue) // Second call confirms the signal
+	if assert.NotNil(t, signal, "Second call should generate a signal because spread is within limit") {
+		assert.Equal(t, SignalLong, signal.Type)
+	}
+
+	// --- Scenario 3: Spread limit is zero (disabled) ---
+	engine.config.SpreadLimit = 0.0
+	engine.currentSignal = SignalNone // Reset state
+	engine.lastSignal = SignalNone    // Reset state
+	bestBid = 5000000.0
+	bestAsk = 5000100.0 // Spread is 100, but limit is disabled
+	obiValue = 0.8      // Strong long signal
+
+	engine.UpdateMarketData(time.Now(), (bestBid+bestAsk)/2, bestBid, bestAsk, 1.0, 1.0, nil)
+	signal = engine.Evaluate(time.Now(), obiValue) // First call
+	assert.Nil(t, signal, "First call with disabled limit should set state and return nil")
+	assert.Equal(t, SignalLong, engine.currentSignal)
+
+	signal = engine.Evaluate(time.Now(), obiValue) // Second call
+	if assert.NotNil(t, signal, "Second call should generate a signal because spread limit is disabled") {
+		assert.Equal(t, SignalLong, signal.Type)
+	}
+}

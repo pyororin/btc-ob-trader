@@ -22,11 +22,14 @@
 ## 3. モジュール構成
 
 -   `optimizer/main.py`: ファイル監視ループも含む。
--   `optimizer/study.py`: 1サイクル分のOptuna最適化（IS最適化とOOS検証）を実行し、結果を返す。
+-   `optimizer/study.py`: 1サイクル分のOptuna最適化（IS最適化とOOS検証）を実行し、結果を返す。Coarse-to-Fine最適化が有効な場合、このモジュールは2段階の探索（粗探索と密探索）を管理し、最終的な検証には密探索フェーズの結果（`fine_study`）が使用される。
 -   `optimizer/data.py`: 指定された時間枠のデータをエクスポートし、IS/OOSに分割する。
 -   `optimizer/config.py`: `optimizer_config.yaml`から設定を読み込む。
--   `optimizer/objective.py`: Optunaの目的関数を定義する。`_suggest_parameters`メソッドは、`optimizer_config.yaml`内の`parameter_space`セクションに基づいてパラメータの探索範囲を動的に決定します。
+-   `optimizer/objective.py`: Optunaの目的関数を定義する。このモジュールは、**入力されるCSVファイルの種類を自動的に判別します。**
+    -   **市場データの場合**: `simulation.py`を呼び出し、Goのバックテストエンジンで新しいシミュレーションを実行します。
+    -   **取引ログの場合**: (`is_my_trade`カラムが存在する場合)、`reporter.py`を呼び出し、ログから直接パフォーマンス指標を計算します。
 -   `simulation.py`: Goのバックテストエンジンをサブプロセスとして呼び出す。
+-   `reporter.py`: **（新規追加）** 過去の取引ログ（CSV形式）を読み込み、パフォーマンス指標（シャープレシオ、プロフィットファクター等）を計算して`pnl_reports`テーブルに結果を書き込むためのモジュール。これにより、シミュレーションを実行せずに過去のパフォーマンスを分析し、`drift-monitor`の監視対象とすることができます。
 
 ## 4. 設定ファイル (`config/optimizer_config.yaml`)
 

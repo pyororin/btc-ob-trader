@@ -93,11 +93,12 @@ def run_walk_forward_analysis(job: dict) -> bool:
 
                 # b. Create and run an Optuna study on the training data
                 storage_path = f"sqlite:///{fold_dir / 'optuna-study.db'}"
-                fold_study = study.create_study(storage_path=storage_path, study_name=fold_id)
-                study.run_optimization(fold_study, train_csv, n_trials, storage_path)
+                initial_fold_study = study.create_study(storage_path=storage_path, study_name=fold_id)
+                # run_optimization may return a new study object (e.g., from a fine-tuning phase)
+                final_fold_study = study.run_optimization(initial_fold_study, train_csv, n_trials, storage_path)
 
                 # c. Take the best parameters and validate them on the validation data
-                fold_result = _validate_fold(fold_study, validate_csv)
+                fold_result = _validate_fold(final_fold_study, validate_csv)
                 all_fold_results.append(fold_result)
 
             except Exception as e:

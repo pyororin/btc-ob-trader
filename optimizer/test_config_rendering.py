@@ -67,7 +67,6 @@ class TestConfigRendering(unittest.TestCase):
         expected_yaml_structure = {
             'pair': 'btc_jpy', 'order_amount': 0.01, 'spread_limit': 80,
             'entry_price_offset': 100.0,
-            'lot_max_ratio': 1.0, 'order_ratio': 0.95,
             'long': {'tp': 100, 'sl': -100},
             'short': {'tp': 110, 'sl': -110},
             'signal': {

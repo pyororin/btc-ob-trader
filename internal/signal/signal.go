@@ -51,6 +51,7 @@ func (s SignalType) String() string {
 type EngineConfig struct {
 	SignalHoldDuration    time.Duration
 	EntryPriceOffset      float64
+	SpreadLimit           float64
 	DynamicOBIConf        config.DynamicOBIConf
 	CVDWindow             time.Duration
 	OBIWeight             float64
@@ -113,6 +114,7 @@ func NewSignalEngine(tradeCfg *config.TradeConfig) (*SignalEngine, error) {
 	engineCfg := EngineConfig{
 		SignalHoldDuration:    signalHoldDuration,
 		EntryPriceOffset:      tradeCfg.EntryPriceOffset,
+		SpreadLimit:           tradeCfg.SpreadLimit,
 		DynamicOBIConf:        tradeCfg.Volatility.DynamicOBI,
 		CVDWindow:             cvdWindow,
 		OBIWeight:             tradeCfg.Signal.OBIWeight,
@@ -197,6 +199,18 @@ func (e *SignalEngine) UpdateMarketData(currentTime time.Time, currentMidPrice, 
 
 // Evaluate evaluates the current market data and returns a TradingSignal if a new signal is confirmed.
 func (e *SignalEngine) Evaluate(currentTime time.Time, obiValue float64) *TradingSignal {
+	// --- Pre-evaluation Filters ---
+
+	// 1. Spread Filter
+	// If spread_limit is configured and the current spread exceeds it, do not proceed.
+	if e.config.SpreadLimit > 0 {
+		spread := e.bestAsk - e.bestBid
+		if spread > e.config.SpreadLimit {
+			logger.Debugf("[SignalFilter] Spread too wide. Spread: %.2f, Limit: %.2f. No signal.", spread, e.config.SpreadLimit)
+			return nil
+		}
+	}
+
 	// --- 1. Calculate Composite Score ---
 	microPriceDiff := e.microPrice - e.currentMidPrice
 	obiComponent := obiValue * e.config.OBIWeight
