@@ -116,7 +116,13 @@ func runReportGeneration(repo datastore.Repository, reportService *report.Servic
 		return
 	}
 
-	// 4. Save the report
+	// 4. Final check before saving
+	if analysisReport.TotalTrades == 0 {
+		l.Info("No completed trades to generate a report.")
+		return
+	}
+
+	// 5. Save the report
 	if err := reportService.SavePnlReport(ctx, analysisReport); err != nil {
 		l.Errorf("Failed to save PnL report: %v", err)
 		return
