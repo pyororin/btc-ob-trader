@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -34,8 +33,6 @@ func setupTest(t *testing.T) (*httptest.Server, *config.Config) {
 			},
 		},
 		Trade: &config.TradeConfig{
-			OrderRatio:  0.1,
-			LotMaxRatio: 0.1,
 			Risk: config.RiskConfig{
 				MaxDrawdownPercent: 10.0,
 				MaxPositionRatio:   0.5,
@@ -304,7 +301,6 @@ func TestExecutionEngine_PlaceOrder_AmountAdjustment(t *testing.T) {
 	coincheck.SetBaseURL(mockServer.URL)
 	defer coincheck.SetBaseURL(originalBaseURL)
 
-	cfg.Trade.OrderRatio = 0.5
 	cfg.Trade.Risk.MaxPositionRatio = 1.0 // Disable risk check for this test
 	execEngine := NewLiveExecutionEngine(ccClient, nil, nil)
 
@@ -603,115 +599,6 @@ func TestReplayExecutionEngine_TPSL(t *testing.T) {
 		assert.Equal(t, "buy", engine.ExecutedTrades[1].Side)
 		assert.Equal(t, 105.0, engine.ExecutedTrades[1].Price)
 	})
-}
-
-func TestExecutionEngine_AdaptivePositionSizing(t *testing.T) {
-	var orderIDCounter int64 = 1000
-	var lastRequestedAmount float64
-	var mu sync.Mutex
-
-	mockServer, cfg := setupTest(t)
-	defer mockServer.Close()
-
-	cfg.Trade.OrderRatio = 0.2
-	cfg.Trade.LotMaxRatio = 0.2
-	cfg.Trade.AdaptivePositionSizing = config.AdaptiveSizingConfig{
-		Enabled:       config.FlexBool(true),
-		NumTrades:     5,
-		ReductionStep: 0.8,
-		MinRatio:      0.5,
-	}
-	cfg.Trade.Risk.MaxPositionRatio = 1.0 // Disable risk check
-
-	mockServer.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/exchange/orders":
-			currentOrderID := atomic.AddInt64(&orderIDCounter, 1)
-			var reqBody coincheck.OrderRequest
-			_ = json.NewDecoder(r.Body).Decode(&reqBody)
-			mu.Lock()
-			lastRequestedAmount = reqBody.Amount
-			mu.Unlock()
-			resp := coincheck.OrderResponse{
-				Success: true, ID: currentOrderID, Amount: strconv.FormatFloat(reqBody.Amount, 'f', -1, 64),
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(resp)
-		case "/api/exchange/orders/transactions_pagination":
-			currentOrderID := atomic.LoadInt64(&orderIDCounter)
-			resp := struct {
-				Success bool `json:"success"`
-				Data    []coincheck.Transaction `json:"data"`
-			}{
-				Success: true,
-				Data:    []coincheck.Transaction{{ID: currentOrderID + 5000, OrderID: currentOrderID}},
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(resp)
-		case "/api/accounts/balance":
-			resp := coincheck.BalanceResponse{Success: true, Jpy: "100000000", Btc: "10.0"}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(resp)
-		case "/api/exchange/orders/opens":
-			resp := coincheck.OpenOrdersResponse{Success: true, Orders: []coincheck.OpenOrder{}}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(resp)
-		default:
-			http.NotFound(w, r)
-		}
-	})
-
-	ccClient := coincheck.NewClient("test_api_key", "test_secret_key")
-	originalBaseURL := coincheck.GetBaseURL()
-	coincheck.SetBaseURL(mockServer.URL)
-	defer coincheck.SetBaseURL(originalBaseURL)
-
-	execEngine := NewLiveExecutionEngine(ccClient, nil, nil)
-
-	t.Run("size reduction after losses", func(t *testing.T) {
-		execEngine.UpdateRecentPnLsForTest(t, []float64{-100, -100, -100, -100, -100})
-		execEngine.adjustRatios() // Manually trigger adjustment for test
-		params := TradeParams{Pair: "btc_jpy", OrderType: "buy", Rate: 5000000, Amount: 10.0}
-		_, err := execEngine.PlaceOrder(context.Background(), params)
-		require.NoError(t, err)
-
-		mu.Lock()
-		finalAmount := lastRequestedAmount
-		mu.Unlock()
-
-		// The amount passed to PlaceOrder is 10.0, which should be the requested amount.
-		// The adaptive sizing logic is not applied to the order amount directly.
-		expectedAmount := 10.0
-		assert.InDelta(t, expectedAmount, finalAmount, 1e-9)
-	})
-
-	t.Run("size reset after profits", func(t *testing.T) {
-		execEngine.UpdateRecentPnLsForTest(t, []float64{-100, -100, -100, -100, -100})
-		execEngine.adjustRatios() // Manually trigger adjustment for test
-		params1 := TradeParams{Pair: "btc_jpy", OrderType: "buy", Rate: 5000000, Amount: 10.0}
-		_, _ = execEngine.PlaceOrder(context.Background(), params1)
-
-		execEngine.UpdateRecentPnLsForTest(t, []float64{200, 200, 200, 200, 200})
-		execEngine.adjustRatios() // Manually trigger adjustment for test
-		params2 := TradeParams{Pair: "btc_jpy", OrderType: "buy", Rate: 5000000, Amount: 10.0}
-		_, err := execEngine.PlaceOrder(context.Background(), params2)
-		require.NoError(t, err)
-
-		mu.Lock()
-		finalAmount := lastRequestedAmount
-		mu.Unlock()
-
-		// The amount passed to PlaceOrder is 10.0, which should be the requested amount.
-		expectedAmount := 10.0
-		assert.InDelta(t, expectedAmount, finalAmount, 1e-9)
-	})
-}
-
-// UpdateRecentPnLsForTest is a test helper to inject PnL data into the engine.
-func (e *LiveExecutionEngine) UpdateRecentPnLsForTest(t *testing.T, pnls []float64) {
-	t.Helper()
-	e.recentPnLs = make([]float64, len(pnls))
-	copy(e.recentPnLs, pnls)
 }
 
 // SetPositionForTest is a test helper to set the position for testing.

@@ -53,11 +53,6 @@ type LiveExecutionEngine struct {
 	dbWriter       dbwriter.DBWriter
 	position       *position.Position
 	pnlCalculator  *pnl.Calculator
-	recentPnLs     []float64
-	currentRatios  struct {
-		OrderRatio  float64
-		LotMaxRatio float64
-	}
 	partialExitMutex   sync.Mutex
 	isExitingPartially bool
 	notifier           alert.Notifier
@@ -65,8 +60,6 @@ type LiveExecutionEngine struct {
 
 // NewLiveExecutionEngine creates a new LiveExecutionEngine.
 func NewLiveExecutionEngine(client *coincheck.Client, dbWriter dbwriter.DBWriter, notifier alert.Notifier) *LiveExecutionEngine {
-	cfg := config.GetConfig()
-
 	var activeNotifier alert.Notifier
 	if notifier == nil || (reflect.ValueOf(notifier).Kind() == reflect.Ptr && reflect.ValueOf(notifier).IsNil()) {
 		activeNotifier = &alert.NoOpNotifier{}
@@ -79,12 +72,8 @@ func NewLiveExecutionEngine(client *coincheck.Client, dbWriter dbwriter.DBWriter
 		dbWriter:       dbWriter,
 		position:       position.NewPosition(),
 		pnlCalculator:  pnl.NewCalculator(),
-		recentPnLs:     make([]float64, 0),
 		notifier:       activeNotifier,
 	}
-	// Initialize ratios from config
-	engine.currentRatios.OrderRatio = cfg.Trade.OrderRatio
-	engine.currentRatios.LotMaxRatio = cfg.Trade.LotMaxRatio
 	return engine
 }
 
@@ -287,10 +276,6 @@ func (e *LiveExecutionEngine) PlaceOrder(ctx context.Context, params TradeParams
 						realizedPnL := e.position.Update(tradeAmount, trade.Price)
 						if realizedPnL != 0 {
 							e.pnlCalculator.UpdateRealizedPnL(realizedPnL)
-							// Update recent PnLs for adaptive sizing
-							if cfg.Trade.AdaptivePositionSizing.Enabled {
-								e.updateRecentPnLs(realizedPnL)
-							}
 						}
 						logger.Infof("[Live] Position updated: %s", e.position.String())
 
@@ -359,17 +344,6 @@ func (e *LiveExecutionEngine) sendAlert(message string) {
 			logger.Errorf("Failed to send alert: %v", err)
 		}
 	}
-}
-
-// updateRecentPnLs adds a new PnL to the recent PnL list and keeps it at the configured size.
-func (e *LiveExecutionEngine) updateRecentPnLs(pnl float64) {
-	cfg := config.GetConfig()
-	e.recentPnLs = append(e.recentPnLs, pnl)
-	numTrades := cfg.Trade.AdaptivePositionSizing.NumTrades
-	if len(e.recentPnLs) > numTrades {
-		e.recentPnLs = e.recentPnLs[len(e.recentPnLs)-numTrades:]
-	}
-	logger.Infof("[Live] Updated recent PnLs: %v", e.recentPnLs)
 }
 
 // GetPosition returns the current position size and average entry price.
@@ -446,46 +420,6 @@ func (e *LiveExecutionEngine) CheckAndTriggerPartialExit(currentMidPrice float64
 	}
 
 	return nil
-}
-
-// adjustRatios dynamically adjusts the order and lot max ratios based on recent PnL.
-func (e *LiveExecutionEngine) adjustRatios() {
-	cfg := config.GetConfig()
-	if len(e.recentPnLs) < cfg.Trade.AdaptivePositionSizing.NumTrades {
-		// Not enough trade data yet, use default ratios
-		e.currentRatios.OrderRatio = cfg.Trade.OrderRatio
-		e.currentRatios.LotMaxRatio = cfg.Trade.LotMaxRatio
-		return
-	}
-
-	pnlSum := 0.0
-	for _, pnl := range e.recentPnLs {
-		pnlSum += pnl
-	}
-
-	if pnlSum < 0 {
-		// Reduce ratios
-		e.currentRatios.OrderRatio *= cfg.Trade.AdaptivePositionSizing.ReductionStep
-		e.currentRatios.LotMaxRatio *= cfg.Trade.AdaptivePositionSizing.ReductionStep
-
-		// Enforce minimum ratios
-		minOrderRatio := cfg.Trade.OrderRatio * cfg.Trade.AdaptivePositionSizing.MinRatio
-		minLotMaxRatio := cfg.Trade.LotMaxRatio * cfg.Trade.AdaptivePositionSizing.MinRatio
-		if e.currentRatios.OrderRatio < minOrderRatio {
-			e.currentRatios.OrderRatio = minOrderRatio
-		}
-		if e.currentRatios.LotMaxRatio < minLotMaxRatio {
-			e.currentRatios.LotMaxRatio = minLotMaxRatio
-		}
-		logger.Warnf("[Live] Negative PnL trend detected. Reducing ratios to OrderRatio: %.4f, LotMaxRatio: %.4f", e.currentRatios.OrderRatio, e.currentRatios.LotMaxRatio)
-	} else {
-		// Reset to default ratios
-		if e.currentRatios.OrderRatio != cfg.Trade.OrderRatio || e.currentRatios.LotMaxRatio != cfg.Trade.LotMaxRatio {
-			e.currentRatios.OrderRatio = cfg.Trade.OrderRatio
-			e.currentRatios.LotMaxRatio = cfg.Trade.LotMaxRatio
-			logger.Infof("[Live] Positive PnL trend. Ratios reset to default. OrderRatio: %.4f, LotMaxRatio: %.4f", e.currentRatios.OrderRatio, e.currentRatios.LotMaxRatio)
-		}
-	}
 }
 
 // ReplayExecutionEngine simulates order execution for backtesting.
