@@ -97,7 +97,7 @@ analyzer:
 parameter_space:
   spread_limit:
     type: "categorical"
-    choices: [20, 40, 60, 80]
+    choices: [20, 40, 60, 80, 500, 1000, 2000, 4000, 8000, 12000, 18000]
   long_tp:
     type: "categorical"
     choices: [6000, 8000, 9000, 10000, 12000]
