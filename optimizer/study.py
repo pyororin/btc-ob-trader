@@ -105,18 +105,20 @@ def _run_batch_optimization(study: optuna.Study, is_csv_path: Path, n_trials: in
         simulator.stop_server()
 
 
-def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int, storage_path: str):
+def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int, storage_path: str) -> optuna.Study:
     """
     Runs the main optimization loop for a given study.
     If Coarse-to-Fine (CTF) is enabled, it runs a two-phase optimization.
     Otherwise, it runs a single-phase optimization.
+
+    Returns:
+        The final study object to be used for validation.
     """
     if not config.CTF_ENABLED:
-        # Non-CTF mode still uses the old one-by-one method.
-        # This could be updated to use the batch mode as well for a smaller speedup.
+        # Non-CTF mode: run a single optimization and return the original study.
         objective_func = Objective(study)
         study.optimize(objective_func, n_trials=n_trials, n_jobs=-1, callbacks=[progress_callback])
-        return
+        return study
 
     # --- Phase 1: Coarse Search (Batch Mode) ---
     logging.info("--- Starting Coarse-to-Fine Optimization: Phase 1 (Coarse Search) ---")
@@ -125,20 +127,19 @@ def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int, stor
     completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
     if not completed_trials:
         logging.warning("Coarse search phase completed with no successful trials. Skipping fine search.")
-        return
+        return study # Return original study
 
     # --- Phase 2: Fine Search ---
     logging.info("--- Starting Coarse-to-Fine Optimization: Phase 2 (Fine Search) ---")
 
     # Select top trials to build the KDE sampler
-    # Sort by the objective value (penalized Sharpe Ratio)
     completed_trials.sort(key=lambda t: t.value, reverse=True)
     n_top_trials = int(len(completed_trials) * config.CTF_TOP_TRIALS_QUANTILE_FOR_KDE)
     top_trials = completed_trials[:n_top_trials]
 
     if not top_trials:
         logging.warning("No top trials found after coarse search. Skipping fine search.")
-        return
+        return study # Return original study
 
     logging.info(f"Building KDE sampler from top {len(top_trials)} trials.")
     kde_sampler = KDESampler(coarse_trials=top_trials, seed=42)
@@ -153,14 +154,9 @@ def run_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int, stor
 
     _run_batch_optimization(fine_study, is_csv_path, config.CTF_FINE_TRIALS)
 
-    # The original study object is now replaced by the fine_study object
-    # to allow the rest of the pipeline to analyze the results of the fine phase.
-    # We need to copy the trials from the fine_study to the original study object.
-    # This is a bit of a hack, but it's the easiest way to integrate with the existing pipeline.
-    # A better solution would be to refactor the pipeline to handle multiple studies.
-    # For now, we will just enqueue the trials from the fine study into the original study.
-    for trial in fine_study.trials:
-        study.add_trial(trial)
+    # Return the new 'fine_study' so the validation logic uses its results.
+    # This is the correct way to handle the two-phase optimization.
+    return fine_study
 
 def progress_callback(study: optuna.Study, trial: optuna.Trial, n_trials: int):
     """Callback function to report progress periodically."""
