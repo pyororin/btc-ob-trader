@@ -18,10 +18,12 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-s -w" -o /go/bin/report-gene
 # ---- Final Image ----
 FROM scratch
 
+WORKDIR /app
+
 # Copy the static binary from the builder stage
-COPY --from=builder /go/bin/report-generator /report-generator
+COPY --from=builder /go/bin/report-generator /app/report-generator
 # Copy ca-certificates for TLS
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 # Command to run the application
-ENTRYPOINT ["/report-generator"]
+ENTRYPOINT ["/app/report-generator"]
