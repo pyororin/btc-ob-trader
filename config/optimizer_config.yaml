@@ -16,9 +16,6 @@ params_dir: 'data/params'
 # 最適化設定 (Optimization Settings)
 # ------------------------------------------------------------------------------
 
-# n_trials: 1回のIn-Sample(IS)最適化サイクルで試行する最大回数。
-n_trials: 1000
-
 # warm_start_max_trials: 既存のスタディを再利用する際、過去の学習結果を何件まで読み込むか。
 warm_start_max_trials: 100
 
@@ -48,33 +45,9 @@ oos_min_trades: 10
 # max_retry: OOS評価で不合格だった場合、ISの上位から何番目までのパラメータを試すか。
 max_retry: 5
 
-# early_stop_count: OOS評価で、著しく低いシャープレシオがこの回数連続した場合、
-# それ以上のリトライを停止します。
-early_stop_count: 5
-
-# early_stop_threshold_ratio: 早期停止のトリガーとなるシャープレシオの閾値。
-# (ISの最良シャープレシオ * この割合) で計算されます。
-early_stop_threshold_ratio: 0.7
-
 # ------------------------------------------------------------------------------
 # 目的関数と安定性分析 (Objective & Stability)
 # ------------------------------------------------------------------------------
-
-# objective_weights: Optunaの多目的最適化における各指標の重み付け。
-# これらの値は、最終的な評価スコアを計算する際の各指標の重要度を決定します。
-objective_weights:
-  # シャープレシオ: リスク調整後リターン
-  sharpe_ratio: 1.0
-  # プロフィットファクター: 総利益 / 総損失
-  profit_factor: 1.0
-  # 最大ドローダウン: 資産のピークからの最大下落率 (値が大きいほど良いと評価されるよう内部で反転)
-  max_drawdown: 0.5
-  # SQN (System Quality Number): システムの品質指標 (SharpeRatio * sqrt(TotalTrades))
-  sqn: 0.5
-  # 取引回数
-  trades: 0.2
-  # 約定実現率: シグナル数に対する実際の約定数の割合。過学習の抑制に寄与。
-  realization_rate: 2.0
 
 # stability_analysis: パラメータの安定性分析（ロバスト性チェック）。
 # 最適化されたパラメータに微小なノイズ（jitter）を加えて複数回シミュレーションを実行し、

@@ -52,13 +52,10 @@ SIMULATION_BINARY_PATH = APP_ROOT / 'build' / 'obi-scalp-bot'
 STORAGE_URL = os.getenv('STORAGE_URL', CONFIG.get('storage_url', DEFAULT_STORAGE_URL))
 
 # Optimizer Settings
-N_TRIALS = CONFIG.get('n_trials', 800)
 WARM_START_MAX_TRIALS = CONFIG.get('warm_start_max_trials', 200)
 MIN_TRADES_FOR_PRUNING = CONFIG.get('min_trades_for_pruning', 5)
 DD_PENALTY_THRESHOLD = CONFIG.get('dd_penalty_threshold', 0.25)
 MAX_RETRY = CONFIG.get('max_retry', 5)
-EARLY_STOP_COUNT = CONFIG.get('early_stop_count', 3)
-EARLY_STOP_THRESHOLD_RATIO = CONFIG.get('early_stop_threshold_ratio', -0.5)
 
 # Parameter Search Space
 PARAMETER_SPACE = CONFIG.get('parameter_space', {})
