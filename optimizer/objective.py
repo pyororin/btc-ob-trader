@@ -130,10 +130,10 @@ class Objective:
             logging.debug(f"Trial {trial.number} pruned due to low execution rate: {execution_rate:.2f}")
             raise optuna.exceptions.TrialPruned()
 
-        # --- Stability Analysis (Objective Regularization) ---
-        # This is computationally expensive and should only be run during the fine-tuning phase.
+        # --- Stability Analysis & Final Objective Calculation ---
+        jitter_summaries = []
+        # Stability analysis is computationally expensive and should only be run during the fine-tuning phase.
         if self.phase_name != 'coarse-phase':
-            jitter_summaries = []
             for i in range(config.STABILITY_CHECK_N_RUNS):
                 jittered_flat_params = self._get_jittered_params(trial)
                 jittered_nested_params = nest_params(jittered_flat_params)
@@ -141,21 +141,38 @@ class Objective:
                 if jitter_summary and jitter_summary.get('SharpeRatio') is not None:
                     jitter_summaries.append(jitter_summary)
 
+            # If too many jittered simulations fail, use the original summary as the only sample.
             if len(jitter_summaries) < config.STABILITY_CHECK_N_RUNS / 2:
                 logging.warning(f"Trial {trial.number}: Too many jittered simulations failed. Using original result without penalty.")
                 jitter_summaries = [summary]
 
+        return self._calculate_final_penalized_sr(trial, self.phase_name, summary, jitter_summaries)
+
+    def _calculate_final_penalized_sr(
+        self,
+        trial: optuna.Trial,
+        phase_name: str,
+        base_summary: dict,
+        jitter_summaries: list[dict] | None = None
+    ) -> float:
+        """
+        Calculates the final penalized Sharpe Ratio for a trial.
+        This centralizes the objective calculation for both regular and batch simulations.
+        """
+        # --- Stability Analysis (Objective Regularization) ---
+        if phase_name != 'coarse-phase' and jitter_summaries:
             sharpe_ratios = [res.get('SharpeRatio', 0.0) for res in jitter_summaries]
             mean_sr = np.mean(sharpe_ratios)
             std_sr = np.std(sharpe_ratios)
 
-            # The final objective is penalized by the standard deviation of the Sharpe Ratio
             lambda_penalty = config.STABILITY_PENALTY_FACTOR
             final_sr = mean_sr - (lambda_penalty * std_sr)
 
             # Store metrics derived from stability analysis
             trial.set_user_attr("mean_sharpe_ratio", mean_sr)
             trial.set_user_attr("stdev_sharpe_ratio", std_sr)
+
+            # Also store mean values for other important metrics
             profit_factors = [res.get('ProfitFactor', 0.0) for res in jitter_summaries]
             sqns = [res.get('SharpeRatio', 0.0) * np.sqrt(res.get('TotalTrades', 0)) for res in jitter_summaries]
             trial.set_user_attr("mean_sqn", np.mean(sqns))
@@ -185,30 +202,6 @@ class Objective:
         trial.set_user_attr("final_sharpe_ratio", final_sr)
         trial.set_user_attr("final_sharpe_ratio_penalized", final_sr_penalized)
 
-        return final_sr_penalized
-
-    def _calculate_final_penalized_sr(self, trial: optuna.Trial) -> float:
-        """
-        Calculates the final penalized Sharpe Ratio for a trial.
-        This logic is extracted from __call__ to be reusable by the batch simulator.
-        """
-        # For coarse phase, we don't do stability analysis, so the final_sr is just the raw SR.
-        # For other phases, this would need to be enhanced to include stability penalties.
-        # This simplification is acceptable for the current implementation.
-        final_sr = trial.user_attrs.get("sharpe_ratio", 0.0)
-
-        # Apply realization and execution rates as direct penalties
-        realization_rate = trial.user_attrs.get("realization_rate", 0.0)
-        execution_rate = trial.user_attrs.get("execution_rate", 0.0)
-        final_sr_penalized = final_sr * realization_rate * execution_rate
-
-        # Add a new penalty for each unrealized trade
-        unrealized_trades = trial.user_attrs.get("unrealized_trades", 0)
-        sr_penalty_per_unrealized = 0.05
-        additive_penalty = unrealized_trades * sr_penalty_per_unrealized
-        final_sr_penalized -= additive_penalty
-
-        trial.set_user_attr("final_sharpe_ratio_penalized", final_sr_penalized)
         return final_sr_penalized
 
     def _get_jittered_params(self, trial: optuna.Trial) -> dict:
