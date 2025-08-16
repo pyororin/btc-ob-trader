@@ -13,15 +13,13 @@ var globalConfig atomic.Value
 
 // AppConfig defines the structure for application-level configuration.
 type AppConfig struct {
-	LogLevel                   string          `yaml:"log_level"`
-	ObiCalculatorChannelSize   int             `yaml:"obi_calculator_channel_size"`
-	SignalEvaluationIntervalMs int             `yaml:"signal_evaluation_interval_ms"`
-	Order                      OrderConfig     `yaml:"order"`
-	Database                   DatabaseConfig  `yaml:"database"`
-	DBWriter                   DBWriterConfig  `yaml:"db_writer"`
-	Replay                     ReplayConfig    `yaml:"replay"`
-	PnlReport                  PnlReportConfig `yaml:"pnl_report"`
-	Alert                      AlertConfig     `yaml:"alert"`
+	LogLevel                   string         `yaml:"log_level"`
+	ObiCalculatorChannelSize   int            `yaml:"obi_calculator_channel_size"`
+	SignalEvaluationIntervalMs int            `yaml:"signal_evaluation_interval_ms"`
+	Order                      OrderConfig    `yaml:"order"`
+	Database                   DatabaseConfig `yaml:"database"`
+	DBWriter                   DBWriterConfig `yaml:"db_writer"`
+	Replay                     ReplayConfig   `yaml:"replay"`
 }
 
 // TradeConfig defines the structure for trading strategy configuration.
@@ -56,10 +54,6 @@ type AdaptiveSizingConfig struct {
 	MinRatio      float64  `yaml:"min_ratio"`
 }
 
-// AlertConfig holds alert settings.
-type AlertConfig struct {
-	Enabled FlexBool `yaml:"enabled"`
-}
 
 // RiskConfig holds risk management settings.
 type RiskConfig struct {
@@ -108,12 +102,6 @@ type ReplayConfig struct {
 	EndTime   string `yaml:"end_time"`
 }
 
-// PnlReportConfig holds settings for PnL reporting.
-type PnlReportConfig struct {
-	IntervalMinutes int `yaml:"interval_minutes"`
-	MaxAgeHours     int `yaml:"max_age_hours"`
-}
-
 // DatabaseConfig holds all database connection parameters.
 type DatabaseConfig struct {
 	Host     string `yaml:"host"`
@@ -126,9 +114,8 @@ type DatabaseConfig struct {
 
 // DBWriterConfig holds configuration for the TimescaleDB writer service.
 type DBWriterConfig struct {
-	BatchSize            int      `yaml:"batch_size"`
-	WriteIntervalSeconds int      `yaml:"write_interval_seconds"`
-	EnableAsync          FlexBool `yaml:"enable_async"`
+	BatchSize            int `yaml:"batch_size"`
+	WriteIntervalSeconds int `yaml:"write_interval_seconds"`
 }
 
 // StrategyConf holds configuration for long/short strategies.
