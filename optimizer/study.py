@@ -44,76 +44,61 @@ from .utils import nest_params
 def _run_batch_optimization(study: optuna.Study, is_csv_path: Path, n_trials: int):
     """
     Runs a phase of optimization in batch mode using the simulation server.
-    Handles both coarse and fine (with stability analysis) phases.
     """
     logging.info(f"Starting batch optimization with {is_csv_path} for {n_trials} trials.")
-    phase_name = study.user_attrs.get('phase_name', 'unknown')
-    obj_instance = Objective(study) # Reusable instance
 
     simulator = BatchSimulator(is_csv_path)
     try:
         simulator.start_server()
 
-        # 1. Ask Optuna for all trial parameters
+        # 1. Ask Optuna for all trial parameters first
         trials = [study.ask() for _ in range(n_trials)]
 
-        # 2. Prepare and run the main batch request
-        main_batch_requests = []
+        # 2. Prepare the batch request for the Go server
+        batch_requests = []
         for trial in trials:
-            flat_params = obj_instance._suggest_parameters(trial)
-            serializable_params = {k: (int(v) if isinstance(v, np.integer) else float(v) if isinstance(v, np.floating) else bool(v) if isinstance(v, np.bool_) else v) for k, v in flat_params.items()}
-            trial.set_user_attr("params_flat", serializable_params)
-            main_batch_requests.append({
+            flat_params = Objective._suggest_parameters(trial)
+            # Convert numpy types to native Python types for JSON serialization
+            serializable_params = {}
+            for k, v in flat_params.items():
+                if isinstance(v, np.integer):
+                    serializable_params[k] = int(v)
+                elif isinstance(v, np.floating):
+                    serializable_params[k] = float(v)
+                elif isinstance(v, np.bool_):
+                    serializable_params[k] = bool(v)
+                else:
+                    serializable_params[k] = v
+            trial.set_user_attr("params_flat", serializable_params) # Store params for later
+            batch_requests.append({
                 "trial_id": trial.number,
                 "trade_config": nest_params(serializable_params)
             })
-        main_results = simulator.run_batch(main_batch_requests)
-        main_results_map = {res['trial_id']: res for res in main_results}
 
-        # 3. If in fine phase, prepare and run a second, larger batch for stability analysis
-        jitter_results_map = {}
-        if phase_name != 'coarse-phase':
-            logging.info(f"Fine phase: Preparing {len(trials) * config.STABILITY_CHECK_N_RUNS} jittered simulations for stability analysis.")
-            jitter_batch_requests = []
-            for trial in trials:
-                # Only create jittered runs for trials that succeeded in the main batch
-                if trial.number in main_results_map and not main_results_map[trial.number].get("error"):
-                    for i in range(config.STABILITY_CHECK_N_RUNS):
-                        jittered_params = obj_instance._get_jittered_params(trial)
-                        jitter_batch_requests.append({
-                            # Use a unique ID to map back to the original trial and jitter run index
-                            "trial_id": f"{trial.number}_jitter_{i}",
-                            "trade_config": nest_params(jittered_params)
-                        })
+        # 3. Run the entire batch
+        results = simulator.run_batch(batch_requests)
+        results_map = {res['trial_id']: res for res in results}
 
-            if jitter_batch_requests:
-                jitter_results = simulator.run_batch(jitter_batch_requests)
-                jitter_results_map = {res['trial_id']: res for res in jitter_results}
-
-        # 4. Process results and tell Optuna
+        # 4. Tell Optuna the results for each trial
         for trial in trials:
-            main_result = main_results_map.get(trial.number)
-            if not main_result or main_result.get("error"):
+            result = results_map.get(trial.number)
+            if not result or result.get("error"):
+                # If the simulation for this specific trial failed, prune it.
                 study.tell(trial, state=optuna.trial.TrialState.PRUNED)
                 continue
 
-            summary = main_result.get("summary", {})
-            obj_instance._calculate_and_set_metrics(trial, summary, "") # No stderr in batch mode
+            summary = result.get("summary", {})
 
-            # Collect jitter summaries for this trial
-            jitter_summaries = []
-            if phase_name != 'coarse-phase':
-                for i in range(config.STABILITY_CHECK_N_RUNS):
-                    jitter_result = jitter_results_map.get(f"{trial.number}_jitter_{i}")
-                    if jitter_result and not jitter_result.get("error") and "summary" in jitter_result:
-                        jitter_summaries.append(jitter_result["summary"])
+            # Create a dummy objective instance to reuse its methods
+            # This is a bit of a hack, but avoids duplicating the logic.
+            obj_instance = Objective(study)
+            # We need to manually calculate and set metrics as the objective `__call__` is not used.
+            # A dummy stderr log is passed as we don't capture it in batch mode.
+            obj_instance._calculate_and_set_metrics(trial, summary, "")
 
-                if len(jitter_summaries) < config.STABILITY_CHECK_N_RUNS / 2:
-                    logging.warning(f"Trial {trial.number}: Too few successful jittered runs ({len(jitter_summaries)}). Using original result without penalty.")
-                    jitter_summaries = [summary]
+            # Calculate the final objective value using the same logic as in Objective
+            final_value = obj_instance._calculate_final_penalized_sr(trial)
 
-            # Calculate the final objective value using the centralized, refactored function
-            final_value = obj_instance._calculate_final_penalized_sr(trial, phase_name, summary, jitter_summaries)
             study.tell(trial, final_value)
 
     finally:
