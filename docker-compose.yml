@@ -95,6 +95,8 @@ services:
     container_name: obi-scalp-report-generator
     volumes:
       - ./config:/app/config:ro
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@timescaledb:${DB_PORT}/${DB_NAME}?sslmode=disable
     depends_on:
