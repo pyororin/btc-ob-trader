@@ -1,0 +1,10 @@
+# db/Dockerfile.slim
+# ベースは最小系タグ（Aで固定したもの）
+FROM timescale/timescaledb:2.21.1-pg16-oss
+
+# pgvector を使わない場合のみ：関連ファイルを削除して数十MB級のスリム化
+# （必要になったらこの派生利用をやめ、元イメージに戻してください）
+RUN rm -rf /usr/local/lib/postgresql/*vector* \
+           /usr/local/share/postgresql/extension/*vector*
+
+# そのほか不要物の削除は最小限に留める（JIT/LLVM・timescaledb本体は削らない）
